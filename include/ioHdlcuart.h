@@ -42,8 +42,7 @@
  */
 #define HDLC_UART_HASFF   0x0001
 #define HDLC_UART_TRANS   0x0002
-#define HDLC_UART_FSENT   0x0004
-#define HDLC_UART_ERROR   0x0008
+#define HDLC_UART_ERROR   0x0004
 
 /**
  * @extends @p ioHdclDriver

@@ -169,11 +169,11 @@
  */
 #define SAMA_SERIAL_USE_UART0               FALSE
 #define SAMA_SERIAL_USE_UART1               TRUE    /* GTV Debug */
-#define SAMA_SERIAL_USE_UART2               TRUE
+#define SAMA_SERIAL_USE_UART2               FALSE
 #define SAMA_SERIAL_USE_UART3               FALSE
 #define SAMA_SERIAL_USE_UART4               FALSE
 #define SAMA_SERIAL_USE_FLEXCOM0            FALSE
-#define SAMA_SERIAL_USE_FLEXCOM1            TRUE
+#define SAMA_SERIAL_USE_FLEXCOM1            FALSE
 #define SAMA_SERIAL_USE_FLEXCOM2            FALSE
 #define SAMA_SERIAL_USE_FLEXCOM3            FALSE
 #define SAMA_SERIAL_USE_FLEXCOM4            FALSE
@@ -262,11 +262,11 @@
  */
 #define SAMA_UART_USE_UART0                 FALSE
 #define SAMA_UART_USE_UART1                 FALSE
-#define SAMA_UART_USE_UART2                 FALSE
-#define SAMA_UART_USE_UART3                 TRUE
+#define SAMA_UART_USE_UART2                 TRUE
+#define SAMA_UART_USE_UART3                 FALSE
 #define SAMA_UART_USE_UART4                 FALSE
 #define SAMA_UART_USE_FLEXCOM0              FALSE
-#define SAMA_UART_USE_FLEXCOM1              FALSE
+#define SAMA_UART_USE_FLEXCOM1              TRUE
 #define SAMA_UART_USE_FLEXCOM2              FALSE
 #define SAMA_UART_USE_FLEXCOM3              FALSE
 #define SAMA_UART_USE_FLEXCOM4              FALSE
@@ -291,7 +291,7 @@
 #define SAMA_UART_FLEXCOM3_DMA_IRQ_PRIORITY 4
 #define SAMA_UART_FLEXCOM4_DMA_IRQ_PRIORITY 4
 #define SAMA_UART_DMA_ERROR_HOOK(uartp)     osalSysHalt("DMA failure")
-#define SAMA_UART_CACHE_USER_MANAGED        FALSE
+#define SAMA_UART_CACHE_USER_MANAGED        TRUE
 
 /*
  * USB Device driver system settings.

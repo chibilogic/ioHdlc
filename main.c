@@ -27,12 +27,11 @@
 #include "ch.h"
 #include "hal.h"
 #include "ioHdlc.h"
+#include "ioHdlcfmempool.h"
 #include "ioHdlcuart.h"
 #include "chprintf.h"
 
-static BaseSequentialStream *chp = ((BaseSequentialStream *)&FSD1);
 static BaseSequentialStream *chp2 = ((BaseSequentialStream *)&SD1);
-static BaseSequentialStream *chp3 = ((BaseSequentialStream *)&SD2);
 
 /*
  * LED blinker thread, times are in milliseconds.
@@ -59,18 +58,6 @@ static THD_FUNCTION(Thread1, arg) {
   }
 }
 
-static THD_WORKING_AREA(waThread2, 512);
-static THD_FUNCTION(Thread2, arg) {
-  uint8_t c;
-  (void)arg;
-
-  chRegSetThreadName("echo");
-  while (true) {
-    c = streamGet(chp);
-    streamPut(chp2, c);
-  }
-}
-
 /*
  * Serial config.
  */
@@ -80,7 +67,7 @@ static const SerialConfig sdcfg = {
     US_MR_CHRL_8_BIT | US_MR_PAR_NO
 };
 
-static ioHdlcuartConfig uart_cfg = {
+static ioHdlcuartConfig uart_cfg_one = {
   {
       .txend1_cb = NULL,
       .txend2_cb = NULL,
@@ -89,14 +76,39 @@ static ioHdlcuartConfig uart_cfg = {
       .rxerr_cb = NULL,
       .timeout_cb = NULL,
       .timeout = 20,
-      .speed = 115200,
+      .speed = 38400,
       .cr = 0,                                /* CR register */
       .mr = US_MR_CHRL_8_BIT | US_MR_PAR_NO,  /* MR register */
   },
   0,
 };
 
-static ioHdclUartDriver bla;
+static ioHdlcuartConfig uart_cfg_two = {
+  {
+      .txend1_cb = NULL,
+      .txend2_cb = NULL,
+      .rxend_cb = NULL,
+      .rxchar_cb = NULL,
+      .rxerr_cb = NULL,
+      .timeout_cb = NULL,
+      .timeout = 20,
+      .speed = 38400,
+      .cr = 0,                                /* CR register */
+      .mr = US_MR_CHRL_8_BIT | US_MR_PAR_NO,  /* MR register */
+  },
+  0,
+};
+
+static NO_CACHE uint8_t arenaOne[65536];
+static NO_CACHE uint8_t arenaTwo[65536];
+static ioHdlcFrameMemPool fmpOne;
+static ioHdlcFrameMemPool fmpTwo;
+static NO_CACHE ioHdclUartDriver linkDriverOne;
+static NO_CACHE ioHdclUartDriver linkDriverTwo;
+static iohdlc_station_t theStationOne;
+static iohdlc_station_t theStationTwo;
+static iohdlc_station_peer_t thePeerOfOne;
+static iohdlc_station_peer_t thePeerOfTwo;
 
 /*
  * Application entry point.
@@ -116,27 +128,47 @@ int main(void) {
   /*
    * Activates the serial driver 1 using the driver default configuration.
    */
-  sdStart(&FSD1, &sdcfg);
-  sdStart(&SD1, &sdcfg);
-  sdStart(&SD2, &sdcfg);
+  sdStart(&SD1, &sdcfg); /* console */
   chprintf(chp2, "Starting ioHDLC test.\r\n");
 
+  fmpInit(&fmpOne, arenaOne, sizeof arenaOne, IOHDLC_DFL_I_SIZE, 4);
+  huInit(&linkDriverOne, &UARTD2, &uart_cfg_one, (ioHdlcFramePool *)&fmpOne);
+  hdlcApplyTransparency(&linkDriverOne, true);
+  ioHdlcStationInit(&theStationOne, 8, IOHDLC_OM_NRM, 1, (ioHdlcDriver *)&linkDriverOne,
+      (ioHdlcFramePool *)&fmpOne);
+  ioHdlcAddPeer(&theStationOne, &thePeerOfOne, 2, IOHDLC_DFL_I_SIZE);
+
+  fmpInit(&fmpTwo, arenaTwo, sizeof arenaTwo, IOHDLC_DFL_I_SIZE, 4);
+  huInit(&linkDriverTwo, &FUARTD1, &uart_cfg_two, (ioHdlcFramePool *)&fmpTwo);
+  hdlcApplyTransparency(&linkDriverTwo, true);
+  ioHdlcStationInit(&theStationTwo, 8, IOHDLC_OM_NDM, 2, (ioHdlcDriver *)&linkDriverTwo,
+      (ioHdlcFramePool *)&fmpTwo);
+  ioHdlcAddPeer(&theStationTwo, &thePeerOfTwo, 1, IOHDLC_DFL_I_SIZE);
 
   /*
    * Creates the blinker thread.
    */
   chThdCreateStatic(waThread1, sizeof waThread1, NORMALPRIO, Thread1, NULL);
-  /*
-   * Creates the echo thread.
-   */
-  chThdCreateStatic(waThread2, sizeof waThread2, NORMALPRIO, Thread2, NULL);
 
   /*
    * Normal main() thread activity, in this demo it does nothing except
    * sleeping in a loop and check the button state.
    */
   while (true) {
-    chprintf(chp3, "Testing ioHDLC echo on (AUX, FCOM1) serial port pair.\r\n");
-    chThdSleepMilliseconds(500);
+    int32_t r;
+    r = ioHdlcStationLinkUp(&theStationOne, 2);
+    if (r == -1) {
+      chprintf(chp2, "Error establishing a connection with peer at addr %d. Errno = %d.\r\n",
+          2, theStationOne.errorno);
+    } else
+      chprintf(chp2, "Connected with peer at addr %d!\r\n", 2);
+    r = ioHdlcStationLinkDown(&theStationOne, 2);
+    if (r == -1) {
+      chprintf(chp2, "Error closing a connection with peer at addr %d. Errno = %d.\r\n",
+          2, theStationOne.errorno);
+    } else
+      chprintf(chp2, "Disconnected from peer at addr %d!\r\n", 2);
+    chprintf(chp2, "\r\nAgain...\r\n", 2);
+    chThdSleepMilliseconds(5000);
   }
 }

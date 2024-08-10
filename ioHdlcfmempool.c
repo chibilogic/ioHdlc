@@ -50,26 +50,58 @@
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
+static syssts_t _chSysGetStatusAndLockX(void) {
+
+  syssts_t sts = port_get_irq_status();
+  if (port_is_isr_context()) {
+    chSysLockFromISR();
+  } else {
+    chSysLock();
+  }
+  return sts;
+}
+
+static void _chSysRestoreStatusX(syssts_t sts) {
+  (void )sts;
+  if (port_is_isr_context()) {
+    chSysUnlockFromISR();
+  } else {
+    chSchRescheduleS();
+    chSysUnlock();
+  }
+}
+
 /*
  *  ioHdlcFramePool interface implementation.
  */
 
 static iohdlc_frame_t * take(void *ip) {
-  syssts_t sts = chSysGetStatusAndLockX();
+  syssts_t sts = _chSysGetStatusAndLockX();
   iohdlc_frame_t *fp = chPoolAllocI(&((ioHdlcFrameMemPool *)ip)->mp);
-  chSysRestoreStatusX(sts);
+  fp->refs = 1;
+  _chSysRestoreStatusX(sts);
   return fp;
 }
 
 static void release(void *ip, iohdlc_frame_t *fp) {
-  syssts_t sts = chSysGetStatusAndLockX();
-  chPoolFreeI(&((ioHdlcFrameMemPool *)ip)->mp, fp);
-  chSysRestoreStatusX(sts);
+  syssts_t sts = _chSysGetStatusAndLockX();
+  chDbgAssert(fp->refs > 0, "frame ref count mismatch");
+  if (--fp->refs == 0) {
+    chPoolFreeI(&((ioHdlcFrameMemPool *)ip)->mp, fp);
+  }
+  _chSysRestoreStatusX(sts);
+}
+
+static void addref(iohdlc_frame_t *fp) {
+  syssts_t sts = _chSysGetStatusAndLockX();
+  ++fp->refs;
+  _chSysRestoreStatusX(sts);
 }
 
 static const struct _iohdlc_fmempool_vmt vmt = {
     .take = take,
-    .release = release
+    .release = release,
+    .addref = addref
 };
 
 void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
@@ -79,6 +111,7 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
 
   chDbgAssert((framealign & (framealign-1)) == 0, "framealign must be a power of 2");
 
+  framesize = framesize * 2 + sizeof (iohdlc_frame_t);
   /* Align the arena and adjust its size.*/
   p = (uint8_t *)((uint32_t)(arena + framealign - 1) & ~(framealign - 1));
   arenasize = arena + arenasize - p;

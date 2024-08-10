@@ -42,6 +42,7 @@
 #define _iohdlc_framepool_methods                   \
   iohdlc_frame_t * (*take)(void *ip);               \
   void (*release)(void *ip, iohdlc_frame_t *fp);    \
+  void (*addref)(iohdlc_frame_t *fp);               \
 
 /*
  * @brief   @p ioHdlcFramePool specific data.
@@ -79,13 +80,25 @@ typedef struct {
 
 /**
  * @brief   Hdlc release a frame to a frame pool.
- * @details Use this define to release the @p fp frame buffer
- *          to the frame pool pointed by @p fpp.
+ * @details Use this define to release the @p fp frame buffer.
+ *          It will be returned to the frame pool pointed by @p fpp,
+ *          if reference count reach 0.
  *
  * @param[in]   fpp   ioHdlcFramePool instance pointer
  * @param[in]   fp    the pointer to the frame that is being released.
  */
 #define hdlcReleaseFrame(fpp, fp)   ((fpp)->vmt->release(fpp, fp))
+
+/**
+ * @brief   Hdlc add a reference to a frame.
+ * @details Use this define to share the frame between
+ *          different threads.
+ *
+ * @param[in]   fpp   ioHdlcFramePool instance pointer
+ * @param[in]   fp    the pointer to the frame referenced.
+ *
+ */
+#define hdlcAddRef(fpp, fp)         ((fpp)->vmt->addref(fp))
 
 #endif /* IOHDLCFRAMEPOOL_H_ */
 

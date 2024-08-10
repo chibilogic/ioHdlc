@@ -59,12 +59,14 @@
  */
 static void txend(UARTDriver *uartp)
 {
-  ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->config);
+  ioHdclUartDriver *ip = ((ioHdlcuartConfig*)(uartp->config))->ip;
   if (ip->frameintx && (ip->flags & HDLC_UART_TRANS)) {
     hdlcReleaseFrame(ip->fpp, ip->frameintx);
   }
   ip->frameintx = NULL;
+  chSysLockFromISR();
   chBSemSignalI(&ip->tx_on_air);
+  chSysUnlockFromISR();
 }
 
 /**
@@ -73,7 +75,7 @@ static void txend(UARTDriver *uartp)
 static void rxerr(UARTDriver *uartp, uartflags_t e)
 {
   (void)e;
-  ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->config);
+  ioHdclUartDriver *ip = ((ioHdlcuartConfig*)(uartp->config))->ip;
   ip->flags |= HDLC_UART_ERROR;
 }
 
@@ -82,7 +84,7 @@ static void rxerr(UARTDriver *uartp, uartflags_t e)
  */
 static void timeout(UARTDriver *uartp)
 {
-  ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->config);
+  ioHdclUartDriver *ip = ((ioHdlcuartConfig*)(uartp->config))->ip;
   if (ip->frameinrx != NULL) {
 
     /* A timeout occured while receiving a frame, alias
@@ -92,7 +94,10 @@ static void timeout(UARTDriver *uartp)
     hdlcReleaseFrame(ip->fpp, ip->frameinrx);
     ip->frameinrx = NULL;
     ip->flags &= ~HDLC_UART_ERROR;
+    chSysLockFromISR();
+    uartStopReceiveI(uartp);
     uartStartReceiveI(uartp, 1, &ip->flagoctet);
+    chSysUnlockFromISR();
   }
 }
 
@@ -101,7 +106,7 @@ static void timeout(UARTDriver *uartp)
  */
 static void rxend(UARTDriver *uartp)
 {
-  ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->config);
+  ioHdclUartDriver *ip = ((ioHdlcuartConfig*)(uartp->config))->ip;
   uint8_t *charbuf;
   size_t n = 1;
 
@@ -129,7 +134,9 @@ static void rxend(UARTDriver *uartp)
          Put the frame in the receiving queue and start
          the reception of a new frame.*/
       ioHdlc_frameq_insert(&ip->raw_recept_q, ip->frameinrx);
+      chSysLockFromISR();
       chSemSignalI(&ip->raw_recept_sem);  /* one frame more.*/
+      chSysUnlockFromISR();
       ip->flagoctet = HDLC_FLAG;  /* the FLAG separator is also a start FLAG.*/
       ip->frameinrx = NULL;
     } else {
@@ -141,7 +148,8 @@ static void rxend(UARTDriver *uartp)
         ip->frameinrx = NULL;
         goto newframe;
       }
-      /* The first octet of the frame could be the frame format field.*/
+      /* The first octet of the frame could be the frame format field
+         if configured for this.*/
       if ((ip->frameinrx->elen == 1) &&
           (ip->flags & HDLC_UART_HASFF) && !(ip->flags & HDLC_UART_TRANS)) {
 
@@ -196,7 +204,9 @@ newframe:
 
 nextoctet:
   ip->flags &= ~HDLC_UART_ERROR;
+  chSysLockFromISR();
   uartStartReceiveI(uartp, n, charbuf);
+  chSysUnlockFromISR();
 }
 
 static size_t send_frame(void *instance, iohdlc_frame_t *fp) {
@@ -219,8 +229,10 @@ static size_t send_frame(void *instance, iohdlc_frame_t *fp) {
         return 1; /* NOMEM */
 
       /* Encode the given frame into the nfp frame.*/
-      frameTransparentEncode(nfp, fp);
+      (void) frameTransparentEncode(nfp, fp);
       size = nfp->elen;
+    } else {
+      hdlcAddRef(ip->fpp, nfp);
     }
   }
   nfp->frame[size] = HDLC_FLAG; /* add closing FLAG. */
@@ -275,12 +287,14 @@ static bool get_hwtransparency(void *ip) {
 
 static void set_applytransparency(void *ip, bool tr) {
   ioHdclUartDriver *instance = (ioHdclUartDriver *)ip;
+  instance->flags &= ~HDLC_UART_TRANS;
   if (tr)
     instance->flags |= HDLC_UART_TRANS;
 }
 
 static void set_hasframeformat(void *ip, bool hff) {
   ioHdclUartDriver *instance = (ioHdclUartDriver *)ip;
+  instance->flags &= ~HDLC_UART_HASFF;
   if (hff)
     instance->flags |= HDLC_UART_HASFF;
 }
@@ -301,6 +315,8 @@ void huInit(ioHdclUartDriver *uhp, UARTDriver *uartp, ioHdlcuartConfig *uartconf
   uhp->uartp = uartp;
   uhp->fpp = fpp;
   uhp->flags = 0;
+  uhp->flagoctet = 0;
+  uhp->frameinrx = uhp->frameintx = 0;
   ioHdlc_frameq_init(&uhp->raw_recept_q);
   chSemObjectInit(&uhp->raw_recept_sem, 0);
   chBSemObjectInit(&uhp->tx_on_air, false);

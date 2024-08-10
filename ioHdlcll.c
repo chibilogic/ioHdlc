@@ -145,22 +145,27 @@ bool frameCheckFCS(const iohdlc_frame_t *frame) {
  * @note    This function is used by the drivers whenever is not implemented
  *          in hardware. It assumes that a valid FCS is at end of the frame.
  *          @p dst shall be != @p src
+ *
+ * retval   true if encode is applied.
  */
-void frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
+bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
   const uint8_t *srcbuf = src->frame;
   uint8_t *dstbuf = dst->frame;
+  bool encoded = 0;
 
   //ioHdlcAssert(src != dst, "frameTransparentEncode");
   for (int i = 0; i < src->elen + 2; ++i) {
     if (HDLC_FLAG == *srcbuf || HDLC_CTLESC == *srcbuf) {
       *dstbuf++ = HDLC_CTLESC;
       *dstbuf++ = *srcbuf++ ^ HDLC_TMASK;
+      encoded = 1;
     } else {
       *dstbuf++ = *srcbuf++;
     }
   }
   dst->elen = dstbuf - dst->frame;  /* the elen includes the count of
                                        the FCS octets. */
+  return encoded;
 }
 
 /*

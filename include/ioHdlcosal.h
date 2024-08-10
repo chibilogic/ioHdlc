@@ -25,40 +25,49 @@
  */
 
 /**
- * @file    include/ioHdlcll.h
- * @brief   HDLC low level header.
+ * @file    include/ioHdlcosal.h
+ * @brief   HDLC OS dependent definitions and functions. ChibiOS version.
  * @details
  *
- * @addtogroup hdlc_lowlevel
+ * @addtogroup hdlc
  * @{
  */
 
-#ifndef IOHDLCLL_H_
-#define IOHDLCLL_H_
+#ifndef IOHDLCOSAL_H_
+#define IOHDLCOSAL_H_
+
+#include "ch.h"
 
 /*===========================================================================*/
 /* Module constants.                                                         */
 /*===========================================================================*/
 
-#define HDLC_FLAG     0x7E
-#define HDLC_CTLESC   0x7D
-#define HDLC_TMASK    0x20
+/*===========================================================================*/
+/* Module pre-compile time settings.                                         */
+/*===========================================================================*/
+
+/*===========================================================================*/
+/* Derived constants and error checks.                                       */
+/*===========================================================================*/
+
+/*===========================================================================*/
+/* Module data structures and types.                                         */
+/*===========================================================================*/
+
+/*===========================================================================*/
+/* Module macros.                                                            */
+/*===========================================================================*/
+#define iohdlc_event_source_t event_source_t
+#define iohdlc_virtual_timer_t virtual_timer_t
 
 /*===========================================================================*/
 /* External declarations.                                                    */
 /*===========================================================================*/
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-  void frameAddFCS(iohdlc_frame_t *frame);
-  bool frameCheckFCS(const iohdlc_frame_t *frame);
-  bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
-  void frameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
-#ifdef __cplusplus
-}
-#endif
+/*===========================================================================*/
+/* Module inline functions.                                                  */
+/*===========================================================================*/
 
-#endif /* IOHDLCLL_H_ */
+#endif /* IOHDLCOSAL_H_ */
 
 /** @} */

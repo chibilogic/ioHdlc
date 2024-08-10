@@ -111,7 +111,7 @@ typedef struct {
  * @param[in]   tr    set to true to request the driver to
  *                    apply software octet transparency.
  */
-#define hdlcApplyTransparency(ip, tr) ((ip)->vmt->set_applytransparency(ip))
+#define hdlcApplyTransparency(ip, tr) ((ip)->vmt->set_applytransparency(ip, tr))
 
 /**
  * @brief   Hdlc set has frame format field method.

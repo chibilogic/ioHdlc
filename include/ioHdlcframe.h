@@ -36,12 +36,12 @@
 #ifndef IOHDLCFRAME_H_
 #define IOHDLCFRAME_H_
 
-#define FRAME_ENCODED   0x01
-#define FRAME_HASFCS    0x02
-#define FRAME_TEMPORARY 0x04
-
 #define HDLC_BASIC_MIN_L  4
 #define HDLC_FRFMT_MIN_L  5
+
+/*===========================================================================*/
+/* Module data structures and types.                                         */
+/*===========================================================================*/
 
 /*
  * @brief   HDLC frame queue header.
@@ -65,7 +65,7 @@ struct iohdlc_frame {
 
   uint16_t elen;                  /* Effective length of the frame, excluding
                                      FLAG and FCS. */
-  uint8_t  flags;                 /* Encoded or Temporary. */
+  uint8_t  refs;                  /* Number of references to this frame. */
   uint8_t  openingflag;           /* Optional opening flag. */
   uint8_t  frame[];
 };
