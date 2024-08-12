@@ -522,6 +522,12 @@
 #define UART_USE_MUTUAL_EXCLUSION           FALSE
 #endif
 
+/**
+ * @brief   Add back reference to the ioHdlcDriver instance.
+ */
+#define UART_DRIVER_EXT_FIELDS \
+  void *ip;
+
 /*===========================================================================*/
 /* USB driver related settings.                                              */
 /*===========================================================================*/

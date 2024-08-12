@@ -67,36 +67,30 @@ static const SerialConfig sdcfg = {
     US_MR_CHRL_8_BIT | US_MR_PAR_NO
 };
 
-static ioHdlcuartConfig uart_cfg_one = {
-  {
-      .txend1_cb = NULL,
-      .txend2_cb = NULL,
-      .rxend_cb = NULL,
-      .rxchar_cb = NULL,
-      .rxerr_cb = NULL,
-      .timeout_cb = NULL,
-      .timeout = 20,
-      .speed = 38400,
-      .cr = 0,                                /* CR register */
-      .mr = US_MR_CHRL_8_BIT | US_MR_PAR_NO,  /* MR register */
-  },
-  0,
+static UARTConfig uart_cfg_one = {
+  .txend1_cb = NULL,
+  .txend2_cb = NULL,
+  .rxend_cb = NULL,
+  .rxchar_cb = NULL,
+  .rxerr_cb = NULL,
+  .timeout_cb = NULL,
+  .timeout = 20,
+  .speed = 38400,
+  .cr = 0,                                /* CR register */
+  .mr = US_MR_CHRL_8_BIT | US_MR_PAR_NO,  /* MR register */
 };
 
-static ioHdlcuartConfig uart_cfg_two = {
-  {
-      .txend1_cb = NULL,
-      .txend2_cb = NULL,
-      .rxend_cb = NULL,
-      .rxchar_cb = NULL,
-      .rxerr_cb = NULL,
-      .timeout_cb = NULL,
-      .timeout = 20,
-      .speed = 38400,
-      .cr = 0,                                /* CR register */
-      .mr = US_MR_CHRL_8_BIT | US_MR_PAR_NO,  /* MR register */
-  },
-  0,
+static UARTConfig uart_cfg_two = {
+  .txend1_cb = NULL,
+  .txend2_cb = NULL,
+  .rxend_cb = NULL,
+  .rxchar_cb = NULL,
+  .rxerr_cb = NULL,
+  .timeout_cb = NULL,
+  .timeout = 20,
+  .speed = 38400,
+  .cr = 0,                                /* CR register */
+  .mr = US_MR_CHRL_8_BIT | US_MR_PAR_NO,  /* MR register */
 };
 
 static NO_CACHE uint8_t arenaOne[65536];

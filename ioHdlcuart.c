@@ -25,6 +25,7 @@
  */
 
 #include "ch.h"
+
 #include "hal.h"
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
@@ -59,7 +60,7 @@
  */
 static void txend(UARTDriver *uartp)
 {
-  ioHdclUartDriver *ip = ((ioHdlcuartConfig*)(uartp->config))->ip;
+  ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->ip);
   if (ip->frameintx && (ip->flags & HDLC_UART_TRANS)) {
     hdlcReleaseFrame(ip->fpp, ip->frameintx);
   }
@@ -75,7 +76,7 @@ static void txend(UARTDriver *uartp)
 static void rxerr(UARTDriver *uartp, uartflags_t e)
 {
   (void)e;
-  ioHdclUartDriver *ip = ((ioHdlcuartConfig*)(uartp->config))->ip;
+  ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->ip);
   ip->flags |= HDLC_UART_ERROR;
 }
 
@@ -84,7 +85,7 @@ static void rxerr(UARTDriver *uartp, uartflags_t e)
  */
 static void timeout(UARTDriver *uartp)
 {
-  ioHdclUartDriver *ip = ((ioHdlcuartConfig*)(uartp->config))->ip;
+  ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->ip);
   if (ip->frameinrx != NULL) {
 
     /* A timeout occured while receiving a frame, alias
@@ -106,7 +107,7 @@ static void timeout(UARTDriver *uartp)
  */
 static void rxend(UARTDriver *uartp)
 {
-  ioHdclUartDriver *ip = ((ioHdlcuartConfig*)(uartp->config))->ip;
+  ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->ip);
   uint8_t *charbuf;
   size_t n = 1;
 
@@ -310,7 +311,7 @@ static const struct _iohdlc_uart_driver_vmt vmt = {
     .set_hasframeformat = set_hasframeformat
 };
 
-void huInit(ioHdclUartDriver *uhp, UARTDriver *uartp, ioHdlcuartConfig *uartconfigp, ioHdlcFramePool *fpp) {
+void huInit(ioHdclUartDriver *uhp, UARTDriver *uartp, UARTConfig *uartconfigp, ioHdlcFramePool *fpp) {
   uhp->vmt = &vmt;
   uhp->uartp = uartp;
   uhp->fpp = fpp;
@@ -320,11 +321,11 @@ void huInit(ioHdclUartDriver *uhp, UARTDriver *uartp, ioHdlcuartConfig *uartconf
   ioHdlc_frameq_init(&uhp->raw_recept_q);
   chSemObjectInit(&uhp->raw_recept_sem, 0);
   chBSemObjectInit(&uhp->tx_on_air, false);
-  uartconfigp->ip = uhp;
-  uartconfigp->uartConfig.txend1_cb = txend;
-  uartconfigp->uartConfig.rxend_cb = rxend;
-  uartconfigp->uartConfig.rxerr_cb = rxerr;
-  uartconfigp->uartConfig.timeout_cb = timeout;
-  uartStart(uartp, (UARTConfig *)uartconfigp);
+  uartp->ip = uhp;
+  uartconfigp->txend1_cb = txend;
+  uartconfigp->rxend_cb = rxend;
+  uartconfigp->rxerr_cb = rxerr;
+  uartconfigp->timeout_cb = timeout;
+  uartStart(uartp, uartconfigp);
   uartStartReceive(uartp, 1, &uhp->flagoctet);
 }

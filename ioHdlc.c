@@ -166,32 +166,39 @@ static void transmitterTask(void *stationp) {
     (void) chEvtWaitAny(EVENT_MASK(0));
     cm_flags = chEvtGetAndClearFlags(&cm_listener);
 
-    /* NDM/ADM Mode */
     /* If s is secondary and IOHDLC_P_RCVED and IOHDLC_UM_RCVED */
     if (IOHDLC_IS_SEC(s)) {
 
       /* the peer is a primary station. */
       p = s->peers.next;
-      if ((cm_flags & EVT_CM_UMRECVD) && (p->um_state & IOHDLC_UM_RCVED)) {
+      if ((p->um_state & IOHDLC_UM_RCVED) != 0) {
         uint8_t stationtype = s->mode & 0xF0;
         uint8_t om = um2supportedConnMode(p->um_cmd);
 
         if (om) {
 
           /* Set mode command is actionable, even if already actioned.
-             Send UA, reset variables and change mode of this secondary. */
+             Reset variables, change mode of this secondary and send UA. */
           s->mode = om | stationtype;
           resetPeer(p);
           sendUMframe(s, s->addr, IOHDLC_U_UA|IOHDLC_PF_BIT);
-        } else if (!IOHDLC_IS_DISC(s) &&
-            (p->um_cmd == IOHDLC_U_DISC)) {
+        } else if (p->um_cmd == IOHDLC_U_DISC) {
 
-          s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-          s->mode |= stationtype;
-          resetPeer(p);
-          sendUMframe(s, s->addr, IOHDLC_U_UA|IOHDLC_PF_BIT);
+          /* If connected send UA prior to actioning the command
+             and change to disconnected mode. */
+          if (!IOHDLC_IS_DISC(s)) {
+            sendUMframe(s, s->addr, IOHDLC_U_UA|IOHDLC_PF_BIT);
+            s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+            s->mode |= stationtype;
+            resetPeer(p);
+          } else {
+
+            /* else send DM. */
+            sendUMframe(s, s->addr, IOHDLC_U_DM|IOHDLC_PF_BIT);
+          }
         } else {
 
+          /* TODO: Change to FRMR where appropriate. */
           /* Send DM if received frame is not a set mode cmd,
              or if it is not actionable, or if it is
              not implemented. */
@@ -329,11 +336,15 @@ static void receiverTask(void *stationp) {
           um_cmd = foctp[1] & IOHDLC_U_FUN_MASK;
           if (um_cmd == IOHDLC_U_DM) {
 
-            /* If fp is a DM frame response, stop p timeout and
-               clear um_cmd and IOHDLC_UM_SENT. */
+            /* If fp is a DM frame response, set peer as disconnected,
+               stop p timeout, clear um_cmd and IOHDLC_UM_SENT and send
+               a connection refused event. */
             p->um_cmd = 0;
-            p->um_state &= ~IOHDLC_UM_SENT;
+            p->um_state &= ~IOHDLC_UM_SENT;     /* Ack UM_SENT. */
+            p->ss_state &= ~IOHDLC_SS_ST_CONN;  /* Cancel connected state. */
+            p->ss_state |= IOHDLC_SS_ST_DISM;   /* Set disconnected mode. */
             stopReplyTimer(p);
+            chEvtBroadcastFlags(&s->cm_es, EVT_CM_CONNCHG);
           } else if (um_cmd == IOHDLC_U_UA) {
             uint8_t om;
 
@@ -382,7 +393,7 @@ int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr) {
 
   /* Check if down */
   if (NULL == p || (p->ss_state & IOHDLC_SS_ST_CONN)) {
-    ioHdlcsp->errorno = EINVAL;
+    ioHdlcsp->errorno = EISCONN;
     return -1;
   }
 
@@ -403,13 +414,19 @@ int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr) {
     else {
       ioHdlcsp->errorno = EINVAL;
       r = -1;
-      goto eex;
+      goto eex2;
     }
     chEvtBroadcastFlags(&ioHdlcsp->cm_es, EVT_CM_CONNSTR);
 
+    p->ss_state &= ~IOHDLC_SS_ST_DISM;
     do {
       /* Wait connection completed from the peer or timeout event */
       eflags = chEvtWaitAnyTimeout(EVENT_MASK(0), TIME_INFINITE);
+
+      if ((p->ss_state & IOHDLC_SS_ST_DISM)) {
+        ioHdlcsp->errorno = ECONNREFUSED;
+        goto eex2;
+      }
 
       /* check if completed */
       if (p->ss_state & IOHDLC_SS_ST_CONN)
@@ -417,13 +434,14 @@ int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr) {
         goto eex;
 
       /* if no response from peer, retry */
-      if (checkReplyTimeout(eflags, p))
+      if (checkReplyTimeout(eflags, p)) {
+        ioHdlcsp->errorno = ETIMEDOUT;
         break;
-
+      }
     } while (true);
   }
+eex2:
   r = -1;
-  ioHdlcsp->errorno = ECONNREFUSED;
 
 eex:
   chEvtUnregister(&ioHdlcsp->cm_es, &cm_listener);
@@ -439,7 +457,7 @@ int32_t ioHdlcStationLinkDown(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr) {
 
   /* Check if up */
   if (NULL == p || !(p->ss_state & IOHDLC_SS_ST_CONN)) {
-    ioHdlcsp->errorno = EINVAL;
+    ioHdlcsp->errorno = ENOTCONN;
     return -1;
   }
 
@@ -456,9 +474,15 @@ int32_t ioHdlcStationLinkDown(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr) {
 
     chEvtBroadcastFlags(&ioHdlcsp->cm_es, EVT_CM_CONNSTR);
 
+    p->ss_state &= ~IOHDLC_SS_ST_DISM;
     do {
       /* Wait disconnection completed from the peer or timeout event */
       eflags = chEvtWaitAnyTimeout(EVENT_MASK(0), TIME_INFINITE);
+
+      if ((p->ss_state & IOHDLC_SS_ST_DISM)) {
+        ioHdlcsp->errorno = ENOTCONN;
+        goto eex2;
+      }
 
       /* check if completed */
       if (!(p->ss_state & IOHDLC_SS_ST_CONN))
@@ -466,13 +490,14 @@ int32_t ioHdlcStationLinkDown(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr) {
         goto eex;
 
       /* if no response from peer, retry */
-      if (checkReplyTimeout(eflags, p))
+      if (checkReplyTimeout(eflags, p)) {
+        ioHdlcsp->errorno = ETIMEDOUT;
         break;
-
+      }
     } while (true);
   }
+eex2:
   r = -1;
-  ioHdlcsp->errorno = EIO;
 
 eex:
   chEvtUnregister(&ioHdlcsp->cm_es, &cm_listener);
@@ -481,6 +506,8 @@ eex:
 
 int32_t ioHdlcWrite(iohdlc_station_peer_t *peerp, const void *buf, size_t count) {
   iohdlc_station_t *ioHdlcsp = peerp->stationp;
+  (void)buf;
+  (void)count;
 
   switch (ioHdlcsp->mode) {
   default:
@@ -491,6 +518,8 @@ int32_t ioHdlcWrite(iohdlc_station_peer_t *peerp, const void *buf, size_t count)
 
 int32_t ioHdlcRead(iohdlc_station_peer_t *peerp, void *buf, size_t count) {
   iohdlc_station_t *ioHdlcsp = peerp->stationp;
+  (void)buf;
+  (void)count;
 
   switch (ioHdlcsp->mode) {
   default:

@@ -79,19 +79,10 @@ struct ioHdclUartDriver {
 
 typedef struct ioHdclUartDriver ioHdclUartDriver;
 
-/*
- * extend the config struct to
- * maintain the link with ioHdlcDriver
- */
-typedef struct {
-  UARTConfig uartConfig;
-  ioHdclUartDriver *ip;
-} ioHdlcuartConfig;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void huInit(ioHdclUartDriver *uhp, UARTDriver *uartp, ioHdlcuartConfig *uartconfigp, ioHdlcFramePool *fpp);
+  void huInit(ioHdclUartDriver *uhp, UARTDriver *uartp, UARTConfig *uartconfigp, ioHdlcFramePool *fpp);
 #ifdef __cplusplus
 }
 #endif

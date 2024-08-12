@@ -156,6 +156,7 @@
 #define IOHDLC_SS_RNR_RCV 0x02  /* RNR received from the peer. */
 #define IOHDLC_SS_RNR_SNT 0x04  /* RNR sent to the peer. */
 #define IOHDLC_SS_RPL_STT 0x08  /* Reply timer has started. */
+#define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
 /* support macros */
@@ -180,7 +181,7 @@
  */
 #define EVT_CM_RPLYTMO    0x01  /* A reply timer has timed out. */
 #define EVT_CM_UMRECVD    0x02  /* An UM command have been received. */
-#define EVT_CM_CONNCHG    0x04  /* An connection state has changed. */
+#define EVT_CM_CONNCHG    0x04  /* An connection state change was attempted. */
 #define EVT_CM_CONNSTR    0x08  /* Connection start has requested. */
 
 /*===========================================================================*/
