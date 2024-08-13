@@ -166,8 +166,9 @@
                                (((s)->mode & 0x0F) == IOHDLC_OM_ADM))
 #define IOHDLC_IS_NRM(s)      (((s)->mode & 0x0F) == IOHDLC_OM_NRM)
 #define IOHDLC_IS_ABM(s)      (((s)->mode & 0x0F) == IOHDLC_OM_ABM)
-#define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
 #define IOHDLC_HAS_FFF(s)     (s->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF)
+#define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
+
 /**
  * @name    System-defined parameters
  * @{

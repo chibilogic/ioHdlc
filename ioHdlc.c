@@ -106,7 +106,7 @@ static void sendUMframe(iohdlc_station_t *s, uint32_t addr, uint32_t umcmd)
     *b++ = 5; /* FF(1) + ADDR(1) + CMD(1) + FCS(2) */
   *b++ = addr;
   *b++ = umcmd | IOHDLC_U_ID;
-  fp->elen = b - fp->frame + 1;
+  fp->elen = b - fp->frame;
   hdlcSendFrame(s->driver, fp);
   hdlcReleaseFrame(s->frame_pool, fp);
 }
@@ -337,12 +337,12 @@ static void receiverTask(void *stationp) {
           if (um_cmd == IOHDLC_U_DM) {
 
             /* If fp is a DM frame response, set peer as disconnected,
-               stop p timeout, clear um_cmd and IOHDLC_UM_SENT and send
-               a connection refused event. */
+               stop p timeout, clear um_cmd and IOHDLC_UM_SENT and set
+               a disconnected state. */
             p->um_cmd = 0;
-            p->um_state &= ~IOHDLC_UM_SENT;     /* Ack UM_SENT. */
+            p->um_state &= ~IOHDLC_UM_SENT;     /* Acknowledge UM_SENT. */
             p->ss_state &= ~IOHDLC_SS_ST_CONN;  /* Cancel connected state. */
-            p->ss_state |= IOHDLC_SS_ST_DISM;   /* Set disconnected mode. */
+            p->ss_state |= IOHDLC_SS_ST_DISM;   /* Set disconnected state. */
             stopReplyTimer(p);
             chEvtBroadcastFlags(&s->cm_es, EVT_CM_CONNCHG);
           } else if (um_cmd == IOHDLC_U_UA) {
@@ -616,6 +616,11 @@ void ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, uint32_t modulus, uint8_t mod
   ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] |= IOHDLC_OPT_REJ;
   ioHdlcsp->optfuncs[IOHDLC_OPT_SST_OCT] |= IOHDLC_OPT_SST;
   ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] |= IOHDLC_OPT_STB;
+  ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] |= IOHDLC_OPT_FFF;
+  hdlcHasFrameFormat(driver, true);
+  hdlcApplyTransparency(driver, false);
+  //hdlcApplyTransparency(driver, true);
+
 
   /* Create receiver and trasmitter task */
   chThdCreateFromHeap(NULL, 2048, "TX", NORMALPRIO + 1, transmitterTask, ioHdlcsp);

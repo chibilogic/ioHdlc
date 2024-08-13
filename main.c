@@ -127,14 +127,12 @@ int main(void) {
 
   fmpInit(&fmpOne, arenaOne, sizeof arenaOne, IOHDLC_DFL_I_SIZE, 4);
   huInit(&linkDriverOne, &UARTD2, &uart_cfg_one, (ioHdlcFramePool *)&fmpOne);
-  hdlcApplyTransparency(&linkDriverOne, true);
   ioHdlcStationInit(&theStationOne, 8, IOHDLC_OM_NRM, 1, (ioHdlcDriver *)&linkDriverOne,
       (ioHdlcFramePool *)&fmpOne);
   ioHdlcAddPeer(&theStationOne, &thePeerOfOne, 2, IOHDLC_DFL_I_SIZE);
 
   fmpInit(&fmpTwo, arenaTwo, sizeof arenaTwo, IOHDLC_DFL_I_SIZE, 4);
   huInit(&linkDriverTwo, &FUARTD1, &uart_cfg_two, (ioHdlcFramePool *)&fmpTwo);
-  hdlcApplyTransparency(&linkDriverTwo, true);
   ioHdlcStationInit(&theStationTwo, 8, IOHDLC_OM_NDM, 2, (ioHdlcDriver *)&linkDriverTwo,
       (ioHdlcFramePool *)&fmpTwo);
   ioHdlcAddPeer(&theStationTwo, &thePeerOfTwo, 1, IOHDLC_DFL_I_SIZE);

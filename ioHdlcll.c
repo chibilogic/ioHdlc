@@ -123,8 +123,8 @@ void frameAddFCS(iohdlc_frame_t *frame) {
    * means transmitting the coefficient of the highest term first,
    * as required.
    */
-  frame->frame[frame->elen]     = crc & 0xff;
-  frame->frame[frame->elen + 1] = crc >> 8;
+  frame->frame[frame->elen++] = crc & 0xff;
+  frame->frame[frame->elen++] = crc >> 8;
 }
 
 /*
@@ -135,7 +135,7 @@ void frameAddFCS(iohdlc_frame_t *frame) {
 bool frameCheckFCS(const iohdlc_frame_t *frame) {
   uint16_t crc;
 
-  computeFCS(frame->frame, frame->elen + 2, &crc);
+  computeFCS(frame->frame, frame->elen, &crc);
 
   return crc == 0xf0b8;   /* Bit reversed of the check 0x1d0f. */
 }
@@ -154,7 +154,7 @@ bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
   bool encoded = 0;
 
   //ioHdlcAssert(src != dst, "frameTransparentEncode");
-  for (int i = 0; i < src->elen + 2; ++i) {
+  for (int i = 0; i < src->elen; ++i) {
     if (HDLC_FLAG == *srcbuf || HDLC_CTLESC == *srcbuf) {
       *dstbuf++ = HDLC_CTLESC;
       *dstbuf++ = *srcbuf++ ^ HDLC_TMASK;
@@ -171,7 +171,7 @@ bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
 /*
  * @brief   Decode the frame using the octet transparency rules.
  * @note    This function is used by the drivers whenever is not implemented
- *          in hardware.
+ *          in hardware. The @p elen field includes the count of the FCS
  */
 void frameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
   const uint8_t *srcbuf = src->frame;
@@ -185,8 +185,7 @@ void frameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
       *dstbuf++ = *srcbuf++;
     }
   }
-  dst->elen = dstbuf - dst->frame - 2;  /* the elen doesn't include the
-                                           count of the FCS octets. */
+  dst->elen = dstbuf - dst->frame;
 }
 
 #if 0

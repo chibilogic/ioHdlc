@@ -151,13 +151,13 @@ static void rxend(UARTDriver *uartp)
       }
       /* The first octet of the frame could be the frame format field
          if configured for this.*/
-      if ((ip->frameinrx->elen == 1) &&
+      if ((ip->frameinrx->elen == 0) &&
           (ip->flags & HDLC_UART_HASFF) && !(ip->flags & HDLC_UART_TRANS)) {
 
         /* in this case, use the frame length in the frame format field.*/
         if (!(ip->frameinrx->frame[0] & 0x80)) {
           n = (size_t)ip->frameinrx->frame[0];
-          ip->frameinrx->elen = n - 2;  /* discard the FCS len from the elen.*/
+          ip->frameinrx->elen = n;
 
           /* include closing FLAG in the count of number of octets
              to receive, so doesn't decrement n.*/
@@ -219,7 +219,7 @@ static size_t send_frame(void *instance, iohdlc_frame_t *fp) {
      non empty frame.*/
   if (fp->elen) {
     frameAddFCS(fp);
-    size = nfp->elen + 2;
+    size = nfp->elen;
     if (ip->flags & HDLC_UART_TRANS) {
 
       /* Apply octet transparency to the sending frame.
@@ -270,13 +270,16 @@ static iohdlc_frame_t * recv_frame(void *instance, iohdlc_timeout_t tmo) {
       frameTransparentDecode(fp, fp);
 
     if (frameCheckFCS(fp) &&
-        (!(ip->flags & HDLC_UART_HASFF) || (fp->elen == fp->frame[0] - 2)))
+        (!(ip->flags & HDLC_UART_HASFF) || (fp->elen == fp->frame[0])))
       break;
     /* The FCS is incorrect or, in case the frame had the frame
        format field, the length in the format field does not match
        the calculated frame length, so discard the frame and repeat.*/
     hdlcReleaseFrame(ip->fpp, fp);
   };
+
+  /* Adjust the @p elen field, discarding the count of the FCS octets. */
+  fp->elen -= 2;
   return fp;
 }
 
