@@ -59,6 +59,15 @@ static uint8_t um2supportedConnMode(uint8_t um_cmd)
   return 0;
 }
 
+static uint8_t supportedConnMode2um(uint8_t mode)
+{
+  if (mode == IOHDLC_OM_ABM)
+    return IOHDLC_U_SABM;
+  if (mode == IOHDLC_OM_NRM)
+    return IOHDLC_U_SNRM;
+  return 0;
+}
+
 static void reply_timer_elapsed(void *peerp)
 {
   iohdlc_station_peer_t *p = (iohdlc_station_peer_t *)peerp;
@@ -127,6 +136,7 @@ static void resetPeer(iohdlc_station_peer_t *p)
   /* Reset state variables. */
   p->nr = p->vr = p->vs = 0;
   p->pf_state = p->um_state = p->ss_state = 0;
+  p->um_cmd = 0;
 
   /* Reset queues. */
   clearFrameQ(p, &p->i_retrans_q);
@@ -166,35 +176,44 @@ static void transmitterTask(void *stationp) {
     (void) chEvtWaitAny(EVENT_MASK(0));
     cm_flags = chEvtGetAndClearFlags(&cm_listener);
 
-    /* If s is secondary and IOHDLC_P_RCVED and IOHDLC_UM_RCVED */
-    if (IOHDLC_IS_SEC(s)) {
+    /* Note: the following iteration is effective only for unbalanced mode
+       in a multipoint configuration with more than one peer. */
+    /* For each peer p of the input station s */
+    for (p = s->peers.next; p != (iohdlc_station_peer_t *)&s->peers;
+            p = p->next) {
 
-      /* the peer is a primary station. */
-      p = s->peers.next;
+      /* If an unnumbered command has been received, check if
+         it's a (dis)connection command and action it, if possible. */
       if ((p->um_state & IOHDLC_UM_RCVED) != 0) {
         uint8_t stationtype = s->mode & 0xF0;
         uint8_t om = um2supportedConnMode(p->um_cmd);
+        uint8_t pf_bit = (p->pf_state & IOHDLC_P_RCVED) ? IOHDLC_PF_BIT : 0;
 
-        if (om) {
+        /* Check if the command is a supported set mode and if it's
+           actionable. SNRM is actionable only if P bit is set to 1. */
+        if (om && (pf_bit || (p->um_cmd != IOHDLC_U_SNRM))) {
 
           /* Set mode command is actionable, even if already actioned.
-             Reset variables, change mode of this secondary and send UA. */
+             Reset variables, change mode and send UA. */
           s->mode = om | stationtype;
           resetPeer(p);
-          sendUMframe(s, s->addr, IOHDLC_U_UA|IOHDLC_PF_BIT);
+          sendUMframe(s, s->addr, IOHDLC_U_UA|pf_bit);
         } else if (p->um_cmd == IOHDLC_U_DISC) {
 
           /* If connected send UA prior to actioning the command
              and change to disconnected mode. */
           if (!IOHDLC_IS_DISC(s)) {
-            sendUMframe(s, s->addr, IOHDLC_U_UA|IOHDLC_PF_BIT);
+            sendUMframe(s, s->addr, IOHDLC_U_UA|pf_bit);
             s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
             s->mode |= stationtype;
             resetPeer(p);
           } else {
 
             /* else send DM. */
-            sendUMframe(s, s->addr, IOHDLC_U_DM|IOHDLC_PF_BIT);
+            p->um_cmd = 0;
+            p->um_state &= ~IOHDLC_UM_RCVED;
+            p->pf_state &= ~IOHDLC_P_RCVED;
+            sendUMframe(s, s->addr, IOHDLC_U_DM|pf_bit);
           }
         } else {
 
@@ -202,16 +221,13 @@ static void transmitterTask(void *stationp) {
           /* Send DM if received frame is not a set mode cmd,
              or if it is not actionable, or if it is
              not implemented. */
-          sendUMframe(s, s->addr, IOHDLC_U_DM|IOHDLC_PF_BIT);
+          p->um_cmd = 0;
+          p->um_state &= ~IOHDLC_UM_RCVED;
+          p->pf_state &= ~IOHDLC_P_RCVED;
+          sendUMframe(s, s->addr, IOHDLC_U_DM|pf_bit);
+          continue;
         }
       }
-      continue;
-    }
-
-    /* NRM Mode */
-    /* For each peer p of the input station s */
-    for (p = s->peers.next; p != (iohdlc_station_peer_t *)&s->peers;
-            p = p->next) {
 
       /* If s is primary. */
       if (IOHDLC_IS_PRI(s)) {
@@ -223,8 +239,7 @@ static void transmitterTask(void *stationp) {
 
           /* If UM is a (dis)connection command and the connection state
              is correct, */
-          if ((IOHDLC_PEER_DISC(p) &&
-              ((um_cmd == IOHDLC_U_SABM) || (um_cmd == IOHDLC_U_SNRM))) ||
+          if ((IOHDLC_PEER_DISC(p) && um2supportedConnMode(um_cmd)) ||
               (!IOHDLC_PEER_DISC(p) && (um_cmd == IOHDLC_U_DISC))) {
 
             /* send to p um_cmd, set p.IOHDLC_UM_SENT .*/
@@ -276,7 +291,9 @@ static void receiverTask(void *stationp) {
 
   for (;/* ever */;) {
     uint32_t addr;
+    uint8_t ctrl;
     uint8_t *foctp;
+    bool is_a_command;
 
     /* Wait for the arrival of a frame. */
     fp = hdlcRecvFrame(s->driver, TIME_INFINITE);
@@ -290,23 +307,25 @@ static void receiverTask(void *stationp) {
        foctp[1[ is the ctrl octet */
     foctp = IOHDLC_HAS_FFF(s) ? &fp->frame[1] : &fp->frame[0];
     addr = foctp[0];
+    ctrl = foctp[1];
+    is_a_command = (addr == s->addr);
 
-    /* If s is secondary (NRM/ARM/NDM/ADM) */
-    if (IOHDLC_IS_SEC(s)) {
+    /* If frame is a command in ABM, or s is secondary (NRM/ARM/NDM/ADM) */
+    if (is_a_command || IOHDLC_IS_SEC(s)) {
 
-      /* Discard the frame if it isn't intended for this secondary station. */
+      /* discard the frame if it isn't intended for this secondary station. */
       if (addr != s->addr)
         goto relfp;
 
       /* If the frame type is an unnumbered command with P set, */
-      if (IOHDLC_IS_U_FRM(foctp[1])) {
-        if (!ioHdlc_peerl_isempty(&s->peers) && (foctp[1] & IOHDLC_PF_BIT)) {
+      if (IOHDLC_IS_U_FRM(ctrl)) {
+        if (!ioHdlc_peerl_isempty(&s->peers) && (ctrl & IOHDLC_PF_BIT)) {
 
           /* set IOHDLC_UM_RCVED, set um_cmd to the command code and
              signal transmitter of UM_RCVED and release the frame. */
           p = s->peers.next;
           p->um_state |= IOHDLC_UM_RCVED;
-          p->um_cmd = foctp[1] & IOHDLC_U_FUN_MASK;
+          p->um_cmd = ctrl & IOHDLC_U_FUN_MASK;
           p->pf_state |= IOHDLC_P_RCVED;
 
           /* Signal UM_RCVED to the tx */
@@ -321,19 +340,19 @@ static void receiverTask(void *stationp) {
     if (NULL == p)
       goto relfp;
 
-    /* NRM Mode primary*/
-    if (IOHDLC_IS_PRI(s) && IOHDLC_IS_NRM(s)) {
+    /* Mode primary (Todo: assert mode primary?) */
+    if (IOHDLC_IS_PRI(s)) {
 
-      if (IOHDLC_IS_U_FRM(foctp[1])) {
+      if (IOHDLC_IS_U_FRM(ctrl)) {
         uint8_t stationtype = s->mode & 0xF0;
 
         /* If p.IOHDLC_UM_SENT, aka if a UM cmd was sent by this primary
            to the peer p, then the UM frame could be a response to this UM
            cmd */
-        if ((p->um_state & IOHDLC_UM_SENT) && (foctp[1] & IOHDLC_PF_BIT)) {
+        if ((p->um_state & IOHDLC_UM_SENT) && (ctrl & IOHDLC_PF_BIT)) {
           uint8_t um_cmd;
 
-          um_cmd = foctp[1] & IOHDLC_U_FUN_MASK;
+          um_cmd = ctrl & IOHDLC_U_FUN_MASK;
           if (um_cmd == IOHDLC_U_DM) {
 
             /* If fp is a DM frame response, set peer as disconnected,
@@ -351,10 +370,18 @@ static void receiverTask(void *stationp) {
             /* If UA frame response, clear all vars of p. Set new mode, if any,
                of this primary and signal the completion of the (dis)connection
                attempt. */
-            resetPeer(p);
             if ((om = um2supportedConnMode(p->um_cmd)) != 0) {
+              resetPeer(p);
               s->mode = om | stationtype;
               p->ss_state |= IOHDLC_SS_ST_CONN;
+            } else if (p->um_cmd == IOHDLC_U_DISC) {
+              resetPeer(p);
+              om = ((s->mode & 0x0F) == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM :
+                  IOHDLC_OM_ADM;
+              s->mode = om | stationtype;
+              p->ss_state &= ~IOHDLC_SS_ST_CONN;  /* Cancel connected state. */
+            } else {
+              /* Assert here */
             }
             chEvtBroadcastFlags(&s->cm_es, EVT_CM_CONNCHG);
           }
@@ -383,12 +410,12 @@ iohdlc_station_peer_t *addr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr)
   return NULL;
 }
 
-int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr) {
-  uint8_t mode;
+int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr, uint8_t mode) {
   iohdlc_station_peer_t *p = addr2peer(ioHdlcsp, peer_addr);
   event_listener_t cm_listener;
   eventflags_t eflags;
   int32_t r = 0;
+  uint8_t um_cmd;
   int i;
 
   /* Check if down */
@@ -401,24 +428,23 @@ int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr) {
   if (IOHDLC_IS_SEC(ioHdlcsp))
     return 0;
 
+  um_cmd = supportedConnMode2um(mode);
+  if (um_cmd == 0) {
+    ioHdlcsp->errorno = EINVAL;
+    r = -1;
+    goto eex2;
+  }
+
   chEvtRegisterMaskWithFlags(&ioHdlcsp->cm_es, &cm_listener, EVENT_MASK(0),
       EVT_CM_CONNCHG|EVT_CM_RPLYTMO);
 
   for (i = 0; i < 3; ++i) {
     /* Send SM mode */
-    mode = ioHdlcsp->mode & ~(IOHDLC_OM_PRI|IOHDLC_OM_TWA);
-    if (mode == IOHDLC_OM_ABM)
-      p->um_cmd = IOHDLC_U_SABM;
-    else if (mode == IOHDLC_OM_NRM)
-      p->um_cmd = IOHDLC_U_SNRM;
-    else {
-      ioHdlcsp->errorno = EINVAL;
-      r = -1;
-      goto eex2;
-    }
+
+    p->um_cmd = um_cmd;
+    p->ss_state &= ~IOHDLC_SS_ST_DISM;
     chEvtBroadcastFlags(&ioHdlcsp->cm_es, EVT_CM_CONNSTR);
 
-    p->ss_state &= ~IOHDLC_SS_ST_DISM;
     do {
       /* Wait connection completed from the peer or timeout event */
       eflags = chEvtWaitAnyTimeout(EVENT_MASK(0), TIME_INFINITE);
@@ -543,7 +569,7 @@ int32_t ioHdlcRead(iohdlc_station_peer_t *peerp, void *buf, size_t count) {
  */
 int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer,
                       uint32_t addr, uint32_t mifl) {
-  if (!(ioHdlcsp->mode & IOHDLC_OM_PRI) &&
+  if (!(ioHdlcsp->flags & IOHDLC_FLG_PRI) &&
       (ioHdlcsp->mode != IOHDLC_OM_NDM) && (ioHdlcsp->mode != IOHDLC_OM_ADM)) {
     ioHdlcsp->errorno = EINVAL;
     return -1;  /* EINVAL, secondary station not initialized or already
@@ -580,36 +606,36 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer,
  * @note    Currently, only modulus 8 is supported.
  *
  * @param[in] ioHdlcsp  pointer to the @p iohdlc_station_t structure
- * @param[in] modulus   modulus of sequence numbers. It can assume the following
- *                      power of 2 values: 8, 128, 32768, 2147483648.
- * @param[in] mode      initial mode.
- * @param[in] addr      the station address.
- * @param[in] driver    interface to the physical link driver.
- * @param[in] fpp       pointer to a full initialized frame pool.
+ *
+ * @retval    -1        if error
+ * @retval     0        if success
  *
  */
-void ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, uint32_t modulus, uint8_t mode,
-    uint32_t addr, ioHdlcDriver *driver, ioHdlcFramePool *fpp) {
+int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
+                          const iohdlc_station_config_t *ioHdlcsconfp) {
   uint32_t mod2 = 0;
-  uint8_t twa = mode & IOHDLC_OM_TWA;
+  uint8_t modulus = ioHdlcsconfp->modulus;
+  uint8_t mode = ioHdlcsconfp->mode;
 
-  ioHdlcsp->addr = addr;
+  ioHdlcsp->addr = ioHdlcsconfp->addr;
+  ioHdlcsp->flags = ioHdlcsconfp->flags;
 
   /* mod2 = log2(modulus) */
   while (modulus >>= 1)
     ++mod2;
 
-  mode &= ~(IOHDLC_OM_PRI|IOHDLC_OM_TWA);
-  if ((mode == IOHDLC_OM_NRM) || (mode == IOHDLC_OM_ABM))
-    mode |= IOHDLC_OM_PRI;
-  ioHdlcsp->mode = mode | twa;
+  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM)) {
+    ioHdlcsp->errorno = EINVAL;
+    return -1;
+  }
+  ioHdlcsp->mode = mode;
   ioHdlcsp->modulus = mod2;
   ioHdlcsp->pfoctet = (mod2 + 1) / 8;
-  ioHdlcsp->frame_pool = fpp;
+  ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;
   ioHdlc_frameq_init(&ioHdlcsp->ni_recept_q);
   ioHdlc_frameq_init(&ioHdlcsp->ni_trans_q);
   ioHdlc_peerl_init(&ioHdlcsp->peers);
-  ioHdlcsp->driver = driver;
+  ioHdlcsp->driver = ioHdlcsconfp->driver;
   chEvtObjectInit(&ioHdlcsp->cm_es);
 
   /* Set default options. */
@@ -617,12 +643,17 @@ void ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, uint32_t modulus, uint8_t mod
   ioHdlcsp->optfuncs[IOHDLC_OPT_SST_OCT] |= IOHDLC_OPT_SST;
   ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] |= IOHDLC_OPT_STB;
   ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] |= IOHDLC_OPT_FFF;
-  hdlcHasFrameFormat(driver, true);
-  hdlcApplyTransparency(driver, false);
+  hdlcHasFrameFormat(ioHdlcsp->driver, true);
+  hdlcApplyTransparency(ioHdlcsp->driver, false);
   //hdlcApplyTransparency(driver, true);
 
+  /* Start driver */
+  hdlcStart(ioHdlcsp->driver, ioHdlcsconfp->phydriver, ioHdlcsconfp->phydriver_config,
+      ioHdlcsconfp->fpp);
 
   /* Create receiver and trasmitter task */
   chThdCreateFromHeap(NULL, 2048, "TX", NORMALPRIO + 1, transmitterTask, ioHdlcsp);
   chThdCreateFromHeap(NULL, 2048, "RX", NORMALPRIO + 1, receiverTask, ioHdlcsp);
+  return 0;
+  return 0;
 }

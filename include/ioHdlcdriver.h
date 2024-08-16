@@ -37,6 +37,8 @@
 #define IOHDLCDRIVER_H_
 
 #define _iohdlc_driver_methods                                      \
+  void (*start)(void *ip, void *phydrvp, void *phyconfigp,          \
+      ioHdlcFramePool *fpp);                                        \
   size_t (*send_frame)(void *ip, iohdlc_frame_t *fp);               \
   iohdlc_frame_t * (*recv_frame)(void *ip, iohdlc_timeout_t tmo);   \
   bool (*get_hwtransparency)(void *ip);                             \
@@ -57,6 +59,21 @@ typedef struct {
   const struct _iohdlc_driver_vmt *vmt;
   _iohdlc_driver_data
 } ioHdlcDriver;
+
+/**
+ * @brief   Hdlc driver start.
+ * @details The station uses this method to start the hdlc driver instance
+ *          @p ip
+ * @note    The implementation shall call this method only once, before calling
+ *          any other method.
+ *
+ * @param[in]   ip        ioHdlcDriver instance pointer
+ * @param[in]   phyp      pointer to the physical driver to use.
+ * @param[in]   phyconfp  pointer to the configuration of the physical driver.
+ * @param[in]   fpp       pointer to the frame pool to use.
+ */
+#define hdlcStart(ip, phyp, phyconfp, fpp)  ((ip)->vmt->start(ip, phyp, \
+                  phyconfp, fpp))                                       \
 
 /**
  * @brief   Hdlc send frame method.

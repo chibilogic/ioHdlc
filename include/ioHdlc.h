@@ -104,7 +104,7 @@
                                    modulo != 8, non first octet. */
 
 /**
- * @name    Operational and non-operational modes
+ * @name    Operational and non-operational modes and flags
  * @{
  */
 #define IOHDLC_OM_ABM     0x01  /**< @brief Asynchronous balanced mode (ABM). */
@@ -113,8 +113,11 @@
 #define IOHDLC_OM_NDM     0x04  /**< @brief Normal disconnected mode (NDM). */
 #define IOHDLC_OM_ADM     0x05  /**< @brief Asynchronous disconnected mode (ADM). */
 #define IOHDLC_OM_IM      0x06  /**< @brief Initialization mode (IM). */
-#define IOHDLC_OM_TWA     0x40  /**< @brief Two Way Alternate flag. */
-#define IOHDLC_OM_PRI     0x80  /**< @brief Primary station flag. */
+
+#define IOHDLC_FLG_PRI    0x01  /**< @brief Primary station flag. */
+#define IOHDLC_FLG_TWA    0x02  /**< @brief Two Way Alternate flag. */
+#define IOHDLC_FLG_IDL    0x04  /**< @brief Primary station flag. */
+
 /** @} */
 
 /**
@@ -160,12 +163,13 @@
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
 /* support macros */
-#define IOHDLC_IS_SEC(s)      (!((s)->mode & IOHDLC_OM_PRI))
-#define IOHDLC_IS_PRI(s)      ((s)->mode & IOHDLC_OM_PRI)
-#define IOHDLC_IS_DISC(s)     ((((s)->mode & 0x0F) == IOHDLC_OM_NDM) || \
-                               (((s)->mode & 0x0F) == IOHDLC_OM_ADM))
-#define IOHDLC_IS_NRM(s)      (((s)->mode & 0x0F) == IOHDLC_OM_NRM)
-#define IOHDLC_IS_ABM(s)      (((s)->mode & 0x0F) == IOHDLC_OM_ABM)
+#define IOHDLC_IS_SEC(s)      (!((s)->flags & IOHDLC_FLG_PRI))
+#define IOHDLC_IS_PRI(s)      ((s)->flags & IOHDLC_FLG_PRI)
+#define IOHDLC_IS_DISC(s)     (((s)->mode == IOHDLC_OM_NDM) || \
+                               ((s)->mode == IOHDLC_OM_ADM))
+#define IOHDLC_IS_NRM(s)      ((s)->mode == IOHDLC_OM_NRM)
+#define IOHDLC_IS_NDM(s)      ((s)->mode == IOHDLC_OM_NDM)
+#define IOHDLC_IS_ABM(s)      ((s)->mode == IOHDLC_OM_ABM)
 #define IOHDLC_HAS_FFF(s)     (s->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF)
 #define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
 
@@ -267,6 +271,7 @@ struct iohdlc_station {
 
   /* configuration parameters. */
   uint8_t   mode;               /* Operational mode of this station. */
+  uint8_t   flags;              /* Station flags: TWA, IDLE, PRIMARY. */
   uint8_t   modulus;            /* Modulus, expressed as log2 modulus. (3, 7, 15, 31). */
   uint8_t   pfoctet;            /* P/F octet number. Calculated from modulus. (0, 1, 2, 4). */
   uint8_t   optfuncs[5];        /* Active HDLC optional functions among those supported.
@@ -295,6 +300,20 @@ struct iohdlc_station {
   iohdlc_event_source_t cm_es;  /* Source of the events related to commands. */
 };
 
+/**
+ * @brief   Type of a HDLC station configuration.
+ */
+struct iohdlc_station_config {
+  uint8_t  mode;          /**< @brief initial operational mode             */
+  uint8_t  flags;         /**< @brief station flags: TWA, IDLE, PRIMARY.   */
+  uint8_t  modulus;       /**< @brief modulus, expressed as log2 modulus.  */
+  uint32_t addr;          /**< @brief address of the station.              */
+  ioHdlcDriver *driver;   /**< @brief the link driver interface implementor*/
+  ioHdlcFramePool *fpp;   /**< @brief the frame pool used by the station.  */
+  void *phydriver;        /**< @brief the physical driver used by the implementor. */
+  void *phydriver_config; /**< @brief the physical driver configuration.   */
+};
+
 /*===========================================================================*/
 /* Module macros.                                                            */
 /*===========================================================================*/
@@ -306,14 +325,18 @@ struct iohdlc_station {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
+  int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr, uint8_t mode);
   int32_t ioHdlcStationLinkDown(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
   int32_t ioHdlcWrite(iohdlc_station_peer_t *ioHdlcpeerp, const void *buf, size_t count);
   int32_t ioHdlcRead(iohdlc_station_peer_t *ioHdlcpeerp, void *buf, size_t count);
   int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer, uint32_t addr, uint32_t mifl);
   iohdlc_station_peer_t *addr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
-  void ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, uint32_t modulus, uint8_t mode,
+  int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, const iohdlc_station_config_t *ioHdlcsconfp);
+  //int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, const iohdlc_station_config_t *ioHdlcsconfp);
+#if 0
+  int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, uint32_t modulus, uint8_t mode,
       uint32_t addr, ioHdlcDriver *driver, ioHdlcFramePool *fpp);
+#endif
 #ifdef __cplusplus
 }
 #endif

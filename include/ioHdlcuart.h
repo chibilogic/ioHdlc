@@ -82,7 +82,7 @@ typedef struct ioHdclUartDriver ioHdclUartDriver;
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void huInit(ioHdclUartDriver *uhp, UARTDriver *uartp, UARTConfig *uartconfigp, ioHdlcFramePool *fpp);
+  void ioHdclUartDriverInit(ioHdclUartDriver *uhp);
 #ifdef __cplusplus
 }
 #endif

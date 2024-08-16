@@ -104,6 +104,28 @@ static iohdlc_station_t theStationTwo;
 static iohdlc_station_peer_t thePeerOfOne;
 static iohdlc_station_peer_t thePeerOfTwo;
 
+static const iohdlc_station_config_t theStationOneConfig = {
+  .mode     = IOHDLC_OM_NDM,
+  .flags    = IOHDLC_FLG_PRI,
+  .modulus  = 8,
+  .addr     = 1,
+  .driver   = (ioHdlcDriver *)&linkDriverOne,
+  .fpp      = (ioHdlcFramePool *)&fmpOne,
+  .phydriver        = &UARTD2,
+  .phydriver_config = &uart_cfg_one,
+};
+
+static const iohdlc_station_config_t theStationTwoConfig = {
+  .mode     = IOHDLC_OM_NDM,
+  .flags    = 0,
+  .modulus  = 8,
+  .addr     = 2,
+  .driver   = (ioHdlcDriver *)&linkDriverTwo,
+  .fpp      = (ioHdlcFramePool *)&fmpTwo,
+  .phydriver        = &FUARTD1,
+  .phydriver_config = &uart_cfg_two,
+};
+
 /*
  * Application entry point.
  */
@@ -126,15 +148,13 @@ int main(void) {
   chprintf(chp2, "Starting ioHDLC test.\r\n");
 
   fmpInit(&fmpOne, arenaOne, sizeof arenaOne, IOHDLC_DFL_I_SIZE, 4);
-  huInit(&linkDriverOne, &UARTD2, &uart_cfg_one, (ioHdlcFramePool *)&fmpOne);
-  ioHdlcStationInit(&theStationOne, 8, IOHDLC_OM_NRM, 1, (ioHdlcDriver *)&linkDriverOne,
-      (ioHdlcFramePool *)&fmpOne);
+  ioHdclUartDriverInit(&linkDriverOne);
+  ioHdlcStationInit(&theStationOne, &theStationOneConfig);
   ioHdlcAddPeer(&theStationOne, &thePeerOfOne, 2, IOHDLC_DFL_I_SIZE);
 
   fmpInit(&fmpTwo, arenaTwo, sizeof arenaTwo, IOHDLC_DFL_I_SIZE, 4);
-  huInit(&linkDriverTwo, &FUARTD1, &uart_cfg_two, (ioHdlcFramePool *)&fmpTwo);
-  ioHdlcStationInit(&theStationTwo, 8, IOHDLC_OM_NDM, 2, (ioHdlcDriver *)&linkDriverTwo,
-      (ioHdlcFramePool *)&fmpTwo);
+  ioHdclUartDriverInit(&linkDriverTwo);
+  ioHdlcStationInit(&theStationTwo,  &theStationTwoConfig);
   ioHdlcAddPeer(&theStationTwo, &thePeerOfTwo, 1, IOHDLC_DFL_I_SIZE);
 
   /*
@@ -148,19 +168,39 @@ int main(void) {
    */
   while (true) {
     int32_t r;
-    r = ioHdlcStationLinkUp(&theStationOne, 2);
+    theStationTwo.flags &= ~IOHDLC_FLG_PRI;
+    r = ioHdlcStationLinkUp(&theStationOne, 2, IOHDLC_OM_NRM);
     if (r == -1) {
-      chprintf(chp2, "Error establishing a connection with peer at addr %d. Errno = %d.\r\n",
+      chprintf(chp2, "Error establishing a NRM connection with peer at addr %d. Errno = %d.\r\n",
           2, theStationOne.errorno);
     } else
-      chprintf(chp2, "Connected with peer at addr %d!\r\n", 2);
+      chprintf(chp2, "NRM connected with peer at addr %d!\r\n", 2);
     r = ioHdlcStationLinkDown(&theStationOne, 2);
     if (r == -1) {
       chprintf(chp2, "Error closing a connection with peer at addr %d. Errno = %d.\r\n",
           2, theStationOne.errorno);
     } else
       chprintf(chp2, "Disconnected from peer at addr %d!\r\n", 2);
+
+    chprintf(chp2, "\r\nABM...\r\n", 2);
+
+    chThdSleepMilliseconds(5000);
+    theStationTwo.flags |= IOHDLC_FLG_PRI;
+    r = ioHdlcStationLinkUp(&theStationOne, 2, IOHDLC_OM_ABM);
+    if (r == -1) {
+      chprintf(chp2, "Error establishing a ABM connection with peer at addr %d. Errno = %d.\r\n",
+          2, theStationOne.errorno);
+    } else
+      chprintf(chp2, "ABM connected with peer at addr %d!\r\n", 2);
+    r = ioHdlcStationLinkDown(&theStationOne, 2);
+    if (r == -1) {
+      chprintf(chp2, "Error closing a connection with peer at addr %d. Errno = %d.\r\n",
+          2, theStationOne.errorno);
+    } else
+      chprintf(chp2, "Disconnected from peer at addr %d!\r\n", 2);
+
     chprintf(chp2, "\r\nAgain...\r\n", 2);
+
     chThdSleepMilliseconds(5000);
   }
 }

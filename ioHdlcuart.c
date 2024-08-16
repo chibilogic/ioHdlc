@@ -61,7 +61,7 @@
 static void txend(UARTDriver *uartp)
 {
   ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->ip);
-  if (ip->frameintx && (ip->flags & HDLC_UART_TRANS)) {
+  if (ip->frameintx) {
     hdlcReleaseFrame(ip->fpp, ip->frameintx);
   }
   ip->frameintx = NULL;
@@ -303,10 +303,27 @@ static void set_hasframeformat(void *ip, bool hff) {
     instance->flags |= HDLC_UART_HASFF;
 }
 
+static void start(void *ip, void *phyp, void *phyconfigp, ioHdlcFramePool *fpp) {
+  ioHdclUartDriver *instance = (ioHdclUartDriver *)ip;
+  UARTDriver *uartp = (UARTDriver *)phyp;
+  UARTConfig *uartconfigp = (UARTConfig *)phyconfigp;
+
+  instance->fpp = fpp;
+  instance->uartp = uartp;
+  uartp->ip = instance;
+  uartconfigp->txend1_cb = txend;
+  uartconfigp->rxend_cb = rxend;
+  uartconfigp->rxerr_cb = rxerr;
+  uartconfigp->timeout_cb = timeout;
+  uartStart(uartp, uartconfigp);
+  uartStartReceive(uartp, 1, &instance->flagoctet);
+}
+
 /*
  * ioHdclUartDriver Interface implementation.
  */
 static const struct _iohdlc_uart_driver_vmt vmt = {
+    .start = start,
     .send_frame = send_frame,
     .recv_frame = recv_frame,
     .set_applytransparency = set_applytransparency,
@@ -314,21 +331,12 @@ static const struct _iohdlc_uart_driver_vmt vmt = {
     .set_hasframeformat = set_hasframeformat
 };
 
-void huInit(ioHdclUartDriver *uhp, UARTDriver *uartp, UARTConfig *uartconfigp, ioHdlcFramePool *fpp) {
+void ioHdclUartDriverInit(ioHdclUartDriver *uhp) {
   uhp->vmt = &vmt;
-  uhp->uartp = uartp;
-  uhp->fpp = fpp;
   uhp->flags = 0;
   uhp->flagoctet = 0;
   uhp->frameinrx = uhp->frameintx = 0;
   ioHdlc_frameq_init(&uhp->raw_recept_q);
   chSemObjectInit(&uhp->raw_recept_sem, 0);
   chBSemObjectInit(&uhp->tx_on_air, false);
-  uartp->ip = uhp;
-  uartconfigp->txend1_cb = txend;
-  uartconfigp->rxend_cb = rxend;
-  uartconfigp->rxerr_cb = rxerr;
-  uartconfigp->timeout_cb = timeout;
-  uartStart(uartp, uartconfigp);
-  uartStartReceive(uartp, 1, &uhp->flagoctet);
 }

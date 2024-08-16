@@ -42,6 +42,7 @@
 #endif
 
 typedef struct iohdlc_station iohdlc_station_t;
+typedef struct iohdlc_station_config iohdlc_station_config_t;
 typedef struct iohdlc_station_peer iohdlc_station_peer_t;
 typedef struct iohdlc_peer_list iohdlc_peer_list_t;
 typedef struct iohdlc_frame iohdlc_frame_t;
