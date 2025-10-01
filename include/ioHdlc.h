@@ -116,7 +116,8 @@
 
 #define IOHDLC_FLG_PRI    0x01  /**< @brief Primary station flag. */
 #define IOHDLC_FLG_TWA    0x02  /**< @brief Two Way Alternate flag. */
-#define IOHDLC_FLG_IDL    0x04  /**< @brief Primary station flag. */
+#define IOHDLC_FLG_IDL    0x04  /**< @brief Idle line flag. */
+#define IOHDLC_FLG_BUSY   0x08  /**< @brief Busy station flag. */
 
 /** @} */
 
@@ -146,7 +147,6 @@
 #define IOHDLC_P_RCVED    0x01  /* P received and to acknowledge in the next frame to tx,
                                    or in the last frame if NRM. */
 #define IOHDLC_F_RCVED    0x02  /* F received. */
-#define IOHDLC_P_SENT     0x04  /* P sent and not acknowledged yet. */
 #define IOHDLC_PF_INHB    0x80  /* P/F checkpoint inhibited. */
 
 /* um_state definitions. */
@@ -162,7 +162,7 @@
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
-/* support macros */
+/* helper macros */
 #define IOHDLC_IS_SEC(s)      (!((s)->flags & IOHDLC_FLG_PRI))
 #define IOHDLC_IS_PRI(s)      ((s)->flags & IOHDLC_FLG_PRI)
 #define IOHDLC_IS_DISC(s)     (((s)->mode == IOHDLC_OM_NDM) || \
@@ -171,6 +171,7 @@
 #define IOHDLC_IS_NDM(s)      ((s)->mode == IOHDLC_OM_NDM)
 #define IOHDLC_IS_ABM(s)      ((s)->mode == IOHDLC_OM_ABM)
 #define IOHDLC_HAS_FFF(s)     (s->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF)
+#define IOHDLC_USE_TWA(s)     ((s)->flags & IOHDLC_FLG_TWA)
 #define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
 
 /**
@@ -188,6 +189,7 @@
 #define EVT_CM_UMRECVD    0x02  /* An UM command have been received. */
 #define EVT_CM_CONNCHG    0x04  /* An connection state change was attempted. */
 #define EVT_CM_CONNSTR    0x08  /* Connection start has requested. */
+#define EVT_CM_LINIDLE    0x10  /* Line is idle. */
 
 /*===========================================================================*/
 /* Module pre-compile time settings.                                         */
@@ -237,7 +239,6 @@ struct iohdlc_station_peer {
   uint32_t  vs_atlast_pf;       /* V(S) at the time of transmission of the last
                                    frame with the P bit set in case of primary/combined station
                                    or with the F bit set in case of secondary station. */
-  uint8_t   pf_state;           /* P/F sent/received state. See definitions. */
   uint8_t   um_state;           /* Unnumbered state. See definitions. */
   uint8_t   ss_state;           /* Supervision state. See definitions. */
   uint8_t   um_cmd;             /* Unnumbered command to_send/sent. */
@@ -271,13 +272,14 @@ struct iohdlc_station {
 
   /* configuration parameters. */
   uint8_t   mode;               /* Operational mode of this station. */
-  uint8_t   flags;              /* Station flags: TWA, IDLE, PRIMARY. */
+  uint8_t   flags;              /* Station flags: TWA, PRIMARY, IDLE, BUSY. */
+  uint8_t   pf_state;           /* P/F sent/received state. See definitions. */
   uint8_t   modulus;            /* Modulus, expressed as log2 modulus. (3, 7, 15, 31). */
   uint8_t   pfoctet;            /* P/F octet number. Calculated from modulus. (0, 1, 2, 4). */
   uint8_t   optfuncs[5];        /* Active HDLC optional functions among those supported.
                                    See ISO13239 Table 16. */
   uint32_t  addr;               /* Address of the station. */
-
+  iohdlc_station_peer_t *c_peer; /*The peer the station is currently talking to. */
 
   /* state, peers, pool and queues. */
   int32_t   errorno;            /* number of last error. Follows the posix list of values. */
@@ -304,14 +306,14 @@ struct iohdlc_station {
  * @brief   Type of a HDLC station configuration.
  */
 struct iohdlc_station_config {
-  uint8_t  mode;          /**< @brief initial operational mode             */
-  uint8_t  flags;         /**< @brief station flags: TWA, IDLE, PRIMARY.   */
-  uint8_t  modulus;       /**< @brief modulus, expressed as log2 modulus.  */
-  uint32_t addr;          /**< @brief address of the station.              */
-  ioHdlcDriver *driver;   /**< @brief the link driver interface implementor*/
-  ioHdlcFramePool *fpp;   /**< @brief the frame pool used by the station.  */
+  uint8_t  mode;          /**< @brief initial operational mode               */
+  uint8_t  flags;         /**< @brief station flags: TWA, PRIMARY.           */
+  uint8_t  modulus;       /**< @brief modulus, expressed as log2 modulus.    */
+  uint32_t addr;          /**< @brief address of the station.                */
+  ioHdlcDriver *driver;   /**< @brief the link driver interface implementor. */
+  ioHdlcFramePool *fpp;   /**< @brief the frame pool used by the station.    */
   void *phydriver;        /**< @brief the physical driver used by the implementor. */
-  void *phydriver_config; /**< @brief the physical driver configuration.   */
+  void *phydriver_config; /**< @brief the physical driver configuration.     */
 };
 
 /*===========================================================================*/

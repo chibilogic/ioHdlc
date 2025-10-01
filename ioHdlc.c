@@ -99,6 +99,15 @@ static void stopReplyTimer(iohdlc_station_peer_t *p)
   p->ss_state &= ~IOHDLC_SS_RPL_STT;
 }
 
+
+static void ackRcvedP(iohdlc_station_peer_t *p) {
+  p->stationp->pf_state &= ~IOHDLC_P_RCVED;
+}
+
+static void ackRcvedF(iohdlc_station_peer_t *p) {
+  p->stationp->pf_state &= ~IOHDLC_F_RCVED;
+}
+
 static void sendUMframe(iohdlc_station_t *s, uint32_t addr, uint32_t umcmd)
 {
   iohdlc_frame_t *fp;
@@ -128,20 +137,45 @@ static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q)
   }
 }
 
-static void resetPeer(iohdlc_station_peer_t *p)
+static void resetPeerUm(iohdlc_station_peer_t *p)
+{
+  /* Reset um state variables. */
+  p->um_state = 0;
+  p->um_cmd = 0;
+}
+
+static void resetPeerVars(iohdlc_station_peer_t *p)
 {
   /* Stop timer. */
   stopReplyTimer(p);
 
   /* Reset state variables. */
   p->nr = p->vr = p->vs = 0;
-  p->pf_state = p->um_state = p->ss_state = 0;
-  p->um_cmd = 0;
+  p->ss_state = 0;
 
   /* Reset queues. */
   clearFrameQ(p, &p->i_retrans_q);
   clearFrameQ(p, &p->i_recept_q);
   clearFrameQ(p, &p->i_trans_q);
+}
+
+/*
+ * @brief Check if there is a send opportunity
+ * @note  In the case of normal modes, a send opportunity exists
+ *        when a frame with P bit set to 1 is received if @p s is secondary. or
+ *        when a frame with F bit set to 1 is received if @p s is primary
+ *        In the case of asynchronous modes, two-way alternate,
+ *        a send opportunity exists when a idle state is detected
+ *        on the line (IOHDLC_FLG_IDL).
+ *        In the case of asynchronous modes, two-way simultaneous,
+ *        a send opportunity ever exists.
+ */
+static bool thereIsSendOpportunity(iohdlc_station_t *s, uint8_t pf_bit) {
+  if ((!IOHDLC_IS_NRM(s) && !(s->flags & IOHDLC_FLG_TWA)) ||
+      (!IOHDLC_IS_NRM(s) && (s->flags & IOHDLC_FLG_IDL))  ||
+      ( IOHDLC_IS_NRM(s) && pf_bit))
+    return true;
+  return false;
 }
 
 /*
@@ -160,21 +194,28 @@ static bool checkReplyTimeout(eventflags_t ef, iohdlc_station_peer_t *p)
   return r;
 }
 
+/*
+ * The transmitter is responsible to send the frames ready to
+ * transmit, and to send frames in response to received commands
+ * from the peers, based on the current state.
+ */
 static void transmitterTask(void *stationp) {
   iohdlc_station_t *s = (iohdlc_station_t *)stationp;
   iohdlc_station_peer_t *p;
-  eventflags_t cm_flags;
+  eventflags_t cm_flags = 0;
   event_listener_t cm_listener;
 
   /* Subscribe to events. */
   chEvtRegisterMaskWithFlags(&s->cm_es, &cm_listener, EVENT_MASK(0),
-      EVT_CM_RPLYTMO|EVT_CM_UMRECVD|EVT_CM_CONNSTR);
+      EVT_CM_RPLYTMO|EVT_CM_UMRECVD|EVT_CM_CONNSTR|EVT_CM_LINIDLE);
 
   for (;/* ever */;) {
 
-    /* Wait for the events. */
-    (void) chEvtWaitAny(EVENT_MASK(0));
-    cm_flags = chEvtGetAndClearFlags(&cm_listener);
+    if (!cm_flags) {
+      /* Wait for the events. */
+      (void) chEvtWaitAny(EVENT_MASK(0));
+      cm_flags = chEvtGetAndClearFlags(&cm_listener);
+    }
 
     /* Note: the following iteration is effective only for unbalanced mode
        in a multipoint configuration with more than one peer. */
@@ -185,36 +226,52 @@ static void transmitterTask(void *stationp) {
       /* If an unnumbered command has been received, check if
          it's a (dis)connection command and action it, if possible. */
       if ((p->um_state & IOHDLC_UM_RCVED) != 0) {
-        uint8_t stationtype = s->mode & 0xF0;
         uint8_t om = um2supportedConnMode(p->um_cmd);
-        uint8_t pf_bit = (p->pf_state & IOHDLC_P_RCVED) ? IOHDLC_PF_BIT : 0;
+        uint8_t pf_bit = (p->stationp->pf_state & IOHDLC_P_RCVED) ? IOHDLC_PF_BIT : 0;
 
         /* Check if the command is a supported set mode and if it's
-           actionable. SNRM is actionable only if P bit is set to 1. */
-        if (om && (pf_bit || (p->um_cmd != IOHDLC_U_SNRM))) {
+           actionable. */
+        if (om) {
 
-          /* Set mode command is actionable, even if already actioned.
+          /* Set mode command is actionable.
              Reset variables, change mode and send UA. */
-          s->mode = om | stationtype;
-          resetPeer(p);
-          sendUMframe(s, s->addr, IOHDLC_U_UA|pf_bit);
+          s->mode = om;
+          resetPeerVars(p);
+          p->ss_state |= IOHDLC_SS_ST_CONN; /* connected with primary/combined
+                                               station */
+          if (thereIsSendOpportunity(s, pf_bit)) {
+            resetPeerUm(p); /* acknowledge IOHDLC_UM_RCVED */
+            ackRcvedP(p);   /* acknowledge IOHDLC_P_RCVED */
+            sendUMframe(s, s->addr, IOHDLC_U_UA|pf_bit);
+
+            /* go on to eventually send other frames. The P/F has been
+               acknowledged, and thus the P/F checkpoint will be inhibited  */
+
+          } else {
+            continue; /* wait respond opportunity */
+          }
         } else if (p->um_cmd == IOHDLC_U_DISC) {
 
-          /* If connected send UA prior to actioning the command
-             and change to disconnected mode. */
+          /* If connected, send UA prior to actioning the DISC command
+             and then change to disconnected mode. */
           if (!IOHDLC_IS_DISC(s)) {
-            sendUMframe(s, s->addr, IOHDLC_U_UA|pf_bit);
-            s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-            s->mode |= stationtype;
-            resetPeer(p);
+            if (thereIsSendOpportunity(s, pf_bit)) {
+              sendUMframe(s, s->addr, IOHDLC_U_UA|pf_bit);
+              s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+              resetPeerVars(p);
+              resetPeerUm(p);
+              ackRcvedP(p);
+            }
           } else {
 
-            /* else send DM. */
-            p->um_cmd = 0;
-            p->um_state &= ~IOHDLC_UM_RCVED;
-            p->pf_state &= ~IOHDLC_P_RCVED;
-            sendUMframe(s, s->addr, IOHDLC_U_DM|pf_bit);
+            /* Already disconnected. Send DM. */
+            if (thereIsSendOpportunity(s, pf_bit)) {
+              sendUMframe(s, s->addr, IOHDLC_U_DM|pf_bit);
+              resetPeerUm(p);
+              ackRcvedP(p);
+            }
           }
+          continue;
         } else {
 
           /* TODO: Change to FRMR where appropriate. */
@@ -223,7 +280,7 @@ static void transmitterTask(void *stationp) {
              not implemented. */
           p->um_cmd = 0;
           p->um_state &= ~IOHDLC_UM_RCVED;
-          p->pf_state &= ~IOHDLC_P_RCVED;
+          ackRcvedP(p);
           sendUMframe(s, s->addr, IOHDLC_U_DM|pf_bit);
           continue;
         }
@@ -233,39 +290,78 @@ static void transmitterTask(void *stationp) {
       if (IOHDLC_IS_PRI(s)) {
         uint8_t um_cmd = p->um_cmd;
 
-        /* if p.um_cmd and not p.IOHDLC_UM_SENT or on connection request */
+        /* if there is a new, or forced, unnumbered command to serve */
         if (um_cmd != 0 && ((cm_flags & EVT_CM_CONNSTR) ||
             !(p->um_state & IOHDLC_UM_SENT))) {
 
-          /* If UM is a (dis)connection command and the connection state
+          /* If the command is a (dis)connection command and the connection state
              is correct, */
           if ((IOHDLC_PEER_DISC(p) && um2supportedConnMode(um_cmd)) ||
               (!IOHDLC_PEER_DISC(p) && (um_cmd == IOHDLC_U_DISC))) {
 
-            /* send to p um_cmd, set p.IOHDLC_UM_SENT .*/
-            /* The um_cmd processing will be completed in the receiver task. */
+            /* send to p the command and keep record that it is outstanding. */
             p->um_state |= IOHDLC_UM_SENT;
             startReplyTimer(p, 100);
             sendUMframe(s, p->addr, um_cmd|IOHDLC_PF_BIT);
-            continue;
+          } else {
+
+            /* discard p.um_cmd if not a supported set mode cmd. */
+            p->um_cmd = 0;
           }
-          /* discard p.um_cmd if not a supported set mode cmd. */
-          p->um_cmd = 0;
         }
-        continue;
       }
 
+      /* continue if the peer is not connected. */
+      if (!(p->ss_state & IOHDLC_SS_ST_CONN))
+        continue;
+
       /* If p.IOHDLC_PF_RCVED */
+      if (!(p->stationp->pf_state & IOHDLC_PF_INHB) &&
+          ((IOHDLC_IS_ABM(s) && (p->stationp->pf_state & IOHDLC_F_RCVED)) ||
+          (!IOHDLC_IS_ABM(s) && (p->stationp->pf_state & (IOHDLC_P_RCVED|IOHDLC_F_RCVED))))) {
+          ;
         /* Run checkpoint procedure */
-      /* If s is primary and (not s.IOHDLC_OM_TWA or p.IOHDLC_F_RCVED) */
+      }
+
+      /* In ABM entrambe le stazioni sono sia primarie che secondarie (combinate).
+       * Se abbiamo ricevuto un comando con P impostato, allora P_RCVED è asserito, e dunque lo accettiamo
+       * inviando un response con F impostato e negando P_RCVED.
+       * Viceversa, se abbiamo ricevuto un response con F impostato, allora F_RCVED è asserito, e dunque
+       * lo confermiamo inviando un comando con P impostato, e negando F_RCVED.
+       * Quando inviamo un comando con P impostato, avviamo un reply timer che sarà fermato solo
+       * al momento dell'arrivo di un frame con F impostato. Più precisamente,
+       *
+       * Per stazioni che inviano comandi:
+       *
+       * in NRM
+       *    il reply timer è avviato ogni qualvolta inviamo un frame con P impostato
+       *    il reply timer è reimpostato ogniqualvolta riceviamo un frame con F non impostato
+       *    il reply timer è fermato quando riceviamo un frame con F impostato
+       *
+       * negli altri modi
+       *    il reply timer è avviato ogni qualvolta inviamo un frame con P impostato
+       *    solo nel caso TWA, il reply timer è reimpostato ogniqualvolta trasmettiamo un command frame
+       *    il reply timer è fermato quando riceviamo un frame con F impostato
+       *
+       * Anche quando inviamo I-frame abbiamo un secondo timer, reply-I, azionato per il
+       * recovery dell'ultimo frame in una sequenza di invio:
+       *
+       * in tutti i modi tranne NRM, in cui non è utilizzato
+       *    il reply-I timer è avviato ogni qualvolta inviamo un I-frame
+       *    solo nel caso TWA, il reply-I timer è reimpostato ogniqualvolta trasmettiamo un qualsiasi frame
+       *    il reply-I timer è fermato quando riceviamo un I-frame col N(R) atteso, in pratica un N(R) che
+       *    svuota la coda di ritrasmissione.
+       */
+
+      /* If s is primary/combined and (not s.IOHDLC_FLG_TWA or p.IOHDLC_F_RCVED) */
         /* Send to p RR with P bit set if p.IOHDLC_F_RCVED,
-           if not busy and no frame to tx. */
+           if s is not busy and no frame to tx. */
         /* Send to p RNR with P bit set if p.IOHDLC_F_RCVED,
-           if busy and no frame to tx. */
+           if s is busy and no frame to tx. */
         /* If peer is not ready to receive, next peer */
-        /* If not s.IOHDLC_OM_TWA */
+        /* If not s.IOHDLC_FLG_TWA */
           /* Send to p all queued I frame, with P bit set if not p.IOHDLC_P_SENT. */
-        /* If IOHDLC_OM_TWA */
+        /* If IOHDLC_FLG_TWA */
           /* Send to p all queued I frame, the last one with P bit set. */
 
       /* If secondary and p.IOHDLC_P_RCVED */
@@ -298,9 +394,14 @@ static void receiverTask(void *stationp) {
     /* Wait for the arrival of a frame. */
     fp = hdlcRecvFrame(s->driver, TIME_INFINITE);
     if (NULL == fp) {
+
       /* Idle line */
+      s->flags |= IOHDLC_FLG_IDL;
+      if (s->flags & IOHDLC_FLG_TWA)
+        chEvtBroadcastFlags(&s->cm_es, EVT_CM_LINIDLE);
       continue;
     }
+    s->flags &= ~IOHDLC_FLG_IDL;
 
     /* Decode addr from the frame fp.
        foctp[0] is the addr octet
@@ -316,21 +417,23 @@ static void receiverTask(void *stationp) {
       /* discard the frame if it isn't intended for this secondary station. */
       if (addr != s->addr)
         goto relfp;
+      p = s->peers.next;
 
-      /* If the frame type is an unnumbered command with P set, */
-      if (IOHDLC_IS_U_FRM(ctrl)) {
-        if (!ioHdlc_peerl_isempty(&s->peers) && (ctrl & IOHDLC_PF_BIT)) {
+      /* Frame type is an unnumbered command.
+         If the station receives more than one um commands before
+         a respond opportunity occurs, it will ignore all frames received,
+         except to detect the next respond opportunity */
+      if (IOHDLC_IS_U_FRM(ctrl) && !(p->um_state & IOHDLC_UM_RCVED)) {
 
-          /* set IOHDLC_UM_RCVED, set um_cmd to the command code and
-             signal transmitter of UM_RCVED and release the frame. */
-          p = s->peers.next;
-          p->um_state |= IOHDLC_UM_RCVED;
-          p->um_cmd = ctrl & IOHDLC_U_FUN_MASK;
-          p->pf_state |= IOHDLC_P_RCVED;
+        /* Annotate that an um command has been received, record  the command,
+           and signal this event to the transmitter. */
+        p->um_state |= IOHDLC_UM_RCVED;
+        p->um_cmd = ctrl & IOHDLC_U_FUN_MASK;
+        if (ctrl & IOHDLC_PF_BIT)
+          p->stationp->pf_state |= IOHDLC_P_RCVED;
 
-          /* Signal UM_RCVED to the tx */
-          chEvtBroadcastFlags(&s->cm_es, EVT_CM_UMRECVD);
-        }
+        /* Signal UM_RCVED to the tx */
+        chEvtBroadcastFlags(&s->cm_es, EVT_CM_UMRECVD);
       }
       goto relfp;
     }
@@ -344,7 +447,6 @@ static void receiverTask(void *stationp) {
     if (IOHDLC_IS_PRI(s)) {
 
       if (IOHDLC_IS_U_FRM(ctrl)) {
-        uint8_t stationtype = s->mode & 0xF0;
 
         /* If p.IOHDLC_UM_SENT, aka if a UM cmd was sent by this primary
            to the peer p, then the UM frame could be a response to this UM
@@ -357,11 +459,11 @@ static void receiverTask(void *stationp) {
 
             /* If fp is a DM frame response, set peer as disconnected,
                stop p timeout, clear um_cmd and IOHDLC_UM_SENT and set
-               a disconnected state. */
+               a disconnected response. */
             p->um_cmd = 0;
             p->um_state &= ~IOHDLC_UM_SENT;     /* Acknowledge UM_SENT. */
             p->ss_state &= ~IOHDLC_SS_ST_CONN;  /* Cancel connected state. */
-            p->ss_state |= IOHDLC_SS_ST_DISM;   /* Set disconnected state. */
+            p->ss_state |= IOHDLC_SS_ST_DISM;   /* Set disconnected response. */
             stopReplyTimer(p);
             chEvtBroadcastFlags(&s->cm_es, EVT_CM_CONNCHG);
           } else if (um_cmd == IOHDLC_U_UA) {
@@ -371,19 +473,20 @@ static void receiverTask(void *stationp) {
                of this primary and signal the completion of the (dis)connection
                attempt. */
             if ((om = um2supportedConnMode(p->um_cmd)) != 0) {
-              resetPeer(p);
-              s->mode = om | stationtype;
+              resetPeerVars(p);
+              resetPeerUm(p);
+              s->mode = om;
               p->ss_state |= IOHDLC_SS_ST_CONN;
             } else if (p->um_cmd == IOHDLC_U_DISC) {
-              resetPeer(p);
-              om = ((s->mode & 0x0F) == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM :
-                  IOHDLC_OM_ADM;
-              s->mode = om | stationtype;
-              p->ss_state &= ~IOHDLC_SS_ST_CONN;  /* Cancel connected state. */
+              resetPeerVars(p);
+              resetPeerUm(p);
+              om = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+              s->mode = om;
             } else {
               /* Assert here */
             }
-            chEvtBroadcastFlags(&s->cm_es, EVT_CM_CONNCHG);
+            p->stationp->pf_state |= IOHDLC_F_RCVED|IOHDLC_PF_INHB;
+            chEvtBroadcastFlags(&s->cm_es, EVT_CM_CONNCHG|EVT_CM_UMRECVD);
           }
         }
         goto relfp;
@@ -410,6 +513,11 @@ iohdlc_station_peer_t *addr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr)
   return NULL;
 }
 
+/**
+ *
+ * @note  Only one secondary station at a time shall be put in
+ *        asynchronous response mode (see 6.11.3.1)
+ */
 int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr, uint8_t mode) {
   iohdlc_station_peer_t *p = addr2peer(ioHdlcsp, peer_addr);
   event_listener_t cm_listener;
@@ -447,7 +555,8 @@ int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr, uint
 
     do {
       /* Wait connection completed from the peer or timeout event */
-      eflags = chEvtWaitAnyTimeout(EVENT_MASK(0), TIME_INFINITE);
+      (void) chEvtWaitAnyTimeout(EVENT_MASK(0), TIME_INFINITE);
+      eflags = chEvtGetAndClearFlags(&cm_listener);
 
       if ((p->ss_state & IOHDLC_SS_ST_DISM)) {
         ioHdlcsp->errorno = ECONNREFUSED;
@@ -503,7 +612,8 @@ int32_t ioHdlcStationLinkDown(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr) {
     p->ss_state &= ~IOHDLC_SS_ST_DISM;
     do {
       /* Wait disconnection completed from the peer or timeout event */
-      eflags = chEvtWaitAnyTimeout(EVENT_MASK(0), TIME_INFINITE);
+      (void) chEvtWaitAnyTimeout(EVENT_MASK(0), TIME_INFINITE);
+      eflags = chEvtGetAndClearFlags(&cm_listener);
 
       if ((p->ss_state & IOHDLC_SS_ST_DISM)) {
         ioHdlcsp->errorno = ENOTCONN;
@@ -654,6 +764,5 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   /* Create receiver and trasmitter task */
   chThdCreateFromHeap(NULL, 2048, "TX", NORMALPRIO + 1, transmitterTask, ioHdlcsp);
   chThdCreateFromHeap(NULL, 2048, "RX", NORMALPRIO + 1, receiverTask, ioHdlcsp);
-  return 0;
   return 0;
 }
