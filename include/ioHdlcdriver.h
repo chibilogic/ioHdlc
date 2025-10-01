@@ -109,7 +109,7 @@ typedef struct {
 /**
  * @brief   Hdlc get frame hardware transparency method.
  * @details Get the octet/bit transparency hardware capability of the driver.
- * @note    The driver must respond to this method even if it is not
+ * @note    The driver shall respond to this method even if it is not
  *          started yet.
  *
  * @param[in]   ip    ioHdlcDriver instance pointer

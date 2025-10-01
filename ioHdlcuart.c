@@ -86,9 +86,9 @@ static void rxerr(UARTDriver *uartp, uartflags_t e)
 static void timeout(UARTDriver *uartp)
 {
   ioHdclUartDriver *ip = (ioHdclUartDriver *)(uartp->ip);
-  if (ip->frameinrx != NULL) {
+  if ((ip->frameinrx != NULL) && (ip->frameinrx->elen != 0)) {
 
-    /* A timeout occured while receiving a frame, alias
+    /* A timeout occurred while receiving a frame, alias
        it is a intra-frame timeout.
        Discard the current frame and start receiving a
        new frame. */
@@ -98,6 +98,17 @@ static void timeout(UARTDriver *uartp)
     chSysLockFromISR();
     uartStopReceiveI(uartp);
     uartStartReceiveI(uartp, 1, &ip->flagoctet);
+    chSysUnlockFromISR();
+  } else {
+
+    /* A timeout occurred after receiving a frame, alias
+       it is a inter-frame timeout. The line can therefore be
+       considered idle. */
+    chSysLockFromISR();
+
+    /* Reset the semaphore to wake up the receiver. */
+    cnt_t n = chSemGetCounterI(&ip->raw_recept_sem);
+    chSemResetI(&ip->raw_recept_sem, n < 0 ? 0 : n);
     chSysUnlockFromISR();
   }
 }
@@ -259,13 +270,13 @@ static iohdlc_frame_t * recv_frame(void *instance, iohdlc_timeout_t tmo) {
 
   while (true) {
     fp = NULL;
-    if (chSemWaitTimeout(&ip->raw_recept_sem, TIME_MS2I(tmo)) != MSG_TIMEOUT) {
+    if (chSemWaitTimeout(&ip->raw_recept_sem, TIME_MS2I(tmo)) == MSG_OK) {
       chSysLock();
       fp = ioHdlc_frameq_remove(&ip->raw_recept_q);
       chSysUnlock();
     }
     if (NULL == fp)
-      break;         /* Timeout, exit. */
+      break;         /* Timeout or reset, exit. */
     if (ip->flags & HDLC_UART_TRANS)
       frameTransparentDecode(fp, fp);
 
