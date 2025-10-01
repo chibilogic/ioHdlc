@@ -106,7 +106,7 @@ static iohdlc_station_peer_t thePeerOfTwo;
 
 static const iohdlc_station_config_t theStationOneConfig = {
   .mode     = IOHDLC_OM_NDM,
-  .flags    = IOHDLC_FLG_PRI,
+  .flags    = IOHDLC_FLG_PRI|IOHDLC_FLG_TWA,
   .modulus  = 8,
   .addr     = 1,
   .driver   = (ioHdlcDriver *)&linkDriverOne,
@@ -117,7 +117,7 @@ static const iohdlc_station_config_t theStationOneConfig = {
 
 static const iohdlc_station_config_t theStationTwoConfig = {
   .mode     = IOHDLC_OM_NDM,
-  .flags    = 0,
+  .flags    = IOHDLC_FLG_TWA,
   .modulus  = 8,
   .addr     = 2,
   .driver   = (ioHdlcDriver *)&linkDriverTwo,
