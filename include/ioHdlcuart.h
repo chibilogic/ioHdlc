@@ -37,6 +37,12 @@
 #ifndef IOHDLCUART_H_
 #define IOHDLCUART_H_
 
+#include "ioHdlcosal.h"
+#include "ioHdlcdriver.h"
+#include "ioHdlcframe.h"
+#include "ioHdlcframepool.h"
+#include "ioHdlctypes.h"
+
 /**
  * flags defines
  */

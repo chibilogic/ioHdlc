@@ -37,6 +37,7 @@
 #define IOHDLCOSAL_H_
 
 #include "ch.h"
+#include "hal.h"
 
 /*===========================================================================*/
 /* Module constants.                                                         */
