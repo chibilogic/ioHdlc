@@ -25,8 +25,8 @@
 */
 
 /**
- * @file    ioHdlcuart_chibios.c
- * @brief   ChibiOS adapter for the OS-agnostic UART DMA interface.
+ * @file    ioHdlcstream_chibios_uart.c
+ * @brief   ChibiOS adapter for the OS-agnostic stream interface (UART backend).
  * @details Typical integration:
  *          - Prepare a @p UARTConfig and a @p UARTDriver (e.g. @p &UARTD1).
  *          - Initialize the ChibiOS adapter and bind the abstract port:
@@ -64,7 +64,7 @@
  */
 
 
-#include "ioHdlcuart_chibios.h"
+#include "ioHdlcstream_uart.h"
 
 /*===========================================================================*/
 /* Local types.                                                              */
@@ -75,7 +75,7 @@
 /*===========================================================================*/
 
 static void chb_txend_cb(UARTDriver *uartp) {
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)uartp->ip;
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (ctx && ctx->cbs && ctx->cbs->on_tx_done) {
     void *cookie = ctx->tx_cookie;
     /* clear busy */
@@ -85,7 +85,7 @@ static void chb_txend_cb(UARTDriver *uartp) {
 }
 
 static void chb_rxend_cb(UARTDriver *uartp) {
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)uartp->ip;
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (ctx && ctx->cbs && ctx->cbs->on_rx) {
     /* RX of the armed buffer completed (usually 1 byte). */
     ctx->rx_cookie = NULL;
@@ -95,24 +95,24 @@ static void chb_rxend_cb(UARTDriver *uartp) {
 
 static void chb_rxerr_cb(UARTDriver *uartp, uartflags_t e) {
   (void)e;
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)uartp->ip;
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (ctx && ctx->cbs && ctx->cbs->on_rx_error) {
     uint32_t mask = 0;
 #if defined(UART_PARITY_ERROR)
-    if (e & UART_PARITY_ERROR) mask |= IOHDLC_UART_ERR_PARITY;
+    if (e & UART_PARITY_ERROR) mask |= IOHDLC_STREAM_ERR_PARITY;
 #endif
 #if defined(UART_FRAMING_ERROR)
-    if (e & UART_FRAMING_ERROR) mask |= IOHDLC_UART_ERR_FRAMING;
+    if (e & UART_FRAMING_ERROR) mask |= IOHDLC_STREAM_ERR_FRAMING;
 #endif
 #if defined(UART_OVERRUN_ERROR)
-    if (e & UART_OVERRUN_ERROR) mask |= IOHDLC_UART_ERR_OVERRUN;
+    if (e & UART_OVERRUN_ERROR) mask |= IOHDLC_STREAM_ERR_OVERRUN;
 #endif
     ctx->cbs->on_rx_error((void *)ctx->cbs->cb_ctx, mask);
   }
 }
 
 static void chb_timeout_cb(UARTDriver *uartp) {
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)uartp->ip;
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (ctx && ctx->cbs && ctx->cbs->on_rx) {
     ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, true);
   }
@@ -122,9 +122,8 @@ static void chb_timeout_cb(UARTDriver *uartp) {
 /* Port ops implementation.                                                  */
 /*===========================================================================*/
 
-static void chb_start(void *vctx, const ioHdlcUartParams *p, const ioHdlcUartCallbacks *cbs) {
-  (void)p; /* configuration mapping is platform-specific; assumed pre-set in cfgp */
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)vctx;
+static void chb_start(void *vctx, const ioHdlcStreamCallbacks *cbs) {
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
 
   ctx->cbs = cbs;
   ctx->tx_cookie = NULL;
@@ -143,12 +142,12 @@ static void chb_start(void *vctx, const ioHdlcUartParams *p, const ioHdlcUartCal
 }
 
 static void chb_stop(void *vctx) {
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)vctx;
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   uartStop(ctx->uartp);
 }
 
 static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cookie) {
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)vctx;
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   /* Consider busy if a cookie is pending or TX engine not idle. */
   if (ctx->tx_cookie != NULL || ctx->uartp->txstate != UART_TX_IDLE) return false;
   ctx->tx_cookie = cookie;
@@ -160,12 +159,12 @@ static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cook
 }
 
 static bool chb_tx_busy(void *vctx) {
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)vctx;
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   return ctx->uartp->txstate != UART_TX_IDLE;
 }
 
 static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)vctx;
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   if (ctx->rx_cookie != NULL) return false; /* one RX at a time */
   ctx->rx_cookie = (void *)1; /* mark busy */
   if (chSysIsInISR())
@@ -176,7 +175,7 @@ static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
 }
 
 static void chb_rx_cancel(void *vctx) {
-  ioHdlcUartChibios *ctx = (ioHdlcUartChibios *)vctx;
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   if (chSysIsInISR())
     uartStopReceiveI(ctx->uartp);
   else
@@ -184,7 +183,7 @@ static void chb_rx_cancel(void *vctx) {
   ctx->rx_cookie = NULL;
 }
 
-static const ioHdlcUartPortOps chibios_ops = {
+static const ioHdlcStreamPortOps chibios_ops = {
   .start     = chb_start,
   .stop      = chb_stop,
   .tx_submit = chb_tx_submit,
@@ -204,8 +203,8 @@ static const ioHdlcUartPortOps chibios_ops = {
  * @param[in]  uartp   ChibiOS UART driver instance
  * @param[in]  cfgp    UART configuration to be used (callbacks will be set)
  */
-void ioHdlcUartPortChibiosObjectInit(ioHdlcUartPort *port,
-                                     ioHdlcUartChibios *obj,
+void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
+                                     ioHdlcStreamChibiosUart *obj,
                                      UARTDriver *uartp,
                                      UARTConfig *cfgp) {
   obj->uartp = uartp;
