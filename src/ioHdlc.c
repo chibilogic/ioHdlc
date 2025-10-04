@@ -163,7 +163,7 @@ static void resetPeerVars(iohdlc_station_peer_t *p)
 /*
  * @brief Check if there is a send opportunity
  * @note  In the case of normal modes, a send opportunity exists
- *        when a frame with P bit set to 1 is received if @p s is secondary. or
+ *        when a frame with P bit set to 1 is received if @p s is secondary or
  *        when a frame with F bit set to 1 is received if @p s is primary
  *        In the case of asynchronous modes, two-way alternate,
  *        a send opportunity exists when a idle state is detected
@@ -275,7 +275,7 @@ static void transmitterTask(void *stationp) {
           continue;
         } else {
 
-          /* TODO: Change to FRMR where appropriate. */
+          /* TODO: Change to FRMR (Frame Reject) where appropriate. */
           /* Send DM if received frame is not a set mode cmd,
              or if it is not actionable, or if it is
              not implemented. */

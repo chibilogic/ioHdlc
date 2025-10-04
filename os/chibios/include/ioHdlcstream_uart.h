@@ -13,8 +13,8 @@ typedef struct ioHdlcStreamChibiosUart {
   UARTDriver  *uartp;
   UARTConfig  *cfgp;
   const ioHdlcStreamCallbacks *cbs;
-  void          *tx_cookie;
-  void          *rx_cookie;
+  void          *tx_framep; /* TX in-flight frame pointer */
+  bool           rx_busy;   /* RX in progress */
 } ioHdlcStreamChibiosUart;
 
 void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
@@ -23,4 +23,3 @@ void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
                                            UARTConfig *cfgp);
 
 #endif /* IOHDLCSTREAM_CHIBIOS_UART_H */
-

@@ -25,39 +25,39 @@
 */
 
 /**
- * @file    ioHdlcstream_chibios_uart.c
+ * @file    ioHdlcstream_uart.c
  * @brief   ChibiOS adapter for the OS-agnostic stream interface (UART backend).
  * @details Typical integration:
  *          - Prepare a @p UARTConfig and a @p UARTDriver (e.g. @p &UARTD1).
  *          - Initialize the ChibiOS adapter and bind the abstract port:
  *              @code
- *              static ioHdlcUartChibios uobj;
- *              static ioHdlcUartPort    port;
- *              ioHdlcUartPortChibiosObjectInit(&port, &uobj, &UARTD1, &uartcfg);
+ *              static ioHdlcStreamChibiosUart uobj;
+ *              static ioHdlcStreamPort        port;
+ *              ioHdlcStreamPortChibiosUartObjectInit(&port, &uobj, &UARTD1, &uartcfg);
  *              @endcode
- *          - Define the UART parameters (@p ioHdlcUartParams) and the core
- *            configuration (@p ioHdlcUartNewConfig):
- *              @li @p has_frame_format: enables length-prefixed frames (FFF)
- *              @li @p deliver_rx_frame: integrate with the caller's delivery
- *                  path (queue/handler). RX frames are taken/released via the
- *                  pool reference passed at init.
- *          - Initialize and start the generic core:
+ *          - Define the stream configuration (@p ioHdlcStreamConfig) and
+ *            initialize/start the core:
  *              @code
- *              ioHdlcUartNew core;
- *              ioHdlcUartNew_init(&core, &port, &params, &cfg, upper_ctx);
- *              ioHdlcUartNew_start(&core);
+ *              ioHdlcStreamConfig cfg = {
+ *                .has_frame_format   = false,
+ *                .apply_transparency = false,
+ *                .deliver_rx_frame   = my_deliver_rx,
+ *              };
+ *              ioHdlcStream core;
+ *              ioHdlcStream_init(&core, &port, &cfg, pool, upper_ctx);
+ *              ioHdlcStream_start(&core);
  *              @endcode
- *          - Transmission: use @p ioHdlcUartNew_send(&core, ptr, len, cookie).
- *            The @p cookie is returned in @p on_tx_done for upper-layer
- *            bookkeeping.
+ *          - Transmission: use @p ioHdlcStream_send(&core, ptr, len, cookie).
+ *            The @p cookie is returned in @p on_tx_done for ownership release
+ *            or bookkeeping.
  *
  *          Operational notes:
  *          - The adapter assigns @p txend1_cb/@p rxend_cb/@p rxerr_cb/@p timeout_cb
  *            on @p UARTConfig.
- *          - RX timeout is propagated as an error so the core can discard/rearm
- *            a frame.
+ *          - RX timeout is propagated as a notification so the core can
+ *            discard/rearm a frame as needed.
  *          - Only one RX is in-flight; the core re-arms subsequent portions of
- *            the same frame (multi-chunk) in @p on_rx_chunk, according to the
+ *            the same frame (multi-chunk) via @p on_rx according to the
  *            expected length.
  *          - Functions use I or non-I variants depending on context
  *            (@p chSysIsInISR()).
@@ -77,10 +77,10 @@
 static void chb_txend_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (ctx && ctx->cbs && ctx->cbs->on_tx_done) {
-    void *cookie = ctx->tx_cookie;
+    void *framep = ctx->tx_framep;
     /* clear busy */
-    ctx->tx_cookie = NULL;
-    ctx->cbs->on_tx_done((void *)ctx->cbs->cb_ctx, cookie);
+    ctx->tx_framep = NULL;
+    ctx->cbs->on_tx_done((void *)ctx->cbs->cb_ctx, framep);
   }
 }
 
@@ -88,7 +88,7 @@ static void chb_rxend_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (ctx && ctx->cbs && ctx->cbs->on_rx) {
     /* RX of the armed buffer completed (usually 1 byte). */
-    ctx->rx_cookie = NULL;
+    ctx->rx_busy = false;
     ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, false);
   }
 }
@@ -114,6 +114,7 @@ static void chb_rxerr_cb(UARTDriver *uartp, uartflags_t e) {
 static void chb_timeout_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (ctx && ctx->cbs && ctx->cbs->on_rx) {
+    ctx->rx_busy = false;
     ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, true);
   }
 }
@@ -126,13 +127,13 @@ static void chb_start(void *vctx, const ioHdlcStreamCallbacks *cbs) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
 
   ctx->cbs = cbs;
-  ctx->tx_cookie = NULL;
-  ctx->rx_cookie = NULL;
+  ctx->tx_framep = NULL;
+  ctx->rx_busy = false;
 
   /* Bind callbacks and start UART. */
   ctx->uartp->ip = ctx;
   if (ctx->cfgp) {
-    /* Prefer txend1 for compatibility, as used in the existing driver. */
+    /* Prefer txend1. */
     ctx->cfgp->txend1_cb = chb_txend_cb;
     ctx->cfgp->rxend_cb  = chb_rxend_cb;
     ctx->cfgp->rxerr_cb  = chb_rxerr_cb;
@@ -148,9 +149,9 @@ static void chb_stop(void *vctx) {
 
 static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cookie) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
-  /* Consider busy if a cookie is pending or TX engine not idle. */
-  if (ctx->tx_cookie != NULL || ctx->uartp->txstate != UART_TX_IDLE) return false;
-  ctx->tx_cookie = cookie;
+  /* Consider busy if a frame is pending or TX engine not idle. */
+  if (ctx->tx_framep != NULL || ctx->uartp->txstate != UART_TX_IDLE) return false;
+  ctx->tx_framep = cookie;
   if (chSysIsInISR())
     uartStartSendI(ctx->uartp, len, ptr);
   else
@@ -165,8 +166,8 @@ static bool chb_tx_busy(void *vctx) {
 
 static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
-  if (ctx->rx_cookie != NULL) return false; /* one RX at a time */
-  ctx->rx_cookie = (void *)1; /* mark busy */
+  if (ctx->rx_busy) return false; /* one RX at a time */
+  ctx->rx_busy = true; /* mark busy */
   if (chSysIsInISR())
     uartStartReceiveI(ctx->uartp, len, ptr);
   else
@@ -180,7 +181,7 @@ static void chb_rx_cancel(void *vctx) {
     uartStopReceiveI(ctx->uartp);
   else
     uartStopReceive(ctx->uartp);
-  ctx->rx_cookie = NULL;
+  ctx->rx_busy = false;
 }
 
 static const ioHdlcStreamPortOps chibios_ops = {
@@ -210,8 +211,8 @@ void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
   obj->uartp = uartp;
   obj->cfgp  = cfgp;
   obj->cbs   = NULL;
-  obj->tx_cookie = NULL;
-  obj->rx_cookie = NULL;
+  obj->tx_framep = NULL;
+  obj->rx_busy = false;
 
   port->ctx = obj;
   port->ops = &chibios_ops;

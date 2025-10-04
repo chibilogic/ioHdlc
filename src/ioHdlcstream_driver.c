@@ -1,6 +1,6 @@
 /*
- * ioHdlc UART driver implemented on top of ioHdlcUartNew core.
- * Expects an already initialized ioHdlcUartPort from the HAL adapter.
+ * HDLC driver implemented on top of ioHdlcStream core.
+ * Expects an already initialized ioHdlcStreamPort from the HAL adapter.
  */
 
 #include "ioHdlcdriver.h"
@@ -30,9 +30,9 @@ static const struct _iohdlc_driver_vmt s_vmt = {
 };
 
 /* Core -> upper delivery callback (ISR). */
-static void s_core_deliver_rx(void *upper_ctx, void *cookie, size_t len) {
+static void s_core_deliver_rx(void *upper_ctx, void *framep, size_t len) {
   ioHdclStreamDriver *ip = (ioHdclStreamDriver *)upper_ctx;
-  iohdlc_frame_t *fp = (iohdlc_frame_t *)cookie;
+  iohdlc_frame_t *fp = (iohdlc_frame_t *)framep;
   fp->elen = (uint16_t)len;
   ioHdlc_frameq_insert(&ip->raw_recept_q, fp);
   iohdlc_sys_lock_isr();

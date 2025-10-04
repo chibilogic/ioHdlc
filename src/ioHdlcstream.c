@@ -43,7 +43,7 @@
 /*===========================================================================*/
 
 static void s_hal_on_rx(void *cb_ctx, bool timed_out);
-static void s_hal_on_tx_done(void *cb_ctx, void *cookie);
+static void s_hal_on_tx_done(void *cb_ctx, void *framep);
 static void s_hal_on_rx_error(void *cb_ctx, uint32_t errmask);
 
 /*===========================================================================*/
@@ -51,7 +51,7 @@ static void s_hal_on_rx_error(void *cb_ctx, uint32_t errmask);
 /*===========================================================================*/
 
 /**
- * @brief   Initializes the UART helper.
+ * @brief   Initializes the stream helper.
  */
 bool ioHdlcStream_init(ioHdlcStream              *d,
                        const ioHdlcStreamPort   *port,
@@ -80,7 +80,7 @@ bool ioHdlcStream_init(ioHdlcStream              *d,
 }
 
 /**
- * @brief   Starts the UART port and arms the initial RX header.
+ * @brief   Starts the stream port and arms the initial RX header.
  */
 bool ioHdlcStream_start(ioHdlcStream *d) {
   if (!d || d->started || !d->port.ops || !d->port.ops->start || !d->port.ops->rx_submit)
@@ -109,10 +109,10 @@ void ioHdlcStream_stop(ioHdlcStream *d) {
 /**
  * @brief   Submits a TX buffer to the adapter.
  */
-bool ioHdlcStream_send(ioHdlcStream *d, const uint8_t *ptr, size_t len, void *cookie) {
+bool ioHdlcStream_send(ioHdlcStream *d, const uint8_t *ptr, size_t len, void *framep) {
   if (!d || !d->port.ops || !d->port.ops->tx_submit || !ptr || len == 0)
     return false;
-  return d->port.ops->tx_submit(d->port.ctx, ptr, len, cookie);
+  return d->port.ops->tx_submit(d->port.ctx, ptr, len, framep);
 }
 
 /*===========================================================================*/
@@ -253,11 +253,11 @@ static void s_hal_on_rx(void *cb_ctx, bool timed_out) {
 /**
  * @brief   HAL callback: TX buffer completed.
  */
-static void s_hal_on_tx_done(void *cb_ctx, void *cookie) {
+static void s_hal_on_tx_done(void *cb_ctx, void *framep) {
   ioHdlcStream *d = (ioHdlcStream *)cb_ctx;
-  if (cookie) {
-    /* Cookie is the frame pointer to be released back to the pool. */
-    hdlcReleaseFrame(d->pool, (iohdlc_frame_t *)cookie);
+  if (framep) {
+    /* framep is the frame pointer to be released back to the pool. */
+    hdlcReleaseFrame(d->pool, (iohdlc_frame_t *)framep);
   }
 }
 

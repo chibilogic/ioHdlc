@@ -63,14 +63,14 @@ struct ioHdlcStream;
  * @brief HAL/adapter -> core callbacks (invoked from driver ISR/task).
  */
 typedef void (*ioHdlcStreamOnRx)(void *cb_ctx, bool timed_out);
-typedef void (*ioHdlcStreamOnTxDone)(void *cb_ctx, void *cookie);
+typedef void (*ioHdlcStreamOnTxDone)(void *cb_ctx, void *framep);
 typedef void (*ioHdlcStreamOnRxError)(void *cb_ctx, uint32_t errmask);
 
 typedef struct ioHdlcStreamCallbacks {
   ioHdlcStreamOnRx      on_rx;      /* RX byte ready or timeout notification */
-  ioHdlcStreamOnTxDone  on_tx_done;  /* TX buffer has been fully sent */
-  ioHdlcStreamOnRxError on_rx_error; /* Stream/DMA error notification */
-  void               *cb_ctx;       /* passed back as first argument */
+  ioHdlcStreamOnTxDone  on_tx_done; /* TX buffer has been fully sent */
+  ioHdlcStreamOnRxError on_rx_error;/* Stream/DMA error notification */
+  void                 *cb_ctx;     /* passed back as first argument */
 } ioHdlcStreamCallbacks;
 
 /**
@@ -82,11 +82,11 @@ typedef struct ioHdlcStreamPortOps {
   void (*stop)(void *ctx);
 
   /* Submit a TX buffer (non-blocking). Returns false if busy. */
-  bool (*tx_submit)(void *ctx, const uint8_t *ptr, size_t len, void *cookie);
+  bool (*tx_submit)(void *ctx, const uint8_t *ptr, size_t len, void *framep);
   /* Optional: query TX busy (may be NULL if not needed). */
   bool (*tx_busy)(void *ctx);
 
-  /* Arm a DMA RX transfer of 'len' bytes into 'ptr'. The 'cookie' */
+  /* Arm a RX transfer of 'len' bytes into 'ptr'. The 'cookie' */
   /* is returned verbatim in on_rx_chunk.                          */
   bool (*rx_submit)(void *ctx, uint8_t *ptr, size_t len);
   void (*rx_cancel)(void *ctx);
@@ -101,10 +101,10 @@ typedef struct ioHdlcStreamPort {
 } ioHdlcStreamPort;
 
 /**
- * @brief Deliver a completed RX frame (exact length @p len), identified by @p cookie.
+ * @brief Deliver a completed RX frame (exact length @p len), identified by @p framep.
  */
 typedef void (*ioHdlcStream_DeliverRxFrame)(void *upper_ctx,
-                                             void *cookie,
+                                             void *framep,
                                              size_t len);
 
 typedef struct ioHdlcStreamConfig {
@@ -154,9 +154,9 @@ void ioHdlcStream_stop(ioHdlcStream *d);
 
 /**
  * @brief Submit a TX frame buffer to be sent.
- * @note  @p cookie will be echoed in @p on_tx_done.
+ * @note  @p framep will be echoed in @p on_tx_done.
  */
-bool ioHdlcStream_send(ioHdlcStream *d, const uint8_t *ptr, size_t len, void *cookie);
+bool ioHdlcStream_send(ioHdlcStream *d, const uint8_t *ptr, size_t len, void *framep);
 
 #ifdef __cplusplus
 }
