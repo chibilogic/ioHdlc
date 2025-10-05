@@ -76,47 +76,47 @@
 
 static void chb_txend_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
-  if (ctx && ctx->cbs && ctx->cbs->on_tx_done) {
-    void *framep = ctx->tx_framep;
-    /* clear busy */
-    ctx->tx_framep = NULL;
-    ctx->cbs->on_tx_done((void *)ctx->cbs->cb_ctx, framep);
-  }
+  if (!ctx) return;
+  chDbgAssert(ctx->cbs && ctx->cbs->on_tx_done, "uart txend cb: callbacks not set");
+  void *framep = ctx->tx_framep;
+  /* clear busy */
+  ctx->tx_framep = NULL;
+  ctx->cbs->on_tx_done((void *)ctx->cbs->cb_ctx, framep);
 }
 
 static void chb_rxend_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
-  if (ctx && ctx->cbs && ctx->cbs->on_rx) {
-    /* RX of the armed buffer completed (usually 1 byte). */
-    ctx->rx_busy = false;
-    ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, false);
-  }
+  if (!ctx) return;
+  chDbgAssert(ctx->cbs && ctx->cbs->on_rx, "uart rxend cb: callbacks not set");
+  /* RX of the armed buffer completed (usually 1 byte). */
+  ctx->rx_busy = false;
+  ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, false);
 }
 
 static void chb_rxerr_cb(UARTDriver *uartp, uartflags_t e) {
   (void)e;
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
-  if (ctx && ctx->cbs && ctx->cbs->on_rx_error) {
-    uint32_t mask = 0;
+  if (!ctx) return;
+  chDbgAssert(ctx->cbs && ctx->cbs->on_rx_error, "uart rxerr cb: callbacks not set");
+  uint32_t mask = 0;
 #if defined(UART_PARITY_ERROR)
-    if (e & UART_PARITY_ERROR) mask |= IOHDLC_STREAM_ERR_PARITY;
+  if (e & UART_PARITY_ERROR) mask |= IOHDLC_STREAM_ERR_PARITY;
 #endif
 #if defined(UART_FRAMING_ERROR)
-    if (e & UART_FRAMING_ERROR) mask |= IOHDLC_STREAM_ERR_FRAMING;
+  if (e & UART_FRAMING_ERROR) mask |= IOHDLC_STREAM_ERR_FRAMING;
 #endif
 #if defined(UART_OVERRUN_ERROR)
-    if (e & UART_OVERRUN_ERROR) mask |= IOHDLC_STREAM_ERR_OVERRUN;
+  if (e & UART_OVERRUN_ERROR) mask |= IOHDLC_STREAM_ERR_OVERRUN;
 #endif
-    ctx->cbs->on_rx_error((void *)ctx->cbs->cb_ctx, mask);
-  }
+  ctx->cbs->on_rx_error((void *)ctx->cbs->cb_ctx, mask);
 }
 
 static void chb_timeout_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
-  if (ctx && ctx->cbs && ctx->cbs->on_rx) {
-    ctx->rx_busy = false;
-    ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, true);
-  }
+  if (!ctx) return;
+  chDbgAssert(ctx->cbs && ctx->cbs->on_rx, "uart timeout cb: callbacks not set");
+  ctx->rx_busy = false;
+  ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, true);
 }
 
 /*===========================================================================*/
@@ -125,7 +125,9 @@ static void chb_timeout_cb(UARTDriver *uartp) {
 
 static void chb_start(void *vctx, const ioHdlcStreamCallbacks *cbs) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
-
+  /* Validate callbacks once and treat them as invariants. */
+  chDbgAssert(cbs && cbs->on_rx && cbs->on_tx_done && cbs->on_rx_error,
+              "uart start: invalid callbacks");
   ctx->cbs = cbs;
   ctx->tx_framep = NULL;
   ctx->rx_busy = false;

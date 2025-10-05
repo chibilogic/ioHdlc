@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "iohdlc_core.h": "c"
+        "iohdlc_core.h": "c",
+        "iohdlcframepool.h": "c"
     }
 }

@@ -34,5 +34,12 @@ static inline void iohdlc_sys_lock(void) { chSysLock(); }
 static inline void iohdlc_sys_unlock(void) { chSysUnlock(); }
 static inline void iohdlc_thread_yield(void) { chThdYield(); }
 
-#endif /* IOHDLCOSAL_H_ */
+/*
+ * OS-agnostic assertion hook for ioHdlc core modules.
+ * Maps to ChibiOS debug assert; in release builds this compiles away.
+ */
+#ifndef IOHDLC_ASSERT
+#define IOHDLC_ASSERT(cond, msg) chDbgAssert((cond), (msg))
+#endif
 
+#endif /* IOHDLCOSAL_H_ */

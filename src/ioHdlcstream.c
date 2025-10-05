@@ -30,6 +30,7 @@
 */
 
 #include "ioHdlcstream.h"
+#include "ioHdlcosal.h"
 #include "ioHdlcll.h"
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
@@ -61,6 +62,11 @@ bool ioHdlcStream_init(ioHdlcStream              *d,
   if (!d || !port || !port->ops || !cfg || !pool || !cfg->deliver_rx_frame)
     return false;
 
+  /* Validate required port ops once and treat them as invariants. */
+  IOHDLC_ASSERT(port->ops->start != NULL, "port->ops->start must be set");
+  IOHDLC_ASSERT(port->ops->rx_submit != NULL, "port->ops->rx_submit must be set");
+  IOHDLC_ASSERT(port->ops->tx_submit != NULL, "port->ops->tx_submit must be set");
+
   d->port     = *port;
   d->cfg      = *cfg;
   d->upper_ctx = upper_ctx;
@@ -83,8 +89,12 @@ bool ioHdlcStream_init(ioHdlcStream              *d,
  * @brief   Starts the stream port and arms the initial RX header.
  */
 bool ioHdlcStream_start(ioHdlcStream *d) {
-  if (!d || d->started || !d->port.ops || !d->port.ops->start || !d->port.ops->rx_submit)
+  if (!d || d->started)
     return false;
+
+  /* Invariants validated at init. */
+  IOHDLC_ASSERT(d->port.ops && d->port.ops->start && d->port.ops->rx_submit,
+                "invalid port ops at start");
 
   d->port.ops->start(d->port.ctx, &d->hal_cbs);
 
@@ -101,17 +111,21 @@ bool ioHdlcStream_start(ioHdlcStream *d) {
  */
 void ioHdlcStream_stop(ioHdlcStream *d) {
   if (!d || !d->started) return;
-  if (d->port.ops && d->port.ops->rx_cancel) d->port.ops->rx_cancel(d->port.ctx);
-  if (d->port.ops && d->port.ops->stop)      d->port.ops->stop(d->port.ctx);
+  /* Mark as stopped first to ignore any late callbacks. */
   d->started = false;
+  /* Optional ops: call if provided by the adapter. */
+  if (d->port.ops->rx_cancel) d->port.ops->rx_cancel(d->port.ctx);
+  if (d->port.ops->stop)      d->port.ops->stop(d->port.ctx);
 }
 
 /**
  * @brief   Submits a TX buffer to the adapter.
  */
 bool ioHdlcStream_send(ioHdlcStream *d, const uint8_t *ptr, size_t len, void *framep) {
-  if (!d || !d->port.ops || !d->port.ops->tx_submit || !ptr || len == 0)
+  if (!d || !ptr || len == 0)
     return false;
+  /* Invariants validated at init. */
+  IOHDLC_ASSERT(d->port.ops && d->port.ops->tx_submit, "invalid port ops at send");
   return d->port.ops->tx_submit(d->port.ctx, ptr, len, framep);
 }
 

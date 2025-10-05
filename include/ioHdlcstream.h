@@ -75,20 +75,25 @@ typedef struct ioHdlcStreamCallbacks {
 
 /**
  * @brief Core -> HAL/adapter operations.
+ * @details Required vs optional ops:
+ *          - Required: @p start, @p rx_submit, @p tx_submit
+ *          - Optional: @p tx_busy, @p rx_cancel, @p stop
  * @note  The OS-/HAL-specific implementation provides these hooks.
  */
 typedef struct ioHdlcStreamPortOps {
+  /* Required: start the adapter and bind callbacks. */
   void (*start)(void *ctx, const ioHdlcStreamCallbacks *cbs);
+  /* Optional: stop/shutdown the adapter. */
   void (*stop)(void *ctx);
 
-  /* Submit a TX buffer (non-blocking). Returns false if busy. */
+  /* Required: submit a TX buffer (non-blocking). Returns false if busy. */
   bool (*tx_submit)(void *ctx, const uint8_t *ptr, size_t len, void *framep);
   /* Optional: query TX busy (may be NULL if not needed). */
   bool (*tx_busy)(void *ctx);
 
-  /* Arm a RX transfer of 'len' bytes into 'ptr'. The 'cookie' */
-  /* is returned verbatim in on_rx_chunk.                          */
+  /* Required: arm a RX transfer of 'len' bytes into 'ptr'. */
   bool (*rx_submit)(void *ctx, uint8_t *ptr, size_t len);
+  /* Optional: cancel current RX transfer if supported. */
   void (*rx_cancel)(void *ctx);
 } ioHdlcStreamPortOps;
 
