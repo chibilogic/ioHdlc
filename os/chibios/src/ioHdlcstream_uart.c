@@ -90,7 +90,7 @@ static void chb_rxend_cb(UARTDriver *uartp) {
   chDbgAssert(ctx->cbs && ctx->cbs->on_rx, "uart rxend cb: callbacks not set");
   /* RX of the armed buffer completed (usually 1 byte). */
   ctx->rx_busy = false;
-  ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, false);
+  ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, 0);
 }
 
 static void chb_rxerr_cb(UARTDriver *uartp, uartflags_t e) {
@@ -114,9 +114,8 @@ static void chb_rxerr_cb(UARTDriver *uartp, uartflags_t e) {
 static void chb_timeout_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (!ctx) return;
-  chDbgAssert(ctx->cbs && ctx->cbs->on_rx, "uart timeout cb: callbacks not set");
-  ctx->rx_busy = false;
-  ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, true);
+  chDbgAssert(ctx->cbs && ctx->cbs->on_rx_error, "uart timeout cb: callbacks not set");
+  ctx->cbs->on_rx_error((void *)ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_TMO);
 }
 
 /*===========================================================================*/

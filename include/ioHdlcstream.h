@@ -54,6 +54,7 @@ extern "C" {
 #define IOHDLC_STREAM_ERR_OVERRUN  (1u << 0)
 #define IOHDLC_STREAM_ERR_FRAMING  (1u << 1)
 #define IOHDLC_STREAM_ERR_PARITY   (1u << 2)
+#define IOHDLC_STREAM_ERR_TMO      (1u << 3)
 /** @} */
 
 /* Forward declaration. */
@@ -62,7 +63,7 @@ struct ioHdlcStream;
 /**
  * @brief HAL/adapter -> core callbacks (invoked from driver ISR/task).
  */
-typedef void (*ioHdlcStreamOnRx)(void *cb_ctx, bool timed_out);
+typedef void (*ioHdlcStreamOnRx)(void *cb_ctx, uint32_t errmask);
 typedef void (*ioHdlcStreamOnTxDone)(void *cb_ctx, void *framep);
 typedef void (*ioHdlcStreamOnRxError)(void *cb_ctx, uint32_t errmask);
 

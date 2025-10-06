@@ -32,9 +32,13 @@ static const struct _iohdlc_driver_vmt s_vmt = {
 /* Core -> upper delivery callback (ISR). */
 static void s_core_deliver_rx(void *upper_ctx, void *framep, size_t len) {
   ioHdclStreamDriver *ip = (ioHdclStreamDriver *)upper_ctx;
-  iohdlc_frame_t *fp = (iohdlc_frame_t *)framep;
-  fp->elen = (uint16_t)len;
-  ioHdlc_frameq_insert(&ip->raw_recept_q, fp);
+
+  /* framep == NULL -> line idle.*/
+  if (framep) {
+    iohdlc_frame_t *fp = (iohdlc_frame_t *)framep;
+    fp->elen = (uint16_t)len;
+    ioHdlc_frameq_insert(&ip->raw_recept_q, fp);
+  }
   iohdlc_sys_lock_isr();
   iohdlc_sem_signal_i(&ip->raw_recept_sem);
   iohdlc_sys_unlock_isr();
@@ -111,11 +115,12 @@ static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo) {
     fp = NULL;
     if (iohdlc_sem_wait_ok(&ip->raw_recept_sem, tmo)) {
       iohdlc_sys_lock();
-      fp = ioHdlc_frameq_remove(&ip->raw_recept_q);
+      if (!ioHdlc_frameq_isempty(&ip->raw_recept_q))
+        fp = ioHdlc_frameq_remove(&ip->raw_recept_q);
       iohdlc_sys_unlock();
     }
     if (fp == NULL)
-      return NULL; /* timeout */
+      return NULL; /* timeout or idle */
 
     if (ip->apply_transparency)
       frameTransparentDecode(fp, fp);

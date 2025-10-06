@@ -43,7 +43,7 @@
 /* Local functions.                                                          */
 /*===========================================================================*/
 
-static void s_hal_on_rx(void *cb_ctx, bool timed_out);
+static void s_hal_on_rx(void *cb_ctx, uint32_t errmask);
 static void s_hal_on_tx_done(void *cb_ctx, void *framep);
 static void s_hal_on_rx_error(void *cb_ctx, uint32_t errmask);
 
@@ -134,134 +134,124 @@ bool ioHdlcStream_send(ioHdlcStream *d, const uint8_t *ptr, size_t len, void *fr
 /*===========================================================================*/
 
 /**
- * @brief   Arms for the next RX chunk at current write offset.
- */
-static void s_arm_idle(ioHdlcStream *d) {
-  (void)d->port.ops->rx_submit(d->port.ctx, &d->rx_flagoctet, 1);
-}
-
-static void s_arm_inframe_from(ioHdlcStream *d, size_t offset, size_t need) {
-  uint8_t *ptr = &d->rx_in_frame->frame[offset];
-  (void)d->port.ops->rx_submit(d->port.ctx, ptr, need);
-}
-
-/**
- * @brief   Delivers the completed frame and arms the next header.
- */
-static void s_deliver_and_continue(ioHdlcStream *d) {
-  size_t len = d->rx_in_frame ? d->rx_in_frame->elen : 0;
-  d->cfg.deliver_rx_frame(d->upper_ctx, (void *)d->rx_in_frame, len);
-  /* Reset for next frame. */
-  d->rx_in_frame = NULL;
-  s_arm_idle(d);
-}
-
-/**
- * @brief   Handles an RX error by discarding the current frame and rearming.
+ * @brief   Handles an RX error by discarding the current frame.
  */
 static void s_handle_rx_error(ioHdlcStream *d) {
-  if (d->rx_in_frame) hdlcReleaseFrame(d->pool, d->rx_in_frame);
+  if (d->rx_in_frame)
+    hdlcReleaseFrame(d->pool, d->rx_in_frame);
   d->rx_in_frame = NULL;
-  s_arm_idle(d);
 }
 
 /**
  * @brief   HAL callback: end of an RX chunk (or timeout).
  */
-static void s_hal_on_rx(void *cb_ctx, bool timed_out) {
+static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
   ioHdlcStream *d = (ioHdlcStream *)cb_ctx;
+  size_t n = 1;
+  uint8_t *b;
+
   if (!d || !d->started) return;
 
-  if (timed_out) {
-    /* Intra-frame timeout -> discard current frame; inter-frame -> ignore. */
+  if (errmask & IOHDLC_STREAM_ERR_TMO) {
+    /* A timeout occurred while receiving a frame, alias
+       it is a intra-frame timeout.
+       Discard the current frame and start receiving a
+       new frame. */
     if (d->rx_in_frame && d->rx_in_frame->elen != 0) {
       s_handle_rx_error(d);
-      return;
+      (void)d->port.ops->rx_cancel(d->port.ctx);
+      goto newframe;
     }
-    /* Inter-frame idle: just keep searching for FLAG. */
-    s_arm_idle(d);
+    /* A timeout occurred after receiving a frame, alias
+       it is a inter-frame timeout. The line can therefore be
+       considered idle. Signal IDLE line to higher levels.*/
+    d->cfg.deliver_rx_frame(d->upper_ctx, NULL, 0);
     return;
-  }
-
-  /* Multi-byte burst complete (FFF optimization):
-     - The N from FFF does not include FLAGs; original driver includes the
-       closing FLAG within the armed burst so that the same FLAG acts as
-       separator/opening for the next frame.
-     - Here we verify the last received byte (at frame[elen]) is a FLAG,
-       then deliver the frame and immediately arm the next frame start. */
-  /* No special branch: closing FLAG is handled in general path below. */
-
-  uint8_t b;
-  if (!d->rx_in_frame) {
-    b = d->rx_flagoctet;
-    if (b == HDLC_FLAG) {
-      /* Start of a new frame: allocate buffer lazily. */
-      iohdlc_frame_t *fp = hdlcTakeFrame(d->pool);
-      if (!fp) {
-        /* No buffer available, stay idle and keep scanning. */
-        d->rx_in_frame = NULL;
-        s_arm_idle(d);
-        return;
-      }
-      d->rx_in_frame = fp;
-      d->rx_in_frame->elen = 0;
-      s_arm_inframe_from(d, d->rx_in_frame->elen, 1);
-      return;
-    }
-    s_arm_idle(d);
-    return;
-  }
-  /* In-frame: byte has been written into frame buffer. */
-  b = d->rx_in_frame->frame[d->rx_in_frame->elen];
-
-  /* In frame: handle closing flag. */
-  if (b == HDLC_FLAG) {
-    if (d->rx_in_frame->elen == 0) {
-      /* Empty frame, ignore and keep searching. */
-      d->rx_in_frame = NULL;
-      s_arm_idle(d);
-      return;
-    }
-    /* Basic sanity on minimum length. */
-    if (d->rx_in_frame->elen < HDLC_BASIC_MIN_L) {
-      /* Not enough bytes, drop and restart new frame search. */
-      d->rx_in_frame->elen = 0;
-      d->rx_in_frame = NULL;
-      s_arm_idle(d);
-      return;
-    }
-    /* Frame complete: deliver to upper layer. */
-    s_deliver_and_continue(d);
-    return;
-  }
-
-  /* Regular byte: store into frame if capacity allows. */
-  if (!d->rx_in_frame || d->rx_in_frame->elen >= d->pool->framesize) {
-    s_handle_rx_error(d);
-    return;
-  }
-  d->rx_in_frame->elen++;
-
-  /* Optional: length-prefixed handling (FFF) with burst arming. */
-  if (d->rx_in_frame->elen == 1 && d->cfg.has_frame_format && !d->cfg.apply_transparency) {
-    if ((d->rx_in_frame->frame[0] & 0x80) == 0) {
-      size_t n = d->rx_in_frame->frame[0];
-      if (n > d->pool->framesize - 1) {
-        s_handle_rx_error(d);
-        return;
-      }
-      d->rx_in_frame->elen = n; /* payload+FCS length; closing flag at frame[n] */
-      s_arm_inframe_from(d, 1, n);
-      return;
-    } else {
-      /* Bad format type, discard frame. */
+  } else if (errmask) {
       s_handle_rx_error(d);
-      return;
+      goto newframe;
+  }
+
+  if (NULL != d->rx_in_frame) {
+
+    /* It's in the state of receiving a started frame.*/
+    b = &d->rx_in_frame->frame[d->rx_in_frame->elen];
+    if (*b == HDLC_FLAG) {
+
+      /* Found a FLAG octet, the frame separator.*/
+      if (!d->rx_in_frame->elen)
+        goto nextoctet;   /* empty frame.*/
+
+      /* If the length of the frame is incorrect,
+         discard the received bad frame.*/
+      if (d->rx_in_frame->elen < HDLC_BASIC_MIN_L) {
+        d->rx_in_frame->elen = 0;           /* we not need to return the frame
+                                               buffer to the pool because the
+                                               current octet is the FLAG.*/
+        b = &d->rx_in_frame->frame[0];
+        goto nextoctet;
+      }
+
+      /* The raw frame is ready.
+         Delivery it and start
+         the reception of a new frame.*/
+      d->cfg.deliver_rx_frame(d->upper_ctx, (void *)d->rx_in_frame, d->rx_in_frame->elen);
+      d->rx_flagoctet = HDLC_FLAG;  /* the FLAG separator is also a start FLAG.*/
+      d->rx_in_frame = NULL;
+    } else {
+
+      /* The first octet of the frame could be the frame format field
+         if configured for this.*/
+      if ((d->rx_in_frame->elen == 0) &&
+           d->cfg.has_frame_format && !d->cfg.apply_transparency) {
+
+        /* in this case, use the frame length in the frame format field.*/
+        if (!(d->rx_in_frame->frame[0] & 0x80) &&
+            ((size_t)d->rx_in_frame->frame[0] < d->pool->framesize)) {
+          n = (size_t)d->rx_in_frame->frame[0];
+          d->rx_in_frame->elen = n;
+
+          /* include closing FLAG in the count of number of octets
+             to receive, so doesn't decrement n.*/
+          b = &d->rx_in_frame->frame[1];
+        } else {
+          /* Bad Format Type in frame format field.
+             discard the frame, returning the buffer to the pool.*/
+          s_handle_rx_error(d);
+        }
+      } else {
+        /* continue to receive octets.*/
+        ++b;
+        if (++d->rx_in_frame->elen >= d->pool->framesize) {
+          /* Bad frame. The number of octets exceeds the frame size.
+             Discard the frame, returning the buffer to the pool.*/
+          s_handle_rx_error(d);
+        }
+      }
     }
   }
 
-  /* Continue reading next byte. */
-  s_arm_inframe_from(d, d->rx_in_frame->elen, 1);
+newframe:
+  if (!d->rx_in_frame) {
+    b = &d->rx_flagoctet;
+
+    if (*b != HDLC_FLAG) 
+      goto nextoctet;
+
+    d->rx_flagoctet = 0;
+
+    /* Found the start of new frame, allocate a
+       receiving frame buffer.*/
+    d->rx_in_frame = hdlcTakeFrame(d->pool);
+
+    if (NULL == d->rx_in_frame)
+      goto nextoctet;
+    d->rx_in_frame->elen = 0;
+    b = &d->rx_in_frame->frame[0];
+
+nextoctet:
+  /* Arm next RX chunk. */
+  (void)d->port.ops->rx_submit(d->port.ctx, b, n);
 }
 
 /**
@@ -279,8 +269,5 @@ static void s_hal_on_tx_done(void *cb_ctx, void *framep) {
  * @brief   HAL callback: RX error.
  */
 static void s_hal_on_rx_error(void *cb_ctx, uint32_t errmask) {
-  (void)errmask;
-  ioHdlcStream *d = (ioHdlcStream *)cb_ctx;
-  if (!d || !d->started) return;
-  s_handle_rx_error(d);
+  s_hal_on_rx(cb_ctx, errmask);
 }
