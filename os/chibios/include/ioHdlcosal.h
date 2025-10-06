@@ -11,6 +11,7 @@
 #define iohdlc_virtual_timer_t virtual_timer_t
 
 typedef semaphore_t iohdlc_sem_t;
+typedef memory_pool_t iohdlc_memory_pool_t;
 
 static inline void iohdlc_sem_init(iohdlc_sem_t *sp, cnt_t n) {
   chSemObjectInit(sp, n);
@@ -41,5 +42,14 @@ static inline void iohdlc_thread_yield(void) { chThdYield(); }
 #ifndef IOHDLC_ASSERT
 #define IOHDLC_ASSERT(cond, msg) chDbgAssert((cond), (msg))
 #endif
+
+/* DMA-safe allocation API (OS-provided). Implemented in
+ * os/chibios/ioHdlcosal.c using ChibiOS mem heaps.*/
+#ifndef IOHDLC_DMA_ALIGN_DEFAULT
+#define IOHDLC_DMA_ALIGN_DEFAULT 32u
+#endif
+
+void *iohdlc_dma_alloc(size_t size, size_t align);
+void iohdlc_dma_free(void *p);
 
 #endif /* IOHDLCOSAL_H_ */

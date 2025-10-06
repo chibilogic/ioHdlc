@@ -112,7 +112,7 @@ PROJECT = ch
 # Imported source files and paths
 CHIBIOS := /opt/gbc/sama5d2x/ChibiOS
 CONFDIR := ./conf
-LINCDIR  := ./include
+LINCDIR := ./include
 
 
 # Licensing files.
@@ -131,6 +131,7 @@ include $(CHIBIOS)/os/tssi/ports/ARMCAx-TZ/SAMA5D2x/porttssi.mk
 include $(CHIBIOS)/os/tssi/tssi.mk
 # Other files (optional).
 include $(CHIBIOS)/os/hal/lib/streams/streams.mk
+include ./os/chibios/ioHdlcBinding.mk
 
 # Define linker script file here
 #LDSCRIPT= $(STARTUPLD)/SAMA5D2.ld
@@ -139,12 +140,13 @@ LDSCRIPT= $(STARTUPLD)/BV1000GTV.ld
 
 # C sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
-CSRC = $(ALLCSRC) \
-       main.c \
-       ioHdlcfmempool.c \
-       ioHdlcll.c \
-       ioHdlcuart.c \
-       ioHdlc.c \
+CSRC = $(ALLCSRC)
+
+#       main.c \
+#       ioHdlcfmempool.c \
+#       ioHdlcll.c \
+#       ioHdlcuart.c \
+#       ioHdlc.c \
        
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global

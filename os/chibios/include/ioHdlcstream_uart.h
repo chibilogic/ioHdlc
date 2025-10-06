@@ -1,8 +1,8 @@
 /*
  * ChibiOS UART adapter header for HDLC stream port.
  */
-#ifndef IOHDLCSTREAM_CHIBIOS_UART_H
-#define IOHDLCSTREAM_CHIBIOS_UART_H
+#ifndef IOHDLCSTREAM_UART_H
+#define IOHDLCSTREAM_UART_H
 
 #include "ch.h"
 #include "hal.h"
@@ -13,8 +13,8 @@ typedef struct ioHdlcStreamChibiosUart {
   UARTDriver  *uartp;
   UARTConfig  *cfgp;
   const ioHdlcStreamCallbacks *cbs;
-  void          *tx_framep; /* TX in-flight frame pointer */
-  bool           rx_busy;   /* RX in progress */
+  void        *tx_framep; /* TX in-flight frame pointer */
+  bool        rx_busy;   /* RX in progress */
 } ioHdlcStreamChibiosUart;
 
 void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
@@ -22,4 +22,4 @@ void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
                                            UARTDriver *uartp,
                                            UARTConfig *cfgp);
 
-#endif /* IOHDLCSTREAM_CHIBIOS_UART_H */
+#endif /* IOHDLCSTREAM_UART_H */

@@ -77,7 +77,11 @@ bool ioHdlcStream_init(ioHdlcStream              *d,
   d->hal_cbs.on_rx_error = s_hal_on_rx_error;
   d->hal_cbs.cb_ctx      = d;
 
-  d->rx_flagoctet   = 0;
+  d->rx_stagep = (uint8_t *)iohdlc_dma_alloc(1u, IOHDLC_DMA_ALIGN_DEFAULT);
+  if (!d->rx_stagep) {
+    return false; /* DMA-safe staging not available */
+  }
+  *d->rx_stagep = 0;
   d->rx_in_frame    = NULL;
   /* Framesize is available from pool->framesize when needed. */
   d->started        = false;
@@ -100,7 +104,7 @@ bool ioHdlcStream_start(ioHdlcStream *d) {
 
   /* Start in idle state: read 1 byte searching for FLAG. */
   d->rx_in_frame = NULL;
-  (void)d->port.ops->rx_submit(d->port.ctx, &d->rx_flagoctet, 1);
+  (void)d->port.ops->rx_submit(d->port.ctx, d->rx_stagep, 1);
 
   d->started = true;
   return true;
@@ -116,6 +120,23 @@ void ioHdlcStream_stop(ioHdlcStream *d) {
   /* Optional ops: call if provided by the adapter. */
   if (d->port.ops->rx_cancel) d->port.ops->rx_cancel(d->port.ctx);
   if (d->port.ops->stop)      d->port.ops->stop(d->port.ctx);
+}
+
+/**
+ * @brief   Deinitializes the stream helper and releases resources.
+ * @note    If the stream is started, it is stopped first.
+ */
+void ioHdlcStream_deinit(ioHdlcStream *d) {
+  if (!d) return;
+  if (d->started) ioHdlcStream_stop(d);
+  if (d->rx_in_frame) {
+    hdlcReleaseFrame(d->pool, d->rx_in_frame);
+    d->rx_in_frame = NULL;
+  }
+  if (d->rx_stagep) {
+    iohdlc_dma_free(d->rx_stagep);
+    d->rx_stagep = NULL;
+  }
 }
 
 /**
@@ -196,8 +217,8 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
          Delivery it and start
          the reception of a new frame.*/
       d->cfg.deliver_rx_frame(d->upper_ctx, (void *)d->rx_in_frame, d->rx_in_frame->elen);
-      d->rx_flagoctet = HDLC_FLAG;  /* the FLAG separator is also a start FLAG.*/
       d->rx_in_frame = NULL;
+      *d->rx_stagep = HDLC_FLAG;  /* the FLAG separator is also a start FLAG.*/
     } else {
 
       /* The first octet of the frame could be the frame format field
@@ -233,12 +254,12 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
 
 newframe:
   if (!d->rx_in_frame) {
-    b = &d->rx_flagoctet;
+    b = d->rx_stagep;
 
     if (*b != HDLC_FLAG) 
       goto nextoctet;
 
-    d->rx_flagoctet = 0;
+    *d->rx_stagep = 0;
 
     /* Found the start of new frame, allocate a
        receiving frame buffer.*/

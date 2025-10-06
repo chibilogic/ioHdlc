@@ -25,6 +25,7 @@
  */
 
 #include "ch.h"
+#include "ioHdlcosal.h"
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
@@ -33,7 +34,6 @@
 /**
  * HDLC frame pool implementation using ChibiOS mempools.
  */
-
 
 /*===========================================================================*/
 /* Module local definitions.                                                 */

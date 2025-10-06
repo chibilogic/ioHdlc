@@ -39,8 +39,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "ioHdlcframe.h"
-#include "ioHdlcframepool.h"
+#include "ioHdlctypes.h"      /* forward declarations for iohdlc_* types */
+#include "ioHdlcframepool.h"  /* frame pool interface (uses forward-declared types) */
 
 #ifdef __cplusplus
 extern "C" {
@@ -114,7 +114,6 @@ typedef void (*ioHdlcStream_DeliverRxFrame)(void *upper_ctx,
                                              size_t len);
 
 typedef struct ioHdlcStreamConfig {
-  /* Parsing options (mirrors legacy driver flags): */
   bool has_frame_format;  /* true -> first byte can be length (FFF) */
   bool apply_transparency;/* true -> octet transparency applied on TX; RX decode is done later */
 
@@ -132,14 +131,14 @@ typedef struct ioHdlcStream {
   /* Upper integration */
   void                    *upper_ctx;
   ioHdlcStreamConfig       cfg;
-  ioHdlcFramePool         *pool;        /* frame pool used for RX allocation */
+  ioHdlcFramePool         *pool;  /* frame pool used for RX allocation */
 
   /* HAL callbacks wrapper storage */
   ioHdlcStreamCallbacks    hal_cbs;
 
   /* RX state (single in-flight frame) */
-  uint8_t           rx_flagoctet;  /* staging octet while searching for start FLAG */
-  iohdlc_frame_t   *rx_in_frame;   /* current frame being filled, NULL if idle */
+  uint8_t          *rx_stagep;    /* staging octet buffer (DMA-safe) */
+  iohdlc_frame_t   *rx_in_frame;  /* current frame being filled, NULL if idle */
 
   bool     started;
 } ioHdlcStream;
@@ -156,6 +155,7 @@ bool ioHdlcStream_init(ioHdlcStream              *d,
 
 bool ioHdlcStream_start(ioHdlcStream *d);
 void ioHdlcStream_stop(ioHdlcStream *d);
+void ioHdlcStream_deinit(ioHdlcStream *d);
 /** @} */
 
 /**
