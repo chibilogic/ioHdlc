@@ -84,6 +84,26 @@ static inline iohdlc_frame_t *ioHdlc_frameq_remove(iohdlc_frame_q_t *qp) {
 }
 
 /**
+ * @brief   Remove a frame from the @p qp queue in natural fifo order and
+ *          lookahead the next frame in @p *next_fp without removing it.
+ */
+static inline iohdlc_frame_t *ioHdlc_frameq_remove_la(
+  iohdlc_frame_q_t *qp,
+  iohdlc_frame_t  **next_fp) {
+
+  iohdlc_frame_t *rfp = qp->next;
+  qp->next = rfp->next;
+  qp->next->prev = (iohdlc_frame_t *)qp;
+  if (next_fp != NULL) {
+    if (ioHdlc_frameq_isempty(qp))
+      *next_fp = NULL;
+    else
+      *next_fp = qp->next;
+  }
+  return rfp;
+}
+
+/**
  * @brief   Remove a frame from the @p qp queue in lifo order.
  */
 static inline iohdlc_frame_t *ioHdlc_frameq_lifo_remove(iohdlc_frame_q_t *qp) {

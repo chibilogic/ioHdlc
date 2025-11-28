@@ -37,6 +37,8 @@
 #define IOHDLCTYPES_H_
 
 #include <stdint.h>
+
+#include "ioHdlc_events.h"
 #if !defined(bool)
 #define bool uint8_t
 #endif
@@ -48,7 +50,14 @@ typedef struct iohdlc_peer_list iohdlc_peer_list_t;
 typedef struct iohdlc_frame iohdlc_frame_t;
 typedef struct iohdlc_frame_q iohdlc_frame_q_t;
 typedef uint32_t iohdlc_timeout_t;
+typedef uint32_t (*iohdlc_tx_fn_t)(iohdlc_station_t *s,
+                                   iohdlc_station_peer_t *p,
+                                   uint32_t cm_flags);
 
+typedef enum {
+  IOHDLC_TIMER_REPLY   = EVT_CM_C_RPLYTMO,
+  IOHDLC_TIMER_I_REPLY = EVT_CM_I_RPLYTMO,
+} iohdlc_timer_kind_t;
 #endif /* IOHDLCTYPES_H_ */
 
 /** @} */

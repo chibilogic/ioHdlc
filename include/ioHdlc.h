@@ -61,6 +61,11 @@
 #define IOHDLC_U_ID       0x03  /**< @brief U-frame identifier value. */
 #define IOHDLC_U_MASK     0x03  /**< @brief U-frame bits mask.        */
 
+#define IOHDLC_U_TYPE     0x03  /**< @brief U-frame type.             */
+#define IOHDLC_S_TYPE     0x01  /**< @brief S-frame type.             */
+#define IOHDLC_I_TYPE     0x02  /**< @brief I-frame type.             */
+#define IOHDLC_A_TYPE     0x00  /**< @brief I-frame type alt.         */
+
 #define IOHDLC_IS_I_FRM(ctrl)     (((ctrl) & IOHDLC_I_MASK) == IOHDLC_I_ID)
 #define IOHDLC_IS_S_FRM(ctrl)     (((ctrl) & IOHDLC_S_MASK) == IOHDLC_S_ID)
 #define IOHDLC_IS_U_FRM(ctrl)     (((ctrl) & IOHDLC_U_MASK) == IOHDLC_U_ID)
@@ -144,21 +149,25 @@
 /** @} */
 
 /* pf_state definitions. */
-#define IOHDLC_P_RCVED    0x01  /* P received and to acknowledge in the next frame to tx,
-                                   or in the last frame if NRM. */
-#define IOHDLC_F_RCVED    0x02  /* F received. */
-#define IOHDLC_PF_INHB    0x80  /* P/F checkpoint inhibited. */
+#define IOHDLC_P_RCVED    0x01  /* Secondary: P received and to acknowledge in the
+                                   next frame to tx, or in the last frame if NRM. */
+#define IOHDLC_F_RCVED    0x02  /* Primary: F received in response to a sent P. If
+                                   not set, P was sent. It's set at reset.*/
+#define IOHDLC_P_SLCIT    0x04  /* Primary: Solicit response.*/
+#define IOHDLC_PF_INHB    0x80  /* P/F checkpoint inhibited. slcit */
 
 /* um_state definitions. */
 #define IOHDLC_UM_SENT    0x01  /* Unnumbered command sent and not acknowledged yet. */
 #define IOHDLC_UM_RCVED   0x02  /* Unnumbered command received and to acknowledged. */
+#define IOHDLC_UM_SENDING 0x04  /* Unnumbered command is waiting to be sent. */
 
 /* ss_state definitions. */
 #define IOHDLC_SS_BUSY    0x01  /* Busy state.
                                    Temporarily the peer cannot receive I-frames. */
-#define IOHDLC_SS_RNR_RCV 0x02  /* RNR received from the peer. */
-#define IOHDLC_SS_RNR_SNT 0x04  /* RNR sent to the peer. */
-#define IOHDLC_SS_RPL_STT 0x08  /* Reply timer has started. */
+#define IOHDLC_SS_SENDING 0x02                                     
+#define IOHDLC_SS_RNR_RCV 0x04  /* RNR received from the peer. */
+#define IOHDLC_SS_RNR_SNT 0x08  /* RNR sent to the peer. */
+#define IOHDLC_SS_RPL_STT 0x10  /* Reply timer has started. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
@@ -170,8 +179,16 @@
 #define IOHDLC_IS_NRM(s)      ((s)->mode == IOHDLC_OM_NRM)
 #define IOHDLC_IS_NDM(s)      ((s)->mode == IOHDLC_OM_NDM)
 #define IOHDLC_IS_ABM(s)      ((s)->mode == IOHDLC_OM_ABM)
+#define IOHDLC_P_ISRCVED(s)   ((s)->pf_state & IOHDLC_P_RCVED)
+#define IOHDLC_F_ISRCVED(s)   ((s)->pf_state & IOHDLC_F_RCVED)
+#define IOHDLC_P_ISFLYING(s)  ((IOHDLC_IS_PRI(s) && !IOHDLC_F_ISRCVED(s)) || \
+                               (IOHDLC_IS_SEC(s) && !IOHDLC_P_ISRCVED(s)))
+#define IOHDLC_ACK_P(s)       ((s)->pf_state &= ~IOHDLC_P_RCVED)
+#define IOHDLC_ACK_F(s)       ((s)->pf_state &= ~IOHDLC_F_RCVED)
 #define IOHDLC_HAS_FFF(s)     (s->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF)
 #define IOHDLC_USE_TWA(s)     ((s)->flags & IOHDLC_FLG_TWA)
+#define IOHDLC_ST_IDLE(s)     ((s)->flags & IOHDLC_FLG_IDL)
+#define IOHDLC_UM_INPROG(p)   ((p)->um_state & (IOHDLC_UM_SENT|IOHDLC_UM_SENDING))
 #define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
 
 /**
@@ -185,11 +202,6 @@
 /**
  * @brief     Event flags
  */
-#define EVT_CM_RPLYTMO    0x01  /* A reply timer has timed out. */
-#define EVT_CM_UMRECVD    0x02  /* An UM command have been received. */
-#define EVT_CM_CONNCHG    0x04  /* An connection state change was attempted. */
-#define EVT_CM_CONNSTR    0x08  /* Connection start has requested. */
-#define EVT_CM_LINIDLE    0x10  /* Line is idle. */
 
 /*===========================================================================*/
 /* Module pre-compile time settings.                                         */
@@ -241,7 +253,12 @@ struct iohdlc_station_peer {
                                    or with the F bit set in case of secondary station. */
   uint8_t   um_state;           /* Unnumbered state. See definitions. */
   uint8_t   ss_state;           /* Supervision state. See definitions. */
-  uint8_t   um_cmd;             /* Unnumbered command to_send/sent. */
+  uint8_t   um_cmd;             /* Unnumbered command to_send. */
+  uint8_t   um_rsp;             /* Unnumbered response. */
+  uint8_t   um_sent;            /* Last unnumbered command sent. TODO: Is it necessary?*/
+  uint8_t   ss_fun;             /* Supervision function to send. */
+  uint32_t  ss_nr;              /* N(R) in the S frame to send, rcvd, sent. */
+  uint8_t   ss_fsent;           /* Last supervision function sent. TODO: Is it necessary?*/
 
   /* data queues. */
   iohdlc_frame_q_t i_retrans_q; /* I-frame retransmission queue. No more than ks frames
@@ -259,9 +276,10 @@ struct iohdlc_station_peer {
                                    No more than ks frames will be in this queue. */
 
   /* virtual timers. */
-  iohdlc_virtual_timer_t reply_tmo;   /* Primary/combined station command reply time-out
-                                         and/or primary/secondary/combined station I frame
-                                         reply time-out. */
+  iohdlc_virtual_timer_t reply_tmr;   /* Primary/combined station command reply time-out
+                                         timer. */
+  iohdlc_virtual_timer_t i_reply_tmr; /* Primary/secondary/combined station I-frame reply
+                                         time-out timer. */
 
 };
 
@@ -279,7 +297,8 @@ struct iohdlc_station {
   uint8_t   optfuncs[5];        /* Active HDLC optional functions among those supported.
                                    See ISO13239 Table 16. */
   uint32_t  addr;               /* Address of the station. */
-  iohdlc_station_peer_t *c_peer; /*The peer the station is currently talking to. */
+  iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
+  iohdlc_station_peer_t *arm_peer;  /* The peer currently in arm mode, if any. */
 
   /* state, peers, pool and queues. */
   int32_t   errorno;            /* number of last error. Follows the posix list of values. */
@@ -297,6 +316,7 @@ struct iohdlc_station {
 
   /* link driver. */
   ioHdlcDriver *driver;         /* Data link driver the station operates on. */
+  iohdlc_tx_fn_t tx_fn;         /* Active transmit handler for the current mode. */
 
   /* events. */
   iohdlc_event_source_t cm_es;  /* Source of the events related to commands. */

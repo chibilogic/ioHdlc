@@ -5,6 +5,8 @@
         "iohdlctypes.h": "c",
         "iohdlcstream_uart.h": "c",
         "iohdlcstream.h": "c",
-        "iohdlcframe.h": "c"
+        "iohdlcframe.h": "c",
+        "iohdlclist.h": "c",
+        "iohdlcosal.h": "c"
     }
 }

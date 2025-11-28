@@ -423,7 +423,8 @@ static void receiverTask(void *stationp) {
       /* Frame type is an unnumbered command.
          If the station receives more than one um commands before
          a respond opportunity occurs, it will ignore all frames received,
-         except to detect the next respond opportunity */
+         except to detect the next respond opportunity, until it has sent
+         a response the command */
       if (IOHDLC_IS_U_FRM(ctrl) && !(p->um_state & IOHDLC_UM_RCVED)) {
 
         /* Annotate that an um command has been received, record  the command,
