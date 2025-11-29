@@ -31,7 +31,7 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
   (void)ioHdlcCoreInit(station);
   /* Register event listener for station events. */
   chEvtRegisterMaskWithFlags(&station->cm_es, &s_cm_listener, EVENT_MASK(0),
-      EVT_CM_RPLYTMO|EVT_CM_UMRECVD|EVT_CM_CONNSTR|EVT_CM_LINIDLE);
+      IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE);
   chThdCreateFromHeap(NULL, 2048, "HDLC-TX", NORMALPRIO + 1, HdlcTxThread, station);
   chThdCreateFromHeap(NULL, 2048, "HDLC-RX", NORMALPRIO + 1, HdlcRxThread, station);
 }
@@ -48,6 +48,8 @@ static iohdlc_virtual_timer_t *s_select_timer(iohdlc_station_peer_t *peer,
 
 static void s_handle_timer_expiry(iohdlc_station_peer_t *peer,
                                   iohdlc_timer_kind_t timer_kind) {
+  iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
+  timer->expired = true;  /* Mark timer as expired. */
   chSysLockFromISR();
   chEvtBroadcastFlagsI(&peer->stationp->cm_es, (eventflags_t)timer_kind);
   chSysUnlockFromISR();
@@ -70,27 +72,33 @@ void ioHdlcRunnerStartReplyTimer(iohdlc_station_peer_t *peer,
                                  iohdlc_timer_kind_t timer_kind,
                                  uint32_t timeout_ms) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
-  chVTSet(timer, TIME_MS2I(timeout_ms), s_select_cb(timer_kind), peer);
+  timer->expired = false;
+  chVTSet(&timer->vt, TIME_MS2I(timeout_ms), s_select_cb(timer_kind), peer);
 }
 
 void ioHdlcRunnerRestartReplyTimer(iohdlc_station_peer_t *peer,
                                    iohdlc_timer_kind_t timer_kind,
                                    uint32_t timeout_ms) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
-  if (chVTIsArmed(timer)) {
-    chVTSet(timer, TIME_MS2I(timeout_ms), s_select_cb(timer_kind), peer);
+  if (chVTIsArmed(&timer->vt)) {
+    timer->expired = false;
+    chVTSet(&timer->vt, TIME_MS2I(timeout_ms), s_select_cb(timer_kind), peer);
   }
 }
 
 void ioHdlcRunnerStopReplyTimer(iohdlc_station_peer_t *peer,
                                 iohdlc_timer_kind_t timer_kind) {
-  chVTReset(s_select_timer(peer, timer_kind));
+  iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
+  chVTReset(&timer->vt);
+  timer->expired = false;  /* Clear expired flag when explicitly stopped. */
 }
 
 bool ioHdlcRunnerIsReplyTimerExpired(iohdlc_station_peer_t *peer,
                                      iohdlc_timer_kind_t timer_kind) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
-  return !chVTIsArmed(timer);
+  /* Timer is expired if it's not armed AND the expired flag is set.
+   * This distinguishes "expired" from "never started" or "explicitly stopped". */
+  return !chVTIsArmed(&timer->vt) && timer->expired;
 }
 
 static uint32_t s_wait_events(iohdlc_station_t *station, uint32_t mask) {

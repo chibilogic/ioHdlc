@@ -109,6 +109,7 @@ static void resetPeerVars(iohdlc_station_peer_t *p) {
   ioHdlcStopReplyTimer(p, IOHDLC_TIMER_I_REPLY);
   p->nr = p->vr = p->vs = 0;
   p->ss_state = 0;
+  p->poll_retry_count = 0;
   clearFrameQ(p, &p->i_retrans_q);
   clearFrameQ(p, &p->i_recept_q);
   clearFrameQ(p, &p->i_trans_q);
@@ -174,7 +175,7 @@ void ioHdlcOnRxFrame(iohdlc_station_t *station, iohdlc_frame_t *fp) {
 
 uint32_t ioHdlcOnLineIdle(iohdlc_station_t *station) {
   (void)station;
-  return (uint32_t)EVT_CM_LINIDLE;
+  return (uint32_t)IOHDLC_EVT_LINIDLE;
 }
 
 static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
@@ -193,8 +194,8 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        It can be requested by this TX itself, if it have no I-frame to txmit, or
        following a poll timeout (RR or RNR), or if the transmission window 
        is full.*/
-  if ((cm_flags & EVT_CM_SSNDREQ) || (p->ss_state & IOHDLC_SS_SENDING)) {
-    cm_flags &= ~EVT_CM_SSNDREQ;
+  if ((cm_flags & IOHDLC_EVT_SSNDREQ) || (p->ss_state & IOHDLC_SS_SENDING)) {
+    cm_flags &= ~IOHDLC_EVT_SSNDREQ;
     p->ss_state |= IOHDLC_SS_SENDING;
 
     bool sPF = IOHDLC_P_ISFLYING(s);
@@ -227,6 +228,7 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       return cm_flags;
     }
   }
+  /* TODO: send I-frame following the NRM (TWA/TWS) rules.*/
 
 }
 
@@ -241,7 +243,7 @@ static uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         se devo inviare un F è response.
         se !IOHDLC_P_ISRCVED(s) è response.
         se IOHDLC_P_ISRCVED(s) è command.*/    
-  return 0
+  return 0;
 }
 
 void ioHdlcTxEntry(void *stationp) {
@@ -261,7 +263,7 @@ void ioHdlcTxEntry(void *stationp) {
     }
     /* Proceed by priority. U -> S -> I -> OS.*/
     p = s->c_peer;
-    r = sPF = false;
+    if (NULL == p) { cm_flags = 0; continue; }
 
     /* U response */
     if (p->um_state & IOHDLC_UM_RCVED) {
@@ -269,7 +271,7 @@ void ioHdlcTxEntry(void *stationp) {
          the response to send, valued by the receiver on the received
          UM command basis.*/
       sPF = IOHDLC_P_ISRCVED(s);
-      cm_flags &= ~EVT_CM_UMRECVD;        /* serve the event, if any.*/
+      cm_flags &= ~IOHDLC_EVT_UMRECVD;        /* serve the event, if any.*/
       if (thereIsSendOpportunity(s, sPF)) {
         p->um_state &= ~IOHDLC_UM_RCVED;  /* ack UM */
         IOHDLC_ACK_P(s);                  /* ack P  */
@@ -279,14 +281,27 @@ void ioHdlcTxEntry(void *stationp) {
     }
 
     /* U command */
-    if ((cm_flags & EVT_CM_CONNSTR) || (p->um_state & IOHDLC_UM_SENDING) || 
+    if ((cm_flags & IOHDLC_EVT_CONNSTR) || (p->um_state & IOHDLC_UM_SENDING) || 
         (p->um_state & IOHDLC_UM_SENT) &&
             (r = ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_REPLY))) {
-      /* TODO: assert that EVT_CM_CONNSTR is set only if um_state is clean.*/
 
-      cm_flags &= ~EVT_CM_CONNSTR;    /* serve the event.*/
+      cm_flags &= ~(IOHDLC_EVT_CONNSTR |
+                    IOHDLC_EVT_C_RPLYTMO);  /* serve all the possible events.*/
       
-      /* TODO: evaluate r and manage a retry counter.*/
+      /* Evaluate timer expiry and manage retry counter. */
+      if (r) {
+        p->poll_retry_count++;
+        if (p->poll_retry_count >= p->poll_retry_max) {
+          /* Retry limit exceeded: link is down. */
+          ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINKDOWN);
+          /* Reset retry counter and abort this U command attempt. */
+          p->poll_retry_count = 0;
+          p->um_state &= ~(IOHDLC_UM_SENDING | IOHDLC_UM_SENT);
+          ioHdlcNextPeer(s);  /* Move to next peer. */
+          continue;
+        }
+        /* Retry: will retransmit below. */
+      }
 
       sPF = true;
       /* A link management has been requested.*/
@@ -327,13 +342,6 @@ void ioHdlcRxEntry(void *stationp) {
     /* Hand off to core protocol handler (owns fp). */
     ioHdlcOnRxFrame(s, fp);
   }
-}
-
-void ioHdlcOnEvent(iohdlc_station_t *station, uint32_t event_flags) {
-  (void)station;
-  (void)event_flags;
-  /* TODO: handle station events (EVT_CM_RPLYTMO, EVT_CM_LINIDLE, etc.) here.
-     The runner should call this after mapping its OS event mechanism. */
 }
 
 void ioHdlcRegisterRunnerOps(const ioHdlcRunnerOps *ops) {

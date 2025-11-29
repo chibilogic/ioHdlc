@@ -164,10 +164,9 @@
 /* ss_state definitions. */
 #define IOHDLC_SS_BUSY    0x01  /* Busy state.
                                    Temporarily the peer cannot receive I-frames. */
-#define IOHDLC_SS_SENDING 0x02                                     
+#define IOHDLC_SS_SENDING 0x02  /* An S-frame is being sent to the peer. */                                     
 #define IOHDLC_SS_RNR_RCV 0x04  /* RNR received from the peer. */
 #define IOHDLC_SS_RNR_SNT 0x08  /* RNR sent to the peer. */
-#define IOHDLC_SS_RPL_STT 0x10  /* Reply timer has started. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
@@ -280,6 +279,14 @@ struct iohdlc_station_peer {
                                          timer. */
   iohdlc_virtual_timer_t i_reply_tmr; /* Primary/secondary/combined station I-frame reply
                                          time-out timer. */
+
+  /* retry counters. */
+  uint8_t   poll_retry_count;         /* Current number of retries for frames with P=1 
+                                         (poll bit). Incremented on reply_tmr expiry,
+                                         reset when F=1 response received. */
+  uint8_t   poll_retry_max;           /* Maximum number of retries allowed for poll frames.
+                                         When poll_retry_count >= poll_retry_max, the link
+                                         is considered down. */
 
 };
 

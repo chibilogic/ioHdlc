@@ -8,7 +8,16 @@
 #include "hal.h"
 
 #define iohdlc_event_source_t event_source_t
-#define iohdlc_virtual_timer_t virtual_timer_t
+
+/**
+ * @brief Virtual timer wrapper with expiry state tracking.
+ * @note  ChibiOS virtual_timer_t doesn't distinguish between "never started"
+ *        and "expired". This wrapper adds a flag to track expiry state.
+ */
+typedef struct {
+  virtual_timer_t vt;       /* ChibiOS virtual timer. */
+  bool expired;             /* True if timer expired (cleared on start/restart/stop). */
+} iohdlc_virtual_timer_t;
 
 typedef semaphore_t iohdlc_sem_t;
 typedef memory_pool_t iohdlc_memory_pool_t;

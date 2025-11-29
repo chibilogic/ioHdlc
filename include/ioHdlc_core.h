@@ -24,9 +24,6 @@ void ioHdlcOnRxFrame(iohdlc_station_t *station, iohdlc_frame_t *fp);
 /* Returns station event flags the runner should signal (e.g., EVT_CM_LINIDLE). */
 uint32_t ioHdlcOnLineIdle(iohdlc_station_t *station);
 
-/* Generic station event injection (runner calls when it aggregates flags). */
-void ioHdlcOnEvent(iohdlc_station_t *station, uint32_t event_flags);
-
 /* Runner ops registration (timer controls etc.). */
 typedef struct ioHdlcRunnerOps {
   void (*start_reply_timer)(iohdlc_station_peer_t *peer,
