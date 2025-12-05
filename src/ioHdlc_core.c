@@ -130,7 +130,6 @@ static void resetPeerVars(iohdlc_station_peer_t *p) {
 static bool thereIsSendOpportunity(iohdlc_station_t *s, uint8_t pf_bit) {
   if ((!IOHDLC_IS_NRM(s) && !IOHDLC_USE_TWA(s)) ||
       (!IOHDLC_IS_NRM(s) && IOHDLC_ST_IDLE(s))  ||
-      ( IOHDLC_IS_NRM(s) && !IOHDLC_USE_TWA(s) && IOHDLC_IS_PRI(s)) ||
       ( IOHDLC_IS_NRM(s) && pf_bit))
     return true;
   return false;
@@ -181,6 +180,14 @@ uint32_t ioHdlcOnLineIdle(iohdlc_station_t *station) {
 static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
 
+  /* Check if we have send opportunity.
+     Primary TWA: need F received (no P in flight).
+     Primary TWS: always permitted.
+     Secondary TWA/TWS: need P received. */
+  bool pf_received = IOHDLC_IS_PRI(s) ?
+      (IOHDLC_USE_TWA(s) ? IOHDLC_F_ISRCVED(s) : true) :
+      IOHDLC_P_ISRCVED(s);
+
     /* Check if a S is requested
        NRM NOTE:
         In TWA, sending (S)REJ has poor utility. So we choose to send
@@ -194,20 +201,19 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        It can be requested by this TX itself, if it have no I-frame to txmit, or
        following a poll timeout (RR or RNR), or if the transmission window 
        is full.*/
+
   if ((cm_flags & IOHDLC_EVT_SSNDREQ) || (p->ss_state & IOHDLC_SS_SENDING)) {
     cm_flags &= ~IOHDLC_EVT_SSNDREQ;
     p->ss_state |= IOHDLC_SS_SENDING;
 
-    bool sPF = IOHDLC_P_ISFLYING(s);
-    if (thereIsSendOpportunity(s, sPF)) {
-      const uint32_t outstanding = (p->vs >= p->nr) ?
+    if (thereIsSendOpportunity(s, pf_received)) {
+      const outstanding = (p->vs >= p->nr) ?
           (p->vs - p->nr) : (p->ks - (p->nr - p->vs) + 1);
       const bool window_full = outstanding >= p->ks;
       const bool no_i_frame = ioHdlc_frameq_isempty(&p->i_trans_q) || window_full;
-      const bool set_pf = !sPF &&
-        (((!IOHDLC_USE_TWA(s)) && IOHDLC_IS_PRI(s)) ||
-         ((!IOHDLC_USE_TWA(s)) && IOHDLC_IS_SEC(s) && no_i_frame) ||
-         (IOHDLC_USE_TWA(s) && no_i_frame));
+      bool set_pf = IOHDLC_IS_PRI(s) ?
+        (IOHDLC_USE_TWA(s) ? IOHDLC_F_ISRCVED(s) && no_i_frame : IOHDLC_F_ISRCVED(s)) :
+        (IOHDLC_P_ISRCVED(s) && no_i_frame);
       /* TODO: Build and send S frame p->ss_fun.
                 Set P/F to set_pf.*/
       p->ss_state &= ~IOHDLC_SS_SENDING;
@@ -228,8 +234,110 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       return cm_flags;
     }
   }
-  /* TODO: send I-frame following the NRM (TWA/TWS) rules.*/
 
+  /* I-frame transmission: follow NRM rules (TWA vs TWS, Primary vs Secondary). */
+  if (cm_flags & IOHDLC_EVT_C_RPLYTMO) {
+    /* Poll/reply timeout occurred: need to re-send frame with P set. */
+    cm_flags &= ~IOHDLC_EVT_C_RPLYTMO;
+    s->pf_state |= IOHDLC_F_RCVED; /* Force P not sent. */
+  }
+
+  /* Recalculate pf_received since S-frame transmission or timeout may have cleared flags. */
+  pf_received = IOHDLC_IS_PRI(s) ?
+      (IOHDLC_USE_TWA(s) ? IOHDLC_F_ISRCVED(s) : true) :
+      IOHDLC_P_ISRCVED(s);
+
+  bool i_frame_sent = false;  /* Track if at least one I-frame was sent. */
+  
+  while (!ioHdlc_frameq_isempty(&p->i_trans_q)) {
+    /* Check transmission window availability. */
+    const uint32_t outstanding = (p->vs >= p->nr) ?
+        (p->vs - p->nr) : (p->ks - (p->nr - p->vs) + 1);
+    if (outstanding >= p->ks)
+      /* Window full: cannot send I-frames. */
+      break;
+
+    if (!thereIsSendOpportunity(s, pf_received))
+      /* Cannot send I-frame now (physical layer busy or TWA waiting for link). */
+      break;
+
+    /* Extract frame from transmission queue with lookahead. */
+    iohdlc_frame_t *next_fp = NULL;
+    iohdlc_frame_t *fp = ioHdlc_frameq_remove_la(&p->i_trans_q, &next_fp);
+    if (fp == NULL) break;  /* Safety check. */
+
+    /* Determine whether to set P/F bit.
+       Primary TWA: Set P on LAST I-frame (always, we have the link).
+       Primary TWS: Set P as soon as possible (if no P in flight).
+       Secondary (TWA & TWS): Set F on LAST I-frame (when window will be full or no more frames). */
+    bool set_pf = false;
+    const bool is_last_frame = ((outstanding + 1) >= p->ks) || (next_fp == NULL);
+    
+    if (IOHDLC_IS_PRI(s)) {
+      /* Primary: behavior differs between TWA and TWS.
+         TWA: set P on last frame (we have the link).
+         TWS: set P as soon as possible (if no P in flight). */
+      set_pf = IOHDLC_USE_TWA(s) ? is_last_frame : IOHDLC_F_ISRCVED(s); 
+    } else {
+      /* Secondary: always set F on last frame (both TWA and TWS). */
+      set_pf = is_last_frame;
+    }
+
+    /* TODO: Build and send I-frame:
+       - Set N(S) = p->vs
+       - Set N(R) = p->vr
+       - Set P/F = set_pf
+       - Transmit frame */
+
+    /* Mark that we sent at least one I-frame. */
+    i_frame_sent = true;
+
+    /* Move frame to retransmission queue. */
+    ioHdlc_frameq_insert(&p->i_retrans_q, fp);
+
+    /* Advance V(S). */
+    p->vs = (p->vs + 1) % (p->ks + 1);
+
+    /* Handle P/F state. */
+    if (set_pf) {
+      if (IOHDLC_IS_PRI(s)) {
+        /* Primary sent P: ack any received F and start command reply timer. */
+        IOHDLC_ACK_F(s);
+        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, 100);
+      } else {
+        /* Secondary sent F: ack received P. */
+        IOHDLC_ACK_P(s);
+      }
+      /* Update checkpoint reference. */
+      p->vs_atlast_pf = p->vs;
+    }
+
+    /* In TWA, stop after sending one frame with F (secondary) or P (primary). */
+    if (IOHDLC_USE_TWA(s) && set_pf)
+      break;
+  }
+
+  /* If no I-frame was sent but we have the opportunity/need to respond,
+     prepare to send an opportunistic S-frame (RR or RNR). */
+  if (!i_frame_sent) {
+    /* In TWA, if we have permission (P/F received) but didn't send I-frames,
+       we should send an S-frame to acknowledge and cede the link.
+       In TWS, we may also want to send periodic acknowledgments. */
+    if (thereIsSendOpportunity(s, pf_received)) {
+      /* Determine S-frame function: RR or RNR based on reception queue state. */
+      if (s->flags & IOHDLC_FLG_BUSY) {
+        /* Reception queue is busy/full: send RNR. */
+        p->ss_fun = IOHDLC_S_RNR;
+      } else {
+        /* Reception queue is ready: send RR. */
+        p->ss_fun = IOHDLC_S_RR;
+      }
+      /* Raise event to trigger S-frame transmission. */
+      cm_flags |= IOHDLC_EVT_SSNDREQ;
+    }
+  }
+
+  return cm_flags;
 }
 
 static uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
