@@ -26,7 +26,9 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
     .is_reply_timer_expired = ioHdlcRunnerIsReplyTimerExpired,
     .wait_events            = s_wait_events,
     .broadcast_flags        = s_broadcast_flags,
+    .get_events_flags       = s_get_events_flags,
   };
+  
   ioHdlcRegisterRunnerOps(&s_ops);
   (void)ioHdlcCoreInit(station);
   /* Register event listener for station events. */
@@ -104,6 +106,10 @@ bool ioHdlcRunnerIsReplyTimerExpired(iohdlc_station_peer_t *peer,
 static uint32_t s_wait_events(iohdlc_station_t *station, uint32_t mask) {
   (void)mask; /* single bucket */
   (void) chEvtWaitAny(EVENT_MASK(0));
+  return (uint32_t) chEvtGetAndClearFlags(&s_cm_listener);
+}
+
+static uint32_t s_get_events_flags(iohdlc_station_t *station) {
   return (uint32_t) chEvtGetAndClearFlags(&s_cm_listener);
 }
 

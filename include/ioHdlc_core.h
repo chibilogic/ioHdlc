@@ -39,6 +39,7 @@ typedef struct ioHdlcRunnerOps {
   /* Event helpers */
   uint32_t (*wait_events)(iohdlc_station_t *station, uint32_t mask);
   void (*broadcast_flags)(iohdlc_station_t *station, uint32_t flags);
+  uint32_t (*get_events_flags)(iohdlc_station_t *station);
 } ioHdlcRunnerOps;
 
 void ioHdlcRegisterRunnerOps(const ioHdlcRunnerOps *ops);

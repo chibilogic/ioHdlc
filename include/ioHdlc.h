@@ -165,8 +165,8 @@
 #define IOHDLC_SS_BUSY    0x01  /* Busy state.
                                    Temporarily the peer cannot receive I-frames. */
 #define IOHDLC_SS_SENDING 0x02  /* An S-frame is being sent to the peer. */                                     
-#define IOHDLC_SS_RNR_RCV 0x04  /* RNR received from the peer. */
-#define IOHDLC_SS_RNR_SNT 0x08  /* RNR sent to the peer. */
+//#define IOHDLC_SS_RNR_RCV 0x04  /* RNR received from the peer. */
+//#define IOHDLC_SS_RNR_SNT 0x08  /* RNR sent to the peer. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
@@ -187,8 +187,10 @@
 #define IOHDLC_HAS_FFF(s)     (s->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF)
 #define IOHDLC_USE_TWA(s)     ((s)->flags & IOHDLC_FLG_TWA)
 #define IOHDLC_ST_IDLE(s)     ((s)->flags & IOHDLC_FLG_IDL)
+#define IOHDLC_ST_BUSY(s)     ((s)->flags & IOHDLC_FLG_BUSY)
 #define IOHDLC_UM_INPROG(p)   ((p)->um_state & (IOHDLC_UM_SENT|IOHDLC_UM_SENDING))
 #define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
+#define IOHDLC_PEER_BUSY(p)   (((p)->ss_state & IOHDLC_SS_BUSY))
 
 /**
  * @name    System-defined parameters
