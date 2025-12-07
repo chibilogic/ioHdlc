@@ -53,6 +53,12 @@ static const ioHdlcRunnerOps *s_runner_ops = NULL;
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
+/* Broadcast event flags to station event source. */
+static void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags) {
+  if (s_runner_ops && s_runner_ops->broadcast_flags)
+    s_runner_ops->broadcast_flags(s, flags);
+}
+
 /* Map UM command to supported connection mode. */
 static uint8_t um2supportedConnMode(uint8_t um_cmd) {
   if (um_cmd == IOHDLC_U_SABM)
@@ -95,6 +101,38 @@ static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
     hdlcReleaseFrame(p->stationp->frame_pool, q->next);
     ioHdlc_frameq_delete(q->next);
   }
+}
+
+/**
+ * @brief   Handle timeout retry logic and declare link down if needed.
+ * @details Increments retry counter and checks against max limit.
+ *          If limit exceeded, declares link down, stops timers, resets state,
+ *          and marks peer as disconnected.
+ * 
+ * @param[in] s     Station descriptor
+ * @param[in] p     Peer descriptor
+ * @return  true to retry (counter < max), false if link down (max retries exceeded)
+ */
+static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
+  p->poll_retry_count++;
+  
+  if (p->poll_retry_count >= p->poll_retry_max) {
+    /* Max retries exceeded: declare link down. */
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINKDOWN);
+    
+    /* Cleanup: stop timers, reset counters, clear U-frame state. */
+    ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
+    ioHdlcStopReplyTimer(p, IOHDLC_TIMER_I_REPLY);
+    p->poll_retry_count = 0;
+    p->um_state &= ~(IOHDLC_UM_SENDING | IOHDLC_UM_SENT);
+    
+    /* Mark peer disconnected (blocks further transmissions). */
+    p->ss_state &= ~IOHDLC_SS_ST_CONN;
+    
+    return false;  /* Link down, do not retry. */
+  }
+  
+  return true;  /* Retry allowed. */
 }
 
 /* Reset peer UM state variables. */
@@ -181,16 +219,44 @@ bool ioHdlcCoreInit(iohdlc_station_t *station) {
   return true;
 }
 
-void ioHdlcOnRxFrame(iohdlc_station_t *station, iohdlc_frame_t *fp) {
-  (void)station;
-  /* TODO: hook into RX state machine; currently handled by original code. */
-  /* Placeholder: avoid leaks until full RX logic is ported. */
-  if (fp) hdlcReleaseFrame(station->frame_pool, fp);
+static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+  /* Handle U-frames common to all modes (NRM, ABM, ARM, etc.).
+     U-frames: SNRM, SARM, SABM, DISC, UA, DM, FRMR, etc.
+     
+     TODO: Implement U-frame handling:
+     - Decode address and control octets
+     - Validate destination address
+     - Process command/response based on station role
+     - Handle SNRM (set NRM mode)
+     - Handle SARM (set ARM mode)
+     - Handle SABM (set ABM mode)
+     - Handle DISC (disconnect)
+     - Handle UA (unnumbered acknowledgment)
+     - Handle DM (disconnected mode)
+     - Handle FRMR (frame reject)
+     - Update peer state and notify TX thread
+  */
+  (void)s;
+  /* Placeholder: avoid leaks until full U-frame logic is implemented. */
+  if (fp) hdlcReleaseFrame(s->frame_pool, fp);
 }
 
-uint32_t ioHdlcOnLineIdle(iohdlc_station_t *station) {
-  (void)station;
-  return (uint32_t)IOHDLC_EVT_LINIDLE;
+static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+  /* Handle I-frames and S-frames specific to NRM mode.
+     
+     TODO: Implement NRM receive logic for I/S frames:
+     - Decode address and control octets
+     - Validate against current peer
+     - Update sequence numbers (V(R), N(R))
+     - Handle P/F bits
+     - Reset poll_retry_count on valid F=1 response
+     - Switch peer when secondary yields (F=1)
+     - Pass I-frame data to application
+     - Generate appropriate events for TX thread (SSNDREQ, etc.)
+  */
+  (void)s;
+  /* Placeholder: avoid leaks until full RX logic is implemented. */
+  if (fp) hdlcReleaseFrame(s->frame_pool, fp);
 }
 
 static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
@@ -215,7 +281,7 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     p->ss_state |= IOHDLC_SS_SENDING;
 
     if (nrmSendOpportunity(s)) {
-      const outstanding = (p->vs >= p->nr) ?
+      const uint32_t outstanding = (p->vs >= p->nr) ?
           (p->vs - p->nr) : (p->ks - (p->nr - p->vs) + 1);
       const bool window_full = outstanding >= p->ks;
       const bool no_i_frame = ioHdlc_frameq_isempty(&p->i_trans_q) || window_full;
@@ -229,7 +295,7 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         if (IOHDLC_IS_PRI(s)) {
           /* If sent P, ack F and start the timer.*/
           IOHDLC_ACK_F(s);
-          ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, 100);
+          ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
         } else
           IOHDLC_ACK_P(s);
         /* Update checkpoint reference.*/
@@ -243,13 +309,20 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     }
   }
 
-  if (cm_flags & IOHDLC_EVT_C_RPLYTMO) {
-    /* Poll/reply timeout occurred: need to re-send frame with P set. */
-    cm_flags &= ~IOHDLC_EVT_C_RPLYTMO;
-    s->pf_state |= IOHDLC_F_RCVED; /* Force P not sent. */
-  }
-
   /* I-frame transmission: follow NRM rules (TWA vs TWS, Primary vs Secondary). */
+  
+  if (cm_flags & IOHDLC_EVT_C_RPLYTMO) {
+    /* Poll/reply timeout occurred: handle retry logic. */
+    cm_flags &= ~IOHDLC_EVT_C_RPLYTMO;
+    
+    if (!handleTimeoutRetry(s, p)) {
+      /* Link down: max retries exceeded, cannot send I-frames. */
+      return cm_flags;
+    }
+    
+    /* Retry: force P bit to be sent on next I-frame. */
+    s->pf_state |= IOHDLC_F_RCVED;
+  }
 
   bool i_frame_sent = false;  /* Track if at least one I-frame was sent. */
   while (!ioHdlc_frameq_isempty(&p->i_trans_q)) {
@@ -273,7 +346,12 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        - IOHDLC_EVT_LINKDOWN: Link failure detected
        - IOHDLC_EVT_SSNDREQ: Urgent S-frame requested (local busy condition)
        - IOHDLC_PEER_BUSY: Peer went into RNR state */
-    if ((cm_flags & (IOHDLC_EVT_UMRECVD | IOHDLC_EVT_LINKDOWN | IOHDLC_EVT_SSNDREQ)) ||
+    if (cm_flags & IOHDLC_EVT_LINKDOWN) {
+      /* Link is down: abort transmission immediately. */
+      return cm_flags;
+    }
+    
+    if ((cm_flags & (IOHDLC_EVT_UMRECVD | IOHDLC_EVT_SSNDREQ)) ||
         IOHDLC_PEER_BUSY(p)) {
       /* Critical event detected: exit I-frame loop immediately. */
       break;
@@ -285,9 +363,9 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     if (fp == NULL) break;  /* Safety check. */
 
     /* Determine whether to set P/F bit.
-       Primary TWA: Set P on LAST I-frame (always, we have the link).
+       Primary TWA: Set P on last I-frame (always, we have the link).
        Primary TWS: Set P as soon as possible (if no P in flight).
-       Secondary (TWA & TWS): Set F on LAST I-frame (when window will be full or no more frames). */
+       Secondary (TWA & TWS): Set F on last I-frame (when window will be full or no more frames). */
     bool set_pf = false;
     const bool is_last_frame = ((outstanding + 1) >= p->ks) || (next_fp == NULL);
     
@@ -321,7 +399,7 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       if (IOHDLC_IS_PRI(s)) {
         /* Primary sent P: ack any received F and start command reply timer. */
         IOHDLC_ACK_F(s);
-        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, 100);
+        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
       } else {
         /* Secondary sent F: ack received P. */
         IOHDLC_ACK_P(s);
@@ -355,7 +433,7 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
 static uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags);
-  
+
 static uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
   /* S requested
@@ -411,14 +489,9 @@ void ioHdlcTxEntry(void *stationp) {
       
       /* Evaluate timer expiry and manage retry counter. */
       if (r) {
-        p->poll_retry_count++;
-        if (p->poll_retry_count >= p->poll_retry_max) {
-          /* Retry limit exceeded: link is down. */
-          ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINKDOWN);
-          /* Reset retry counter and abort this U command attempt. */
-          p->poll_retry_count = 0;
-          p->um_state &= ~(IOHDLC_UM_SENDING | IOHDLC_UM_SENT);
-          ioHdlcNextPeer(s);  /* Move to next peer. */
+        if (!handleTimeoutRetry(s, p)) {
+          /* Link down: max retries exceeded, switch to next peer. */
+          ioHdlcNextPeer(s);
           continue;
         }
         /* Retry: will retransmit below. */
@@ -428,7 +501,7 @@ void ioHdlcTxEntry(void *stationp) {
       p->um_state |= IOHDLC_UM_SENDING;
       if (sendOpportunity(s)) {
         /* TODO: Build and send UM command p->um_cmd.*/
-        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, 100);
+        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
         p->um_state &= ~IOHDLC_UM_SENDING;
         p->um_state |= IOHDLC_UM_SENT;
         p->um_sent = p->um_cmd;
@@ -452,15 +525,25 @@ void ioHdlcRxEntry(void *stationp) {
       /* Idle line */
       s->flags |= IOHDLC_FLG_IDL;
       if (s->flags & IOHDLC_FLG_TWA) {
-        uint32_t flags = ioHdlcOnLineIdle(s);
-        if (s_runner_ops && s_runner_ops->broadcast_flags && flags)
-          s_runner_ops->broadcast_flags(s, flags);
+        /* In TWA mode, line idle might be significant - broadcast event. */
+        ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINIDLE);
       }
       continue;
     }
     s->flags &= ~IOHDLC_FLG_IDL;
-    /* Hand off to core protocol handler (owns fp). */
-    ioHdlcOnRxFrame(s, fp);
+    
+    /* Decode control octet to determine frame type. */
+    const uint8_t *foctp = IOHDLC_HAS_FFF(s) ? &fp->frame[1] : &fp->frame[0];
+    const uint8_t ctrl = foctp[1];
+    
+    /* Handle U-frames common to all modes. */
+    if (IOHDLC_IS_U_FRM(ctrl)) {
+      handleUFrame(s, fp);
+      continue;
+    }
+    
+    /* Call mode-specific RX handler for I and S frames. */
+    s->rx_fn(s, fp);
   }
 }
 

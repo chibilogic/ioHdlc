@@ -747,12 +747,17 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->mode = mode;
   ioHdlcsp->modulus = mod2;
   ioHdlcsp->pfoctet = (mod2 + 1) / 8;
+  ioHdlcsp->reply_timeout_ms = 100;  /* Default: 100ms reply timeout. */
   ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;
   ioHdlc_frameq_init(&ioHdlcsp->ni_recept_q);
   ioHdlc_frameq_init(&ioHdlcsp->ni_trans_q);
   ioHdlc_peerl_init(&ioHdlcsp->peers);
   ioHdlcsp->driver = ioHdlcsconfp->driver;
   chEvtObjectInit(&ioHdlcsp->cm_es);
+
+  /* Set TX/RX handlers based on mode. */
+  ioHdlcsp->tx_fn = (mode == IOHDLC_OM_NRM) ? nrmTx : abmTx;
+  ioHdlcsp->rx_fn = (mode == IOHDLC_OM_NRM) ? nrmRx : abmRx;
 
   /* Set default options. */
   ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] |= IOHDLC_OPT_REJ;

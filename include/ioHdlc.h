@@ -178,6 +178,8 @@
 #define IOHDLC_IS_NRM(s)      ((s)->mode == IOHDLC_OM_NRM)
 #define IOHDLC_IS_NDM(s)      ((s)->mode == IOHDLC_OM_NDM)
 #define IOHDLC_IS_ABM(s)      ((s)->mode == IOHDLC_OM_ABM)
+#define IOHDLC_IS_ARM(s)      ((s)->mode == IOHDLC_OM_ARM)
+#define IOHDLC_IS_ADM(s)      ((s)->mode == IOHDLC_OM_ADM)
 #define IOHDLC_P_ISRCVED(s)   ((s)->pf_state & IOHDLC_P_RCVED)
 #define IOHDLC_F_ISRCVED(s)   ((s)->pf_state & IOHDLC_F_RCVED)
 #define IOHDLC_P_ISFLYING(s)  ((IOHDLC_IS_PRI(s) && !IOHDLC_F_ISRCVED(s)) || \
@@ -305,6 +307,7 @@ struct iohdlc_station {
   uint8_t   pfoctet;            /* P/F octet number. Calculated from modulus. (0, 1, 2, 4). */
   uint8_t   optfuncs[5];        /* Active HDLC optional functions among those supported.
                                    See ISO13239 Table 16. */
+  uint16_t  reply_timeout_ms;   /* Reply timer timeout value in milliseconds. Default: 100ms. */
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
   iohdlc_station_peer_t *arm_peer;  /* The peer currently in arm mode, if any. */
@@ -313,19 +316,16 @@ struct iohdlc_station {
   int32_t   errorno;            /* number of last error. Follows the posix list of values. */
   iohdlc_peer_list_t  peers;    /* The header of the list of the peers of this station. Stations
                                    in ABM mode and secondary stations have only one peer. */
-  iohdlc_frame_q_t  ni_trans_q; /* S-frame and U-frame transmission queue. Common to all peers.
-                                   Maybe unnecessary. */
-  iohdlc_frame_q_t  ni_recept_q;/* S-frame and U-frame reception queue. Common to all peers.
-                                   Maybe unnecessary. */
   ioHdlcFramePool *frame_pool;  /* Pool of free frames. Any station has a its own pool of frames
                                    to be used for any frame type, and for transmission
                                    and reception. The pool shall be dimensioned in order to satisfy
                                    the windows size and the reception buffering of all the
                                    peers. */
+  iohdlc_tx_fn_t tx_fn;         /* Active transmit handler for the current mode. */
+  iohdlc_tx_fn_t rx_fn;         /* Active receiver handler for the current mode. */
 
   /* link driver. */
   ioHdlcDriver *driver;         /* Data link driver the station operates on. */
-  iohdlc_tx_fn_t tx_fn;         /* Active transmit handler for the current mode. */
 
   /* events. */
   iohdlc_event_source_t cm_es;  /* Source of the events related to commands. */

@@ -17,12 +17,11 @@ extern "C" {
 /* Initialize core with runner-provided context (timers/events abstractions live in runner). */
 bool ioHdlcCoreInit(iohdlc_station_t *station);
 
-/* RX path: deliver a received frame to the core (from lower layers). */
-void ioHdlcOnRxFrame(iohdlc_station_t *station, iohdlc_frame_t *fp);
-
-/* Line idle notification (runner signals inter-frame idle). */
-/* Returns station event flags the runner should signal (e.g., EVT_CM_LINIDLE). */
-uint32_t ioHdlcOnLineIdle(iohdlc_station_t *station);
+/* Mode-specific TX/RX handlers (assigned to station->tx_fn and station->rx_fn). */
+uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
+void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
 
 /* Runner ops registration (timer controls etc.). */
 typedef struct ioHdlcRunnerOps {
