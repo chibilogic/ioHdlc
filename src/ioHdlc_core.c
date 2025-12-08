@@ -221,24 +221,91 @@ bool ioHdlcCoreInit(iohdlc_station_t *station) {
 
 static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Handle U-frames common to all modes (NRM, ABM, ARM, etc.).
-     U-frames: SNRM, SARM, SABM, DISC, UA, DM, FRMR, etc.
+     Per ISO 13239:
+     - Commands (SNRM, SARM, SABM, DISC): processed by secondary/combined
+     - Responses (UA, DM, FRMR): processed by primary/combined
      
-     TODO: Implement U-frame handling:
-     - Decode address and control octets
-     - Validate destination address
-     - Process command/response based on station role
-     - Handle SNRM (set NRM mode)
-     - Handle SARM (set ARM mode)
-     - Handle SABM (set ABM mode)
-     - Handle DISC (disconnect)
-     - Handle UA (unnumbered acknowledgment)
-     - Handle DM (disconnected mode)
-     - Handle FRMR (frame reject)
-     - Update peer state and notify TX thread
+     RX responsability: validate, register event, notify TX.
+     TX responsability: state transitions, variable resets, timer control.
   */
-  (void)s;
-  /* Placeholder: avoid leaks until full U-frame logic is implemented. */
-  if (fp) hdlcReleaseFrame(s->frame_pool, fp);
+  const uint8_t *foctp = IOHDLC_HAS_FFF(s) ? &fp->frame[1] : &fp->frame[0];
+  const uint8_t addr = foctp[0];
+  const uint8_t ctrl = foctp[1];
+  const uint8_t u_cmd = ctrl & IOHDLC_U_FUN_MASK;
+  const bool has_pf = (ctrl & IOHDLC_PF_BIT) != 0;
+  
+  iohdlc_station_peer_t *p = s->c_peer;
+  
+  /* Determine if frame is command or response.
+     Command: addressed to this station (addr == s->addr)
+     Response: from current peer (addr == p->addr) */
+  const bool is_command = (addr == s->addr);
+  
+  /* Validate frame origin matches current peer. */
+  if (is_command) {
+    /* Command to us: must be from c_peer. */
+    if (addr != s->addr) {
+      hdlcReleaseFrame(s->frame_pool, fp);
+      return;
+    }
+  } else {
+    /* Response from peer: must be from c_peer. */
+    if (!p || addr != p->addr) {
+      /* Spurious frame from wrong peer or no peer selected → discard. */
+      hdlcReleaseFrame(s->frame_pool, fp);
+      return;
+    }
+  }
+  
+  if (is_command) {
+    /* U-frame command received (we are Secondary or Combined in ABM).
+       Per 6.11.4.1.3: if already UM_RCVED in progress, ignore additional
+       commands until response sent. */
+    if (p->um_state & IOHDLC_UM_RCVED) {
+      hdlcReleaseFrame(s->frame_pool, fp);
+      return;
+    }
+    
+    /* Register command and P bit.
+       Per 6.11.4.1.3: Secondary in NDM/ADM monitors commands and reacts. */
+    p->um_state |= IOHDLC_UM_RCVED;
+    p->um_cmd = u_cmd;
+    if (has_pf)
+      s->pf_state |= IOHDLC_P_RCVED;
+    
+    /* Notify TX to process the command. */
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_UMRECVD);
+    
+  } else {
+    /* U-frame response received (we are Primary or Combined in ABM).
+       Per 6.11.4.1.1/1.2: responses must have F bit set. */
+    
+    /* Verify we have an outstanding UM command (UM_SENT). */
+    if (!(p->um_state & IOHDLC_UM_SENT)) {
+      /* Unsolicited response → discard. */
+      hdlcReleaseFrame(s->frame_pool, fp);
+      return;
+    }
+    
+    /* Verify F bit is set (mandatory for responses per standard). */
+    if (!has_pf) {
+      /* Missing F bit → protocol error, discard. */
+      hdlcReleaseFrame(s->frame_pool, fp);
+      return;
+    }
+    
+    /* Valid response received. Mark F received and notify TX.
+       TX will handle: stop timer, reset variables, state transitions. */
+    s->pf_state |= IOHDLC_F_RCVED;
+    
+    /* Store response type for TX to process. */
+    p->um_rsp = u_cmd;
+    
+    /* Notify TX to process the response. */
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_UMRECVD);
+  }
+  
+  hdlcReleaseFrame(s->frame_pool, fp);
 }
 
 static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
