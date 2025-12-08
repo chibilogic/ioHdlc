@@ -54,6 +54,9 @@ typedef uint32_t (*iohdlc_tx_fn_t)(iohdlc_station_t *s,
                                    iohdlc_station_peer_t *p,
                                    uint32_t cm_flags);
 
+typedef void (*iohdlc_rx_fn_t)(iohdlc_station_t *s,
+                               iohdlc_frame_t *fp);
+
 typedef enum {
   IOHDLC_TIMER_REPLY   = EVT_CM_C_RPLYTMO,
   IOHDLC_TIMER_I_REPLY = EVT_CM_I_RPLYTMO,

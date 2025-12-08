@@ -65,6 +65,8 @@ static uint8_t um2supportedConnMode(uint8_t um_cmd) {
     return IOHDLC_OM_ABM;
   if (um_cmd == IOHDLC_U_SNRM)
     return IOHDLC_OM_NRM;
+  if (um_cmd == IOHDLC_U_SARM)
+    return IOHDLC_OM_ARM;
   return 0;
 }
 
@@ -74,6 +76,8 @@ static uint8_t supportedConnMode2um(uint8_t mode) {
     return IOHDLC_U_SABM;
   if (mode == IOHDLC_OM_NRM)
     return IOHDLC_U_SNRM;
+  if (mode == IOHDLC_OM_ARM)
+    return IOHDLC_U_SARM;
   return 0;
 }
 
@@ -266,14 +270,43 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       return;
     }
     
-    /* Register command and P bit.
-       Per 6.11.4.1.3: Secondary in NDM/ADM monitors commands and reacts. */
-    p->um_state |= IOHDLC_UM_RCVED;
+    /* Register command and P bit. */
     p->um_cmd = u_cmd;
     if (has_pf)
       s->pf_state |= IOHDLC_P_RCVED;
     
-    /* Notify TX to process the command. */
+    /* Determine appropriate response based on command and current state.
+       Per 6.11.4.1.1: Secondary validates command and decides response. */
+    
+    uint8_t om = um2supportedConnMode(u_cmd);
+    if (om) {
+      /* Set mode command (SNRM/SARM/SABM).
+         Per 6.11.4.1.1: Secondary accepts, changes mode, resets variables. */
+      s->mode = om;
+      resetPeerVars(p);
+      p->ss_state |= IOHDLC_SS_ST_CONN;
+      p->um_rsp = IOHDLC_U_UA;
+      
+    } else if (u_cmd == IOHDLC_U_DISC) {
+      /* DISC command received. */
+      if (IOHDLC_IS_DISC(s)) {
+        /* Already disconnected: respond with DM. */
+        p->um_rsp = IOHDLC_U_DM;
+      } else {
+        /* Connected: accept DISC, enter disconnected mode. */
+        s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+        resetPeerVars(p);
+        p->um_rsp = IOHDLC_U_UA;
+      }
+      
+    } else {
+      /* Unsupported or unimplemented command.
+         Per 6.11.4.1.3: respond with DM. */
+      p->um_rsp = IOHDLC_U_DM;
+    }
+    
+    /* Mark command received and notify TX to send response. */
+    p->um_state |= IOHDLC_UM_RCVED;
     ioHdlcBroadcastFlags(s, IOHDLC_EVT_UMRECVD);
     
   } else {
@@ -294,36 +327,304 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       return;
     }
     
-    /* Valid response received. Mark F received and notify TX.
-       TX will handle: stop timer, reset variables, state transitions. */
+    /* Valid response received. Process based on response type.
+       We know what we requested because um_cmd is still set. */
+    
+    /* Stop reply timer immediately. */
+    ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
+    
+    if (u_cmd == IOHDLC_U_UA) {
+      /* UA received: command accepted. */
+      
+      if (p->um_cmd == IOHDLC_U_DISC) {
+        /* DISC accepted: enter disconnected mode. */
+        s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+        p->ss_state &= ~IOHDLC_SS_ST_CONN;
+      } else {
+        /* Connection command accepted (SNRM/SARM/SABM).
+           Mode was already set by linkup() before sending command. */
+        p->ss_state |= IOHDLC_SS_ST_CONN;
+      }
+      
+      /* Reset peer variables and clear UM state. */
+      resetPeerVars(p);
+      resetPeerUm(p);
+      
+      /* Notify application (unblock linkup/linkdown). */
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_CONNCHG);
+      
+    } else if (u_cmd == IOHDLC_U_DM) {
+      /* DM received: peer disconnected or refused connection. */
+      p->ss_state &= ~IOHDLC_SS_ST_CONN;
+      p->ss_state |= IOHDLC_SS_ST_DISM;
+      resetPeerUm(p);
+      
+      /* Notify application (unblock linkup/linkdown with error). */
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_CONNCHG);
+      
+    } else if (u_cmd == IOHDLC_U_FRMR) {
+      /* FRMR received: peer detected protocol error.
+         TODO: Log error, consider link recovery. */
+      resetPeerUm(p);
+    }
+    
+    /* Mark F received and clear UM_SENT. */
     s->pf_state |= IOHDLC_F_RCVED;
+    p->um_state &= ~IOHDLC_UM_SENT;
+  }
+  
+  hdlcReleaseFrame(s->frame_pool, fp);
+}
+
+/*===========================================================================*/
+/* NRM RX helper functions.                                                  */
+/*===========================================================================*/
+
+static bool seqLessThan(uint32_t seq1, uint32_t seq2, uint32_t modulus) {
+  /* Returns true if seq1 < seq2 in modular arithmetic. */
+  uint32_t diff = (seq2 - seq1) % modulus;
+  return (diff > 0 && diff < modulus / 2);
+}
+
+static uint32_t extractNS(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+  /* Extract N(S) from control field based on modulus. */
+  if (s->modulus == 8) {
+    /* Modulo 8: N(S) in bits 5-7 of ctrl[0]. */
+    return (fp->ctrl[0] >> 5) & 0x07;
+  } else {
+    /* Modulo 128: N(S) in bits 1-7 of ctrl[1]. */
+    return (fp->ctrl[1] >> 1) & 0x7F;
+  }
+}
+
+static uint32_t extractNR(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+  /* Extract N(R) from control field based on modulus. */
+  if (s->modulus == 8) {
+    /* Modulo 8: N(R) in bits 1-3 of ctrl[0]. */
+    return (fp->ctrl[0] >> 1) & 0x07;
+  } else {
+    /* Modulo 128: N(R) in bits 1-7 of ctrl[2]. */
+    return (fp->ctrl[2] >> 1) & 0x7F;
+  }
+}
+
+static void processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
+                      uint32_t nr) {
+  /* Remove acknowledged frames from retransmission queue.
+     Frames with N(S) < nr have been received by peer. */
+  
+  while (p->nr != nr && !ioHdlc_frameq_isempty(&p->i_retrans_q)) {
+    iohdlc_frame_t *acked_fp = ioHdlc_frameq_remove(&p->i_retrans_q);
+    hdlcReleaseFrame(s->frame_pool, acked_fp);
+    p->nr = (p->nr + 1) % s->modulus;
+  }
+  
+  /* Update last acknowledged N(R). */
+  p->nr = nr;
+}
+
+static void checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
+  /* Move frames from i_retrans_q back to i_trans_q for checkpoint retransmission.
+     Per ISO 13239 5.6.2.1: Both Primary and Secondary do this.
+     
+     Strategy: Find the range of frames in i_retrans_q with N(S) < vs_atlast_pf
+     and move them to the head of i_trans_q using ioHdlc_frameq_move().
+  */
+  
+  if (ioHdlc_frameq_isempty(&p->i_retrans_q))
+    return;  // Nothing to retransmit
+  
+  /* Find the first frame that needs checkpoint retransmission. */
+  iohdlc_frame_t *first_fp = NULL;
+  iohdlc_frame_t *last_fp = NULL;
+  iohdlc_frame_t *fp = p->i_retrans_q.next;
+  
+  /* Scan the retransmission queue to find frames with N(S) < vs_atlast_pf. */
+  while (fp != (iohdlc_frame_t *)&p->i_retrans_q) {
+    uint32_t frame_ns = extractNS(s, fp);
     
-    /* Store response type for TX to process. */
-    p->um_rsp = u_cmd;
+    if (seqLessThan(frame_ns, p->vs_atlast_pf, s->modulus)) {
+      /* This frame needs checkpoint retransmission. */
+      if (first_fp == NULL)
+        first_fp = fp;  // Mark first frame
+      last_fp = fp;     // Update last frame
+      fp = fp->next;    // Continue scanning
+    } else {
+      /* Found a frame sent after checkpoint: stop here. */
+      break;
+    }
+  }
+  
+  /* If we found frames to retransmit, move them to i_trans_q. */
+  if (first_fp != NULL) {
+    ioHdlc_frameq_move(&p->i_trans_q, first_fp, last_fp);
+  }
+}
+
+static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                                   iohdlc_frame_t *fp) {
+  /* Common processing for both I-frames and S-frames:
+     1. Process N(R) to acknowledge our sent frames
+     2. Handle P/F bit for checkpointing (both Primary and Secondary)
+     3. Manage reply timer based on role and P/F bit
+  */
+  
+  uint8_t ctrl = fp->ctrl[0];
+  uint32_t nr = extractNR(s, fp);
+  bool pf = (ctrl & IOHDLC_PF_BIT) != 0;
+  
+  /* 1. ALWAYS process N(R) to acknowledge our sent frames. */
+  processNR(s, p, nr);
+  
+  /* 2. ALWAYS handle P/F bit for checkpointing (independent of frame type). */
+  if (pf) {
+    /* Both Primary and Secondary do checkpoint operations. */
     
-    /* Notify TX to process the response. */
-    ioHdlcBroadcastFlags(s, IOHDLC_EVT_UMRECVD);
+    /* Checkpoint retransmission: retransmit unacknowledged frames
+       with N(S) < vs_atlast_pf. Move them from i_retrans_q to i_trans_q.
+       
+       Note: The checkpoint verification is implicit in this function.
+       If N(R) >= vs_atlast_pf, processNR() has already removed all frames
+       from i_retrans_q and checkpointRetransmit() will find nothing to move.
+       If N(R) < vs_atlast_pf, frames remain in i_retrans_q and will be
+       moved to i_trans_q for retransmission (error recovery). */
+    // TODO: Check conditions for when NOT to do checkpoint (to be defined later)
+    checkpointRetransmit(s, p);
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_CHKPT);
+    
+    /* C. Role-specific P/F handling. */
+    if (IOHDLC_IS_PRI(s)) {
+      /* Primary received F=1: acknowledge poll and stop timer. */
+      s->pf_state |= IOHDLC_F_RCVED;
+      p->poll_retry_count = 0;
+      ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
+      
+    } else {
+      /* Secondary received P=1: must respond with F=1. */
+      s->pf_state |= IOHDLC_P_RCVED;
+    }
+    
+  } else {
+    /* pf == false (F=0 for Primary, P=0 for Secondary) */
+    
+    if (IOHDLC_IS_PRI(s)) {
+      /* Primary received F=0: peer sent something but not final response yet.
+         Restart timer to keep waiting for F=1. */
+      if (!IOHDLC_F_ISRCVED(s)) {
+        /* Only restart if we're still waiting for F (P is outstanding). */
+        ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
+      }
+    }
+  }
+}
+
+static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
+                         iohdlc_frame_t *fp) {
+  /* Handle I-frame specific logic:
+     - Validate sequence number N(S)
+     - Enqueue frame for application if valid
+     - Generate REJ if out-of-sequence
+  */
+  
+  uint32_t ns = extractNS(s, fp);
+  
+  /* Validate N(S) against V(R). */
+  if (ns != p->vr) {
+    /* Out-of-sequence error detected. */
+    hdlcReleaseFrame(s->frame_pool, fp);
+    
+    /* Send REJ to request retransmission (ignored in TWA, but sent anyway). */
+    // TODO: Check rej_actioned to avoid duplicate REJ (to be implemented later)
+    if (!IOHDLC_USE_TWA(s)) {
+      p->ss_fun = IOHDLC_S_REJ;
+      p->ss_nr = p->vr;
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_SSNDREQ);
+    }
+    
+    return;
+  }
+  
+  /* Frame is in sequence: enqueue for application. */
+  ioHdlc_frameq_insert(&p->i_recept_q, fp);
+  
+  // TODO: Check if queue is approaching full (watermark) to send RNR
+  // For now, assume queue has enough space (allocated for kr+1 frames)
+  
+  /* Increment V(R) - frame accepted. */
+  p->vr = (p->vr + 1) % s->modulus;
+}
+
+static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
+                         iohdlc_frame_t *fp) {
+  /* Handle S-frame specific logic:
+     - Update peer busy state (RR/RNR)
+     - Process REJ for retransmission
+     - Ignore SREJ (not implemented)
+  */
+  
+  uint8_t ctrl = fp->ctrl[0];
+  uint8_t s_fun = ctrl & IOHDLC_S_FUN_MASK;
+  
+  /* Handle S-frame function. */
+  switch (s_fun) {
+    case IOHDLC_S_RR:
+      /* Peer ready to receive: clear busy flag. */
+      p->ss_state &= ~IOHDLC_SS_BUSY;
+      break;
+      
+    case IOHDLC_S_RNR:
+      /* Peer not ready: set busy flag. */
+      p->ss_state |= IOHDLC_SS_BUSY;
+      break;
+      
+    case IOHDLC_S_REJ:
+      /* Peer requests retransmission from N(R). */
+      // TODO: Use rej_actioned to track REJ exception state (to be implemented later)
+      if (!IOHDLC_USE_TWA(s)) {
+        uint32_t nr = extractNR(s, fp);
+        p->vs = nr;  // Rewind send sequence
+        ioHdlcBroadcastFlags(s, IOHDLC_EVT_RETRANS);
+      }
+      break;
+      
+    case IOHDLC_S_SREJ:
+      /* Selective reject: not implemented. Ignore. */
+      break;
   }
   
   hdlcReleaseFrame(s->frame_pool, fp);
 }
 
 static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
-  /* Handle I-frames and S-frames specific to NRM mode.
-     
-     TODO: Implement NRM receive logic for I/S frames:
-     - Decode address and control octets
-     - Validate against current peer
-     - Update sequence numbers (V(R), N(R))
-     - Handle P/F bits
-     - Reset poll_retry_count on valid F=1 response
-     - Switch peer when secondary yields (F=1)
-     - Pass I-frame data to application
-     - Generate appropriate events for TX thread (SSNDREQ, etc.)
-  */
-  (void)s;
-  /* Placeholder: avoid leaks until full RX logic is implemented. */
-  if (fp) hdlcReleaseFrame(s->frame_pool, fp);
+  /* Handle I-frames and S-frames specific to NRM mode. */
+  
+  iohdlc_station_peer_t *p;
+  uint32_t addr;
+  uint8_t ctrl;
+  
+  /* Decode address and control. */
+  addr = fp->addr;
+  ctrl = fp->ctrl[0];
+  
+  /* Identify peer from address. */
+  p = addr2peer(s, addr);
+  if (p == NULL) {
+    hdlcReleaseFrame(s->frame_pool, fp);
+    return;
+  }
+  
+  /* Common checkpoint and acknowledgment processing for all I/S frames. */
+  handleCheckpointAndAck(s, p, fp);
+  
+  /* Branch by frame type for specific handling. */
+  if (IOHDLC_IS_I_FRM(ctrl)) {
+    handleIFrame(s, p, fp);
+  } else if (IOHDLC_IS_S_FRM(ctrl)) {
+    handleSFrame(s, p, fp);
+  } else {
+    /* Unexpected frame type (U-frames already handled upstream). */
+    hdlcReleaseFrame(s->frame_pool, fp);
+  }
 }
 
 static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
@@ -571,7 +872,6 @@ void ioHdlcTxEntry(void *stationp) {
         ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
         p->um_state &= ~IOHDLC_UM_SENDING;
         p->um_state |= IOHDLC_UM_SENT;
-        p->um_sent = p->um_cmd;
         IOHDLC_ACK_F(s);                  /* ack F  */
       }
     }

@@ -258,7 +258,6 @@ struct iohdlc_station_peer {
   uint8_t   ss_state;           /* Supervision state. See definitions. */
   uint8_t   um_cmd;             /* Unnumbered command to_send. */
   uint8_t   um_rsp;             /* Unnumbered response. */
-  uint8_t   um_sent;            /* Last unnumbered command sent. TODO: Is it necessary?*/
   uint8_t   ss_fun;             /* Supervision function to send. */
   uint32_t  ss_nr;              /* N(R) in the S frame to send, rcvd, sent. */
   uint8_t   ss_fsent;           /* Last supervision function sent. TODO: Is it necessary?*/
@@ -322,7 +321,7 @@ struct iohdlc_station {
                                    the windows size and the reception buffering of all the
                                    peers. */
   iohdlc_tx_fn_t tx_fn;         /* Active transmit handler for the current mode. */
-  iohdlc_tx_fn_t rx_fn;         /* Active receiver handler for the current mode. */
+  iohdlc_rx_fn_t rx_fn;         /* Active receiver handler for the current mode. */
 
   /* link driver. */
   ioHdlcDriver *driver;         /* Data link driver the station operates on. */
