@@ -467,6 +467,11 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
      1. Process N(R) to acknowledge our sent frames
      2. Handle P/F bit for checkpointing (both Primary and Secondary)
      3. Manage reply timer based on role and P/F bit
+     
+     TODO: Verify thread synchronization between RX and TX.
+           The sequence processNR() → handleSFrame(REJ) → checkpoint must be
+           atomic relative to TX to prevent race conditions where TX acks frames
+           before rej_actioned is set, potentially leaving rej_actioned orphaned.
   */
   
   uint8_t ctrl = fp->ctrl[0];
@@ -487,10 +492,27 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
        If N(R) >= vs_atlast_pf, processNR() has already removed all frames
        from i_retrans_q and checkpointRetransmit() will find nothing to move.
        If N(R) < vs_atlast_pf, frames remain in i_retrans_q and will be
-       moved to i_trans_q for retransmission (error recovery). */
-    // TODO: Check conditions for when NOT to do checkpoint (to be defined later)
-    checkpointRetransmit(s, p);
-    ioHdlcBroadcastFlags(s, IOHDLC_EVT_CHKPT);
+       moved to i_trans_q for retransmission (error recovery). 
+       
+       ISO 13239 5.6.2.1 case a): checkpoint inhibited if REJ already actioned.
+       Also inhibited if rej_actioned would be in checkpoint range. */
+    if (p->rej_actioned == 0) {
+      /* No REJ active: checkpoint can proceed. */
+      checkpointRetransmit(s, p);
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_CHKPT);
+    } else {
+      /* REJ active (rej_actioned = x means N(R) = x-1 in REJ recovery).
+         Checkpoint only if N(R) of REJ not in checkpoint range.
+         Checkpoint would retransmit frames with N(S) < vs_atlast_pf.
+         If (rej_actioned-1) >= vs_atlast_pf, REJ range doesn't overlap. */
+      uint32_t rej_nr = p->rej_actioned - 1;
+      if (!seqLessThan(rej_nr, p->vs_atlast_pf, s->modulus)) {
+        /* REJ N(R) is outside checkpoint range: safe to checkpoint. */
+        checkpointRetransmit(s, p);
+        ioHdlcBroadcastFlags(s, IOHDLC_EVT_CHKPT);
+      }
+      /* Otherwise, REJ recovery is handling these frames: skip checkpoint. */
+    }
     
     /* C. Role-specific P/F handling. */
     if (IOHDLC_IS_PRI(s)) {
@@ -533,11 +555,13 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Out-of-sequence error detected. */
     hdlcReleaseFrame(s->frame_pool, fp);
     
-    /* Send REJ to request retransmission (ignored in TWA, but sent anyway). */
-    // TODO: Check rej_actioned to avoid duplicate REJ (to be implemented later)
-    if (!IOHDLC_USE_TWA(s)) {
+    /* Send REJ to request retransmission.
+       ISO 13239 5.6.2.1 case a): only one REJ at a time.
+       If REJ already actioned, first REJ will retransmit all needed frames. */
+    if (!IOHDLC_USE_TWA(s) && p->rej_actioned == 0) {
       p->ss_fun = IOHDLC_S_REJ;
       p->ss_nr = p->vr;
+      p->rej_actioned = p->vr + 1;  /* Mark REJ as actioned (value = N(R) + 1) */
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_SSNDREQ);
     }
     
@@ -546,6 +570,12 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   
   /* Frame is in sequence: enqueue for application. */
   ioHdlc_frameq_insert(&p->i_recept_q, fp);
+  
+  /* Clear REJ exception if this is the frame that completes recovery.
+     rej_actioned = x means waiting for frame with N(S) = x-1. */
+  if (p->rej_actioned != 0 && ns == (p->rej_actioned - 1)) {
+    p->rej_actioned = 0;
+  }
   
   // TODO: Check if queue is approaching full (watermark) to send RNR
   // For now, assume queue has enough space (allocated for kr+1 frames)
@@ -578,12 +608,27 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       break;
       
     case IOHDLC_S_REJ:
-      /* Peer requests retransmission from N(R). */
-      // TODO: Use rej_actioned to track REJ exception state (to be implemented later)
+      /* Peer requests retransmission from N(R).
+         processNR() has already removed frames with N(S) < nr from i_retrans_q.
+         Now move remaining frames (N(S) >= nr) from i_retrans_q to head of i_trans_q.
+         TX will take frames from i_trans_q (never from i_retrans_q directly).
+         
+         Mark REJ as actioned to:
+         1. Prevent duplicate REJ (same or different N(R))
+         2. Inhibit checkpoint retransmission of overlapping frames
+         
+         ISO 13239 5.6.2.1 case a): first REJ retransmits all needed frames. */
       if (!IOHDLC_USE_TWA(s)) {
         uint32_t nr = extractNR(s, fp);
-        p->vs = nr;  // Rewind send sequence
-        ioHdlcBroadcastFlags(s, IOHDLC_EVT_RETRANS);
+        
+        /* Move frames from i_retrans_q to head of i_trans_q for retransmission. */
+        ioHdlc_frameq_move(&p->i_retrans_q, &p->i_trans_q, true);
+        
+        /* Mark REJ as actioned (value = N(R) + 1 to distinguish from 0 = not actioned). */
+        p->rej_actioned = nr + 1;
+        
+        /* Signal retransmission event (TX will send from i_trans_q). */
+        ioHdlcBroadcastFlags(s, IOHDLC_EVT_SSNDREQ);
       }
       break;
       
