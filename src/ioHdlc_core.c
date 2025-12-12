@@ -266,13 +266,9 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   iohdlc_station_peer_t *p = s->c_peer;
   
   /* Determine if frame is command or response.
-     ISO 13239 Section 3.1.10:
-     - Command: All frames from primary/control, or frames with OTHER station's address
-     - Response: Frames from secondary/combined with sender's own address
-     
-     For PRIMARY station: commands addressed to peer, responses addressed to us
-     For SECONDARY/COMBINED: commands addressed to us, responses addressed to peer */
-  const bool is_command = IOHDLC_IS_PRI(s) ? (addr == p->addr) : (addr == s->addr);
+     Command: addressed to this station (addr == s->addr)
+     Response: from current peer (addr == p->addr) */
+  const bool is_command = (addr == s->addr);
   
   /* Validate frame origin matches current peer. */
   if (is_command) {
@@ -526,7 +522,7 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
     ioHdlc_frameq_move(&p->i_trans_q, first_fp, last_fp);
     
     /* Mark checkpoint as actioned with first frame N(S).
-       Used to detect overlap with subsequent REJ (ISO 13239). */
+       Used to detect overlap with subsequent REJ (5.6.2.2). */
     p->chkpt_actioned = first_ns + 1;
     
     return true;
@@ -572,7 +568,7 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
        inhibits if REJ is active and would retransmit the same I-frame. */
     if (checkpointRetransmit(s, p)) {
       /* Checkpoint found and moved frames to retransmit. */
-      ioHdlcBroadcastFlags(s, IOHDLC_EVT_CHKPT);
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_ISNDREQ);
     }
     
     /* C. Role-specific P/F handling. */
@@ -677,15 +673,15 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
          1. Prevent duplicate REJ (same or different N(R))
          2. Inhibit checkpoint retransmission of overlapping frames
          
-         ISO 13239: If checkpoint retransmission is already handling the same
+         5.6.2.2: If checkpoint retransmission is already handling the same
          particular I frame (same N(S)), REJ shall be inhibited. */
       if (!IOHDLC_USE_TWA(s)) {
         uint32_t nr = extractNR(s, fp);
         
         /* Check if checkpoint is active and starting with same particular I frame.
-           ISO 13239: "same particular I frame" = same N(S) value. */
+           "same particular I frame" = same N(S) value. */
         if (p->chkpt_actioned != 0 && (p->chkpt_actioned - 1) == nr) {
-          /* Same frame: REJ inhibited per ISO 13239.
+          /* Same frame: REJ inhibited per 5.6.2.2.
              Mark REJ as actioned to prevent duplicate attempts. */
           p->rej_actioned = nr + 1;
           break;
@@ -698,7 +694,7 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
           iohdlc_frame_t *first = p->i_retrans_q.next;
           iohdlc_frame_t *last = p->i_retrans_q.prev;
           ioHdlc_frameq_move(&p->i_trans_q, first, last);
-          ioHdlcBroadcastFlags(s, IOHDLC_EVT_SSNDREQ);
+          ioHdlcBroadcastFlags(s, IOHDLC_EVT_ISNDREQ);
         }
         
         /* Mark REJ as actioned (value = N(R) + 1 to distinguish from 0 = not actioned).

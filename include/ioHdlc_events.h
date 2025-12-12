@@ -13,5 +13,6 @@
 #define IOHDLC_EVT_LINIDLE    0x0020  /* Line idle detected. */
 #define IOHDLC_EVT_SSNDREQ    0x0040  /* Supervision frame transmit requested. */
 #define IOHDLC_EVT_LINKDOWN   0x0080  /* Link down (retry count exhausted). */
+#define IOHDLC_EVT_ISNDREQ    0x0100  /* I-frame transmit requested. */
 
 #endif /* IOHDLC_EVENTS_H_ */
