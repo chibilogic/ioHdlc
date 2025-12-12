@@ -698,7 +698,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer,
   memset(peer, 0, sizeof *peer);
   peer->addr = addr;
   peer->stationp = ioHdlcsp;
-  peer->kr = peer->ks = (1 << ioHdlcsp->modulus) - 1;
+  peer->kr = peer->ks = ioHdlcsp->modmask;
   peer->miflr = peer->mifls = mifl;
   peer->poll_retry_max = 3;  /* Default: max 3 retries before declaring link down. */
   ioHdlc_frameq_init(&peer->i_recept_q);
@@ -736,17 +736,19 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->addr = ioHdlcsconfp->addr;
   ioHdlcsp->flags = ioHdlcsconfp->flags;
 
-  /* mod2 = log2(modulus) */
+  /* Calculate log2(modulus) and then modmask = modulus - 1 */
   while (modulus >>= 1)
     ++mod2;
+  
+  ioHdlcsp->modmask = (1U << mod2) - 1;  /* Bit mask: 7, 127, 32767, 2147483647 */
 
   if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM)) {
     ioHdlcsp->errorno = EINVAL;
     return -1;
   }
   ioHdlcsp->mode = mode;
-  ioHdlcsp->modulus = mod2;
   ioHdlcsp->pfoctet = (mod2 + 1) / 8;
+  ioHdlcsp->ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->pfoctet * 2);
   ioHdlcsp->reply_timeout_ms = 100;  /* Default: 100ms reply timeout. */
   ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;
   ioHdlc_frameq_init(&ioHdlcsp->ni_recept_q);
@@ -764,6 +766,22 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->optfuncs[IOHDLC_OPT_SST_OCT] |= IOHDLC_OPT_SST;
   ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] |= IOHDLC_OPT_STB;
   ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] |= IOHDLC_OPT_FFF;
+  
+  /* Initialize fast-access critical flags from optfuncs. */
+  ioHdlcsp->flags_critical = 0;
+  if (ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF) {
+    ioHdlcsp->flags_critical |= IOHDLC_CFLG_FFF;
+    ioHdlcsp->frame_offset = 1;  /* FFF present: addr starts at offset 1 */
+  } else {
+    ioHdlcsp->frame_offset = 0;  /* No FFF: addr starts at offset 0 */
+  }
+  if (ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] & IOHDLC_OPT_REJ) {
+    ioHdlcsp->flags_critical |= IOHDLC_CFLG_REJ;
+  }
+  if (ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) {
+    ioHdlcsp->flags_critical |= IOHDLC_CFLG_STB;
+  }
+  
   hdlcHasFrameFormat(ioHdlcsp->driver, true);
   hdlcApplyTransparency(ioHdlcsp->driver, false);
   //hdlcApplyTransparency(driver, true);

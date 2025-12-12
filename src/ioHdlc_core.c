@@ -218,8 +218,37 @@ iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
 }
 
 bool ioHdlcCoreInit(iohdlc_station_t *station) {
-  (void)station;
-  /* TODO: migrate station initialization logic from src/ioHdlc.c if/when needed. */
+  /* Initialize fast-access critical flags from optfuncs.
+     This enables zero-branch frame field access via IOHDLC_FRAME_* macros. */
+  
+  station->flags_critical = 0;
+  
+  /* FFF (Frame Format Field) option. */
+  if (station->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF) {
+    station->flags_critical |= IOHDLC_CFLG_FFF;
+    station->frame_offset = 1;  /* FFF present: addr field at offset 1 */
+  } else {
+    station->frame_offset = 0;  /* No FFF: addr field at offset 0 */
+  }
+  
+  /* Initialize ctrl_size based on modmask. */
+  if (station->modmask == 7) {
+    station->ctrl_size = 1;  /* Basic format: modulo 8 */
+  } else {
+    station->ctrl_size = station->pfoctet * 2;  /* Extended format */
+  }
+  
+  /* REJ recovery option. */
+  if (station->optfuncs[IOHDLC_OPT_REJ_OCT] & IOHDLC_OPT_REJ) {
+    station->flags_critical |= IOHDLC_CFLG_REJ;
+  }
+  
+  /* Start/stop with basic transparency option. */
+  if (station->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) {
+    station->flags_critical |= IOHDLC_CFLG_STB;
+  }
+  
+  /* TODO: migrate remaining station initialization logic from src/ioHdlc.c if/when needed. */
   return true;
 }
 
@@ -228,22 +257,22 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
      Per ISO 13239:
      - Commands (SNRM, SARM, SABM, DISC): processed by secondary/combined
      - Responses (UA, DM, FRMR): processed by primary/combined
-     
-     RX responsability: validate, register event, notify TX.
-     TX responsability: state transitions, variable resets, timer control.
   */
-  const uint8_t *foctp = IOHDLC_HAS_FFF(s) ? &fp->frame[1] : &fp->frame[0];
-  const uint8_t addr = foctp[0];
-  const uint8_t ctrl = foctp[1];
+  const uint8_t addr = IOHDLC_FRAME_ADDR(s, fp);
+  const uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   const uint8_t u_cmd = ctrl & IOHDLC_U_FUN_MASK;
   const bool has_pf = (ctrl & IOHDLC_PF_BIT) != 0;
   
   iohdlc_station_peer_t *p = s->c_peer;
   
   /* Determine if frame is command or response.
-     Command: addressed to this station (addr == s->addr)
-     Response: from current peer (addr == p->addr) */
-  const bool is_command = (addr == s->addr);
+     ISO 13239 Section 3.1.10:
+     - Command: All frames from primary/control, or frames with OTHER station's address
+     - Response: Frames from secondary/combined with sender's own address
+     
+     For PRIMARY station: commands addressed to peer, responses addressed to us
+     For SECONDARY/COMBINED: commands addressed to us, responses addressed to peer */
+  const bool is_command = IOHDLC_IS_PRI(s) ? (addr == p->addr) : (addr == s->addr);
   
   /* Validate frame origin matches current peer. */
   if (is_command) {
@@ -380,85 +409,130 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 /* NRM RX helper functions.                                                  */
 /*===========================================================================*/
 
-static bool seqLessThan(uint32_t seq1, uint32_t seq2, uint32_t modulus) {
-  /* Returns true if seq1 < seq2 in modular arithmetic. */
-  uint32_t diff = (seq2 - seq1) % modulus;
-  return (diff > 0 && diff < modulus / 2);
+static bool seqLessThan(uint32_t seq1, uint32_t seq2, uint32_t modmask) {
+  /* Returns true if seq1 < seq2 in modular arithmetic within HDLC window.
+     modmask is the bit mask (modulus - 1): 7 for mod 8, 127 for mod 128, etc.
+     
+     We calculate forward distance from seq1 to seq2.
+     Since window < modulus, if diff > 0, seq1 is before seq2 in sequence. */
+  uint32_t diff = (seq2 - seq1) & modmask;
+  return (diff > 0);
 }
 
 static uint32_t extractNS(iohdlc_station_t *s, iohdlc_frame_t *fp) {
-  /* Extract N(S) from control field based on modulus. */
-  if (s->modulus == 8) {
-    /* Modulo 8: N(S) in bits 5-7 of ctrl[0]. */
-    return (fp->ctrl[0] >> 5) & 0x07;
+  /* Extract N(S) from control field based on modmask. */
+  if (s->modmask == 7) {
+    /* Modulo 8: N(S) in bits 1-3 of ctrl[0]. */
+    return (IOHDLC_FRAME_CTRL(s, fp, 0) >> 1) & 0x07;
   } else {
-    /* Modulo 128: N(S) in bits 1-7 of ctrl[1]. */
-    return (fp->ctrl[1] >> 1) & 0x7F;
+    /* Modulo 128+: N(S) in bits 1-7 of ctrl[0]. */
+    return (IOHDLC_FRAME_CTRL(s, fp, 0) >> 1) & 0x7F;
   }
 }
 
 static uint32_t extractNR(iohdlc_station_t *s, iohdlc_frame_t *fp) {
-  /* Extract N(R) from control field based on modulus. */
-  if (s->modulus == 8) {
-    /* Modulo 8: N(R) in bits 1-3 of ctrl[0]. */
-    return (fp->ctrl[0] >> 1) & 0x07;
+  /* Extract N(R) from control field based on modmask. */
+  if (s->modmask == 7) {
+    /* Modulo 8: N(R) in bits 5-7 of ctrl[0]. */
+    return (IOHDLC_FRAME_CTRL(s, fp, 0) >> 5) & 0x07;
   } else {
-    /* Modulo 128: N(R) in bits 1-7 of ctrl[2]. */
-    return (fp->ctrl[2] >> 1) & 0x7F;
+    /* Modulo 128+: N(R) in bits 1-7 of ctrl[1]. */
+    return (IOHDLC_FRAME_CTRL(s, fp, 1) >> 1) & 0x7F;
   }
 }
 
 static void processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
                       uint32_t nr) {
   /* Remove acknowledged frames from retransmission queue.
-     Frames with N(S) < nr have been received by peer. */
+     Frames with N(S) < nr have been received by peer.
+     
+     Also clear checkpoint/REJ state if their tracked frames are ACKed. */
   
   while (p->nr != nr && !ioHdlc_frameq_isempty(&p->i_retrans_q)) {
     iohdlc_frame_t *acked_fp = ioHdlc_frameq_remove(&p->i_retrans_q);
+    uint32_t acked_ns = extractNS(s, acked_fp);
+    
+    /* Clear checkpoint state if this was the tracked frame */
+    if (p->chkpt_actioned != 0 && (p->chkpt_actioned - 1) == acked_ns) {
+      p->chkpt_actioned = 0;
+    }
+    
+    /* Clear REJ state if this was the tracked frame */
+    if (p->rej_actioned != 0 && (p->rej_actioned - 1) == acked_ns) {
+      p->rej_actioned = 0;
+    }
+    
     hdlcReleaseFrame(s->frame_pool, acked_fp);
-    p->nr = (p->nr + 1) % s->modulus;
+    /* Increment with modmask */
+    p->nr = (p->nr + 1) & s->modmask;
   }
   
   /* Update last acknowledged N(R). */
   p->nr = nr;
 }
 
-static void checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
+static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
   /* Move frames from i_retrans_q back to i_trans_q for checkpoint retransmission.
      Per ISO 13239 5.6.2.1: Both Primary and Secondary do this.
      
-     Strategy: Find the range of frames in i_retrans_q with N(S) < vs_atlast_pf
-     and move them to the head of i_trans_q using ioHdlc_frameq_move().
+     ISO 13239 5.6.2.1 case a): If a REJ with P/F=0 has been actioned,
+     checkpoint retransmission is inhibited if it would retransmit the same I-frame
+     (same N(R) in same numbering cycle).
+     
+     Returns true if frames were moved, false otherwise.
   */
   
   if (ioHdlc_frameq_isempty(&p->i_retrans_q))
-    return;  // Nothing to retransmit
+    return false;  // Nothing to retransmit
   
   /* Find the first frame that needs checkpoint retransmission. */
   iohdlc_frame_t *first_fp = NULL;
   iohdlc_frame_t *last_fp = NULL;
   iohdlc_frame_t *fp = p->i_retrans_q.next;
+  uint32_t first_ns = 0;  /* N(S) of first frame to retransmit */
   
-  /* Scan the retransmission queue to find frames with N(S) < vs_atlast_pf. */
+  /* Scan the retransmission queue to find frames with N(S) < vs_atlast_pf.
+     Since i_retrans_q is FIFO and contiguous, we scan until we find 
+     the frame with N(S) == vs_atlast_pf (excluded from retransmission).
+     
+     Check for REJ overlap: if rej_actioned != 0, it contains N(R)+1 from the REJ.
+     If we find a frame with N(S) == N(R), inhibit entire checkpoint. */
   while (fp != (iohdlc_frame_t *)&p->i_retrans_q) {
     uint32_t frame_ns = extractNS(s, fp);
     
-    if (seqLessThan(frame_ns, p->vs_atlast_pf, s->modulus)) {
-      /* This frame needs checkpoint retransmission. */
-      if (first_fp == NULL)
-        first_fp = fp;  // Mark first frame
-      last_fp = fp;     // Update last frame
-      fp = fp->next;    // Continue scanning
-    } else {
-      /* Found a frame sent after checkpoint: stop here. */
+    if (frame_ns == p->vs_atlast_pf) {
+      /* Found checkpoint frame: stop here (don't include it). */
       break;
     }
+    
+    /* ISO 13239 5.6.2.1 case a): Check if this frame matches REJ N(R). */
+    if (p->rej_actioned != 0 && frame_ns == (p->rej_actioned - 1)) {
+      /* This frame would be retransmitted by both checkpoint AND REJ.
+         Inhibit entire checkpoint retransmission per standard. */
+      return false;
+    }
+    
+    /* This frame was sent before checkpoint: mark for retransmission. */
+    if (first_fp == NULL) {
+      first_fp = fp;    // Mark first frame
+      first_ns = frame_ns;  // Save its N(S)
+    }
+    last_fp = fp;     // Update last frame
+    fp = fp->next;    // Continue scanning
   }
   
   /* If we found frames to retransmit, move them to i_trans_q. */
   if (first_fp != NULL) {
     ioHdlc_frameq_move(&p->i_trans_q, first_fp, last_fp);
+    
+    /* Mark checkpoint as actioned with first frame N(S).
+       Used to detect overlap with subsequent REJ (ISO 13239). */
+    p->chkpt_actioned = first_ns + 1;
+    
+    return true;
   }
+  
+  return false;
 }
 
 static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p,
@@ -474,7 +548,7 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
            before rej_actioned is set, potentially leaving rej_actioned orphaned.
   */
   
-  uint8_t ctrl = fp->ctrl[0];
+  uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   uint32_t nr = extractNR(s, fp);
   bool pf = (ctrl & IOHDLC_PF_BIT) != 0;
   
@@ -494,24 +568,11 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
        If N(R) < vs_atlast_pf, frames remain in i_retrans_q and will be
        moved to i_trans_q for retransmission (error recovery). 
        
-       ISO 13239 5.6.2.1 case a): checkpoint inhibited if REJ already actioned.
-       Also inhibited if rej_actioned would be in checkpoint range. */
-    if (p->rej_actioned == 0) {
-      /* No REJ active: checkpoint can proceed. */
-      checkpointRetransmit(s, p);
+       checkpointRetransmit() internally checks ISO 13239 5.6.2.1 case a):
+       inhibits if REJ is active and would retransmit the same I-frame. */
+    if (checkpointRetransmit(s, p)) {
+      /* Checkpoint found and moved frames to retransmit. */
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_CHKPT);
-    } else {
-      /* REJ active (rej_actioned = x means N(R) = x-1 in REJ recovery).
-         Checkpoint only if N(R) of REJ not in checkpoint range.
-         Checkpoint would retransmit frames with N(S) < vs_atlast_pf.
-         If (rej_actioned-1) >= vs_atlast_pf, REJ range doesn't overlap. */
-      uint32_t rej_nr = p->rej_actioned - 1;
-      if (!seqLessThan(rej_nr, p->vs_atlast_pf, s->modulus)) {
-        /* REJ N(R) is outside checkpoint range: safe to checkpoint. */
-        checkpointRetransmit(s, p);
-        ioHdlcBroadcastFlags(s, IOHDLC_EVT_CHKPT);
-      }
-      /* Otherwise, REJ recovery is handling these frames: skip checkpoint. */
     }
     
     /* C. Role-specific P/F handling. */
@@ -573,15 +634,15 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   
   /* Clear REJ exception if this is the frame that completes recovery.
      rej_actioned = x means waiting for frame with N(S) = x-1. */
-  if (p->rej_actioned != 0 && ns == (p->rej_actioned - 1)) {
+  if (p->rej_actioned != 0 && ns == ((p->rej_actioned - 1) & s->modmask)) {
     p->rej_actioned = 0;
   }
   
   // TODO: Check if queue is approaching full (watermark) to send RNR
   // For now, assume queue has enough space (allocated for kr+1 frames)
   
-  /* Increment V(R) - frame accepted. */
-  p->vr = (p->vr + 1) % s->modulus;
+  /* Increment V(R) - frame accepted (use modmask for modular increment). */
+  p->vr = (p->vr + 1) & s->modmask;
 }
 
 static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
@@ -592,7 +653,7 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      - Ignore SREJ (not implemented)
   */
   
-  uint8_t ctrl = fp->ctrl[0];
+  uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   uint8_t s_fun = ctrl & IOHDLC_S_FUN_MASK;
   
   /* Handle S-frame function. */
@@ -611,24 +672,39 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       /* Peer requests retransmission from N(R).
          processNR() has already removed frames with N(S) < nr from i_retrans_q.
          Now move remaining frames (N(S) >= nr) from i_retrans_q to head of i_trans_q.
-         TX will take frames from i_trans_q (never from i_retrans_q directly).
          
          Mark REJ as actioned to:
          1. Prevent duplicate REJ (same or different N(R))
          2. Inhibit checkpoint retransmission of overlapping frames
          
-         ISO 13239 5.6.2.1 case a): first REJ retransmits all needed frames. */
+         ISO 13239: If checkpoint retransmission is already handling the same
+         particular I frame (same N(S)), REJ shall be inhibited. */
       if (!IOHDLC_USE_TWA(s)) {
         uint32_t nr = extractNR(s, fp);
         
-        /* Move frames from i_retrans_q to head of i_trans_q for retransmission. */
-        ioHdlc_frameq_move(&p->i_retrans_q, &p->i_trans_q, true);
+        /* Check if checkpoint is active and starting with same particular I frame.
+           ISO 13239: "same particular I frame" = same N(S) value. */
+        if (p->chkpt_actioned != 0 && (p->chkpt_actioned - 1) == nr) {
+          /* Same frame: REJ inhibited per ISO 13239.
+             Mark REJ as actioned to prevent duplicate attempts. */
+          p->rej_actioned = nr + 1;
+          break;
+        }
         
-        /* Mark REJ as actioned (value = N(R) + 1 to distinguish from 0 = not actioned). */
+        /* REJ acts: move ALL remaining frames from i_retrans_q to head of i_trans_q.
+           processNR() has already removed frames with N(S) < N(R),
+           so i_retrans_q now contains exactly the frames to retransmit (N(S) >= N(R)). */
+        if (!ioHdlc_frameq_isempty(&p->i_retrans_q)) {
+          iohdlc_frame_t *first = p->i_retrans_q.next;
+          iohdlc_frame_t *last = p->i_retrans_q.prev;
+          ioHdlc_frameq_move(&p->i_trans_q, first, last);
+          ioHdlcBroadcastFlags(s, IOHDLC_EVT_SSNDREQ);
+        }
+        
+        /* Mark REJ as actioned (value = N(R) + 1 to distinguish from 0 = not actioned).
+           Clear checkpoint state since REJ is now handling retransmission. */
         p->rej_actioned = nr + 1;
-        
-        /* Signal retransmission event (TX will send from i_trans_q). */
-        ioHdlcBroadcastFlags(s, IOHDLC_EVT_SSNDREQ);
+        p->chkpt_actioned = 0;
       }
       break;
       
@@ -648,8 +724,8 @@ static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   uint8_t ctrl;
   
   /* Decode address and control. */
-  addr = fp->addr;
-  ctrl = fp->ctrl[0];
+  addr = IOHDLC_FRAME_ADDR(s, fp);
+  ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   
   /* Identify peer from address. */
   p = addr2peer(s, addr);
@@ -694,8 +770,7 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     p->ss_state |= IOHDLC_SS_SENDING;
 
     if (nrmSendOpportunity(s)) {
-      const uint32_t outstanding = (p->vs >= p->nr) ?
-          (p->vs - p->nr) : (p->ks - (p->nr - p->vs) + 1);
+      const uint32_t outstanding = (p->vs - p->nr) & s->modmask;
       const bool window_full = outstanding >= p->ks;
       const bool no_i_frame = ioHdlc_frameq_isempty(&p->i_trans_q) || window_full;
       bool set_pf = IOHDLC_IS_PRI(s) ?
@@ -740,8 +815,7 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   bool i_frame_sent = false;  /* Track if at least one I-frame was sent. */
   while (!ioHdlc_frameq_isempty(&p->i_trans_q)) {
     /* Check transmission window availability. */
-    const uint32_t outstanding = (p->vs >= p->nr) ?
-        (p->vs - p->nr) : (p->ks - (p->nr - p->vs) + 1);
+    const uint32_t outstanding = (p->vs - p->nr) & s->modmask;
     if (outstanding >= p->ks)
       /* Window full: cannot send I-frames. */
       break;
@@ -804,8 +878,8 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Move frame to retransmission queue. */
     ioHdlc_frameq_insert(&p->i_retrans_q, fp);
 
-    /* Advance V(S). */
-    p->vs = (p->vs + 1) % (p->ks + 1);
+    /* Advance V(S) - use modmask for modular arithmetic on full numbering space. */
+    p->vs = (p->vs + 1) & s->modmask;
 
     /* Handle P/F state. */
     if (set_pf) {
@@ -945,8 +1019,7 @@ void ioHdlcRxEntry(void *stationp) {
     s->flags &= ~IOHDLC_FLG_IDL;
     
     /* Decode control octet to determine frame type. */
-    const uint8_t *foctp = IOHDLC_HAS_FFF(s) ? &fp->frame[1] : &fp->frame[0];
-    const uint8_t ctrl = foctp[1];
+    const uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
     
     /* Handle U-frames common to all modes. */
     if (IOHDLC_IS_U_FRM(ctrl)) {

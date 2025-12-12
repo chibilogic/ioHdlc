@@ -70,6 +70,52 @@ struct iohdlc_frame {
   uint8_t  frame[];
 };
 
+/*===========================================================================*/
+/* Module macros.                                                            */
+/*===========================================================================*/
+
+/**
+ * @name    Frame field access macros
+ * @{
+ * @brief   Direct access to frame fields in frame[] buffer.
+ *          These macros handle optional FFF (Frame Format Field) offset.
+ * 
+ * @note    Use station->frame_offset.
+ *          frame_offset is 0 if FFF not present, 1 if FFF present.
+ */
+
+/**
+ * @brief   Get address field from frame.
+ * @param   s   Pointer to station (for frame_offset).
+ * @param   fp  Pointer to frame.
+ * @return  Address field value.
+ */
+#define IOHDLC_FRAME_ADDR(s, fp)  ((fp)->frame[(s)->frame_offset])
+
+/**
+ * @brief   Get control field octet from frame.
+ * @param   s   Pointer to station (for frame_offset).
+ * @param   fp  Pointer to frame.
+ * @param   idx Control field octet index (0 for first, 1-7 for extended).
+ * @return  Control field octet value.
+ */
+#define IOHDLC_FRAME_CTRL(s, fp, idx)  ((fp)->frame[(s)->frame_offset + 1 + (idx)])
+
+/**
+ * @brief   Get pointer to info field start.
+ * @param   s   Pointer to station (for frame_offset and ctrl_size).
+ * @param   fp  Pointer to frame.
+ * @return  Pointer to first info field octet.
+ * @note    Works for all formats:
+ *          - Basic (modulo 8): ctrl_size=1, offset = frame_offset + 1 + 1
+ *          - Extended (modulo 128): ctrl_size=2, offset = frame_offset + 1 + 2
+ *          - Extended (modulo 32768): ctrl_size=4, offset = frame_offset + 1 + 4
+ *          - Extended (modulo 2^31): ctrl_size=8, offset = frame_offset + 1 + 8
+ */
+#define IOHDLC_FRAME_INFO(s, fp)  (&(fp)->frame[(s)->frame_offset + 1 + (s)->ctrl_size])
+
+/** @} */
+
 #endif /* IOHDLCFRAME_H_ */
 
 /** @} */

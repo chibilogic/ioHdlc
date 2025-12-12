@@ -148,6 +148,17 @@
 #define IOHDLC_OPT_INH      (1U << 2) /**< @brief Option 24   - Inhibit bit or octet insertion. */
 /** @} */
 
+/**
+ * @name    Time-critical option flags
+ * @{
+ * @brief   Fast-access flags for performance-critical code paths.
+ *          Mirrors selected bits from optfuncs[] for zero-branch access.
+ */
+#define IOHDLC_CFLG_FFF   0x01  /**< @brief Frame Format Field present (Option 22). */
+#define IOHDLC_CFLG_REJ   0x02  /**< @brief REJ recovery supported (Option 2). */
+#define IOHDLC_CFLG_STB   0x04  /**< @brief Start/stop with basic transparency (Option 15.1). */
+/** @} */
+
 /* pf_state definitions. */
 #define IOHDLC_P_RCVED    0x01  /* Secondary: P received and to acknowledge in the
                                    next frame to tx, or in the last frame if NRM. */
@@ -158,8 +169,8 @@
 
 /* um_state definitions. */
 #define IOHDLC_UM_SENT    0x01  /* Unnumbered command sent and not acknowledged yet. */
-#define IOHDLC_UM_RCVED   0x02  /* Unnumbered command received and to acknowledged. */
-#define IOHDLC_UM_SENDING 0x04  /* Unnumbered command is waiting to be sent. */
+#define IOHDLC_UM_RCVED   0x02  /* Unnumbered command received and to acknowledge. */
+#define IOHDLC_UM_SENDING 0x04  /* Unnumbered command pending transmission. */
 
 /* ss_state definitions. */
 #define IOHDLC_SS_BUSY    0x01  /* Busy state.
@@ -186,7 +197,7 @@
                                (IOHDLC_IS_SEC(s) && !IOHDLC_P_ISRCVED(s)))
 #define IOHDLC_ACK_P(s)       ((s)->pf_state &= ~IOHDLC_P_RCVED)
 #define IOHDLC_ACK_F(s)       ((s)->pf_state &= ~IOHDLC_F_RCVED)
-#define IOHDLC_HAS_FFF(s)     (s->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF)
+#define IOHDLC_HAS_FFF(s)     ((s)->flags_critical & IOHDLC_CFLG_FFF)
 #define IOHDLC_USE_TWA(s)     ((s)->flags & IOHDLC_FLG_TWA)
 #define IOHDLC_ST_IDLE(s)     ((s)->flags & IOHDLC_FLG_IDL)
 #define IOHDLC_ST_BUSY(s)     ((s)->flags & IOHDLC_FLG_BUSY)
@@ -247,10 +258,13 @@ struct iohdlc_station_peer {
   uint32_t  vs;                 /* Send state variable V(S). */
   uint32_t  vr;                 /* Receive state variable V(R). */
   uint32_t  nr;                 /* Last N(R) received and accepted.
-                                   Note the invariant (vs-nr) % (ks+1) = len(i_retrans_q) */
+                                   Invariant: (vs-nr) & modmask = len(i_retrans_q), must be ≤ ks. */
   uint32_t  rej_actioned;       /* a value x != 0 of this field indicates that a
                                    REJ exception with N(R) = x-1 is in action. The receipt
                                    of a I-frame with N(S) = x-1 clears the exception. */
+  uint32_t  chkpt_actioned;     /* a value x != 0 indicates checkpoint retransmission
+                                   started with first frame N(S) = x-1. Used to inhibit
+                                   REJ if requesting same particular I frame (ISO 13239). */
   uint32_t  vs_atlast_pf;       /* V(S) at the time of transmission of the last
                                    frame with the P bit set in case of primary/combined station
                                    or with the F bit set in case of secondary station. */
@@ -302,10 +316,15 @@ struct iohdlc_station {
   uint8_t   mode;               /* Operational mode of this station. */
   uint8_t   flags;              /* Station flags: TWA, PRIMARY, IDLE, BUSY. */
   uint8_t   pf_state;           /* P/F sent/received state. See definitions. */
-  uint8_t   modulus;            /* Modulus, expressed as log2 modulus. (3, 7, 15, 31). */
+  uint32_t  modmask;            /* Modulus bit mask: 7 for mod 8, 127 for mod 128, 32767 for mod 32768, 2147483647 for mod 2^31. */
   uint8_t   pfoctet;            /* P/F octet number. Calculated from modulus. (0, 1, 2, 4). */
+  uint8_t   ctrl_size;          /* Control field size in bytes (1, 2, 4, 8). Precalculated
+                                   from modulus for fast frame field access. */
+  uint8_t   frame_offset;       /* Precalculated FFF offset: 0 if no FFF, 1 if FFF present.
+                                   Used for fast frame field access without runtime checks. */
+  uint8_t   flags_critical;     /* Time-critical option flags (FFF, REJ, STB) for fast access. */
   uint8_t   optfuncs[5];        /* Active HDLC optional functions among those supported.
-                                   See ISO13239 Table 16. */
+                                   See ISO13239 Table 16. Maintains ISO format for XID. */
   uint16_t  reply_timeout_ms;   /* Reply timer timeout value in milliseconds. Default: 100ms. */
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
