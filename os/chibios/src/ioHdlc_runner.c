@@ -28,9 +28,11 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
     .broadcast_flags        = s_broadcast_flags,
     .get_events_flags       = s_get_events_flags,
   };
-  
+
   ioHdlcRegisterRunnerOps(&s_ops);
-  (void)ioHdlcCoreInit(station);
+  /* Initialize core with TYPE 0 FFF (1 byte) as default.
+     TODO: Make this configurable or negotiable via XID. */
+  (void)ioHdlcCoreInit(station, 1);
   /* Register event listener for station events. */
   chEvtRegisterMaskWithFlags(&station->cm_es, &s_cm_listener, EVENT_MASK(0),
       IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE);

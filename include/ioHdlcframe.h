@@ -114,6 +114,82 @@ struct iohdlc_frame {
  */
 #define IOHDLC_FRAME_INFO(s, fp)  (&(fp)->frame[(s)->frame_offset + 1 + (s)->ctrl_size])
 
+/**
+ * @brief   Set N(S) in I-frame control field.
+ * @param   s   Pointer to station (for modmask).
+ * @param   fp  Pointer to frame.
+ * @param   ns  N(S) value to set.
+ * @note    Modulo 8: N(S) in bits 1-3 of ctrl[0]
+ *          Modulo 128: N(S) in bits 1-7 of ctrl[0]
+ */
+#define IOHDLC_FRAME_SET_NS(s, fp, ns) \
+  do { \
+    if ((s)->modmask == 7) { \
+      IOHDLC_FRAME_CTRL(s, fp, 0) = \
+        (IOHDLC_FRAME_CTRL(s, fp, 0) & ~0x0E) | (((ns) & 0x07) << 1); \
+    } else { \
+      IOHDLC_FRAME_CTRL(s, fp, 0) = \
+        (IOHDLC_FRAME_CTRL(s, fp, 0) & ~0xFE) | (((ns) & 0x7F) << 1); \
+    } \
+  } while(0)
+
+/**
+ * @brief   Set N(R) in I/S-frame control field.
+ * @param   s   Pointer to station (for modmask).
+ * @param   fp  Pointer to frame.
+ * @param   nr  N(R) value to set.
+ * @note    Modulo 8: N(R) in bits 5-7 of ctrl[0]
+ *          Modulo 128: N(R) in bits 1-7 of ctrl[1]
+ */
+#define IOHDLC_FRAME_SET_NR(s, fp, nr) \
+  do { \
+    if ((s)->modmask == 7) { \
+      IOHDLC_FRAME_CTRL(s, fp, 0) = \
+        (IOHDLC_FRAME_CTRL(s, fp, 0) & ~0xE0) | (((nr) & 0x07) << 5); \
+    } else { \
+      IOHDLC_FRAME_CTRL(s, fp, 1) = \
+        (IOHDLC_FRAME_CTRL(s, fp, 1) & ~0xFE) | (((nr) & 0x7F) << 1); \
+    } \
+  } while(0)
+
+/**
+ * @brief   Set P/F bit in control field.
+ * @param   s   Pointer to station (for pfoctet).
+ * @param   fp  Pointer to frame.
+ * @param   pf  true to set P/F bit, false to clear.
+ * @note    Uses station->pfoctet to determine which control byte contains P/F.
+ *          pfoctet=0: P/F is bit 4 of ctrl[0] (modulo 8)
+ *          pfoctet=1,2,4: P/F is bit 0 of ctrl[pfoctet] (modulo 128, 32768, 2^31)
+ */
+#define IOHDLC_FRAME_SET_PF(s, fp, pf) \
+  do { \
+    if ((s)->pfoctet == 0) { \
+      if (pf) \
+        IOHDLC_FRAME_CTRL(s, fp, 0) |= IOHDLC_PF_BIT; \
+      else \
+        IOHDLC_FRAME_CTRL(s, fp, 0) &= ~IOHDLC_PF_BIT; \
+    } else { \
+      if (pf) \
+        IOHDLC_FRAME_CTRL(s, fp, (s)->pfoctet) |= IOHDLC_PFx_BIT; \
+      else \
+        IOHDLC_FRAME_CTRL(s, fp, (s)->pfoctet) &= ~IOHDLC_PFx_BIT; \
+    } \
+  } while(0)
+
+/**
+ * @brief   Get P/F bit from control field.
+ * @param   s   Pointer to station (for pfoctet).
+ * @param   fp  Pointer to frame.
+ * @return  true if P/F bit is set, false otherwise.
+ * @note    Uses station->pfoctet to determine which control byte contains P/F.
+ *          pfoctet=0: P/F is bit 4 of ctrl[0] (modulo 8)
+ *          pfoctet=1,2,4: P/F is bit 0 of ctrl[pfoctet] (modulo 128, 32768, 2^31)
+ */
+#define IOHDLC_FRAME_GET_PF(s, fp) \
+  (((s)->pfoctet == 0) ? \
+    ((IOHDLC_FRAME_CTRL(s, fp, 0) & IOHDLC_PF_BIT) != 0) : \
+    ((IOHDLC_FRAME_CTRL(s, fp, (s)->pfoctet) & IOHDLC_PFx_BIT) != 0))
+
 /** @} */
 
 #endif /* IOHDLCFRAME_H_ */

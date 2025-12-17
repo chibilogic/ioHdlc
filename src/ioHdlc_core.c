@@ -25,10 +25,14 @@
  */
 /**
  * @file    ioHdlc_core.c
- * @brief   OS-agnostic HDLC station core scaffold.
- * @details Provides runner-ops integration, RX/TX loop stubs, and event
- *          mapping. Real protocol logic is progressively migrated from
- *          src/ioHdlc.c.
+ * @brief   ISO 13239 HDLC protocol core implementation.
+ * @details Implements HDLC station core functionality including:
+ *          - NRM (Normal Response Mode) RX processing
+ *          - I-frame, S-frame, and U-frame handling
+ *          - Sequence number validation (N(S), N(R))
+ *          - Checkpoint retransmission (ISO 13239 5.6.2.1)
+ *          - REJ exception handling with overlap detection
+ *          - Runner-ops integration for OS abstraction
  */
 
 #include "ioHdlc_core.h"
@@ -84,20 +88,6 @@ static uint8_t supportedConnMode2um(uint8_t mode) {
 /* Clear P/F received flags on station. */
 static void ackRcvedP(iohdlc_station_peer_t *p) { p->stationp->pf_state &= ~IOHDLC_P_RCVED; }
 static void ackRcvedF(iohdlc_station_peer_t *p) { p->stationp->pf_state &= ~IOHDLC_F_RCVED; }
-
-/* Build and send a UM frame immediately. */
-static void sendUMframe(iohdlc_station_t *s, uint32_t addr, uint32_t umcmd) {
-  iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
-  if (fp == NULL) return;
-  uint8_t *b = fp->frame;
-  if (IOHDLC_HAS_FFF(s))
-    *b++ = 5; /* FF(1) + ADDR(1) + CMD(1) + FCS(2) */
-  *b++ = (uint8_t)addr;
-  *b++ = (uint8_t)(umcmd | IOHDLC_U_ID);
-  fp->elen = (uint16_t)(b - fp->frame);
-  (void)hdlcSendFrame(s->driver, fp);
-  hdlcReleaseFrame(s->frame_pool, fp);
-}
 
 /* Clear and release all frames in a queue. */
 static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
@@ -217,16 +207,17 @@ iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
   return s->c_peer;
 }
 
-bool ioHdlcCoreInit(iohdlc_station_t *station) {
+bool ioHdlcCoreInit(iohdlc_station_t *station, uint8_t fff_type) {
   /* Initialize fast-access critical flags from optfuncs.
      This enables zero-branch frame field access via IOHDLC_FRAME_* macros. */
   
   station->flags_critical = 0;
   
-  /* FFF (Frame Format Field) option. */
+  /* FFF (Frame Format Field) option.
+     fff_type: 0 = no FFF, 1 = TYPE 0 (1 byte, max 127), 2 = TYPE 1 (2 byte, max 4095) */
   if (station->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF) {
     station->flags_critical |= IOHDLC_CFLG_FFF;
-    station->frame_offset = 1;  /* FFF present: addr field at offset 1 */
+    station->frame_offset = fff_type;  /* 1 or 2 based on negotiated/configured type */
   } else {
     station->frame_offset = 0;  /* No FFF: addr field at offset 0 */
   }
@@ -261,7 +252,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   const uint8_t addr = IOHDLC_FRAME_ADDR(s, fp);
   const uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   const uint8_t u_cmd = ctrl & IOHDLC_U_FUN_MASK;
-  const bool has_pf = (ctrl & IOHDLC_PF_BIT) != 0;
+  const bool has_pf = IOHDLC_FRAME_GET_PF(s, fp);
   
   iohdlc_station_peer_t *p = s->c_peer;
   
@@ -437,6 +428,21 @@ static uint32_t extractNR(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   }
 }
 
+static bool isNRValid(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
+                      uint32_t nr) {
+  /* N(R) is INVALID if it identifies:
+     a) An I-frame previously transmitted and acknowledged (nr < p->nr)
+     b) An I-frame not transmitted (nr > p->vs)
+     
+     Valid range: p->nr <= nr <= p->vs (in modular arithmetic)
+     Equivalent: distance from p->nr to nr must be <= distance from p->nr to p->vs */
+  
+  uint32_t nr_offset = (nr - p->nr) & s->modmask;     /* Distance from last ACK to new N(R) */
+  uint32_t vs_offset = (p->vs - p->nr) & s->modmask;  /* Distance from last ACK to next to send */
+  
+  return nr_offset <= vs_offset;
+}
+
 static void processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
                       uint32_t nr) {
   /* Remove acknowledged frames from retransmission queue.
@@ -546,12 +552,21 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
   
   uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   uint32_t nr = extractNR(s, fp);
-  bool pf = (ctrl & IOHDLC_PF_BIT) != 0;
+  bool pf = IOHDLC_FRAME_GET_PF(s, fp);
   
-  /* 1. ALWAYS process N(R) to acknowledge our sent frames. */
+  /* Validate N(R) before processing.*/
+  if (!isNRValid(s, p, nr)) {
+    /* Protocol error: invalid N(R) received.
+       TODO: Send FRMR with Y bit set (invalid N(R)).
+       For now: discard frame. */
+    hdlcReleaseFrame(s->frame_pool, fp);
+    return;
+  }
+  
+  /* Process N(R) to acknowledge our sent frames. */
   processNR(s, p, nr);
   
-  /* 2. ALWAYS handle P/F bit for checkpointing (independent of frame type). */
+  /* Handle P/F bit for checkpointing (independent of frame type). */
   if (pf) {
     /* Both Primary and Secondary do checkpoint operations. */
     
@@ -742,6 +757,99 @@ static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     /* Unexpected frame type (U-frames already handled upstream). */
     hdlcReleaseFrame(s->frame_pool, fp);
   }
+}
+
+/*===========================================================================*/
+/* Frame Building Functions                                                  */
+/*===========================================================================*/
+
+/**
+ * @brief   Build U-frame (Unnumbered frame) for transmission.
+ * @details Constructs control field and sets address field according to
+ *          ISO 13239 command/response semantics. Calculates elen and
+ *          valorizes FFF if present.
+ *          
+ * @param[in] s           Station descriptor
+ * @param[in] p           Peer descriptor
+ * @param[in,out] fp      Frame to build (must be allocated)
+ * @param[in] u_fun       U-frame function code (IOHDLC_U_xxx: SNRM, UA, DISC, etc.)
+ * @param[in] set_pf      true to set P/F bit
+ * @param[in] is_command  true if command, false if response
+ * 
+ * @note U-frames have 1-byte control field regardless of modulo.
+ *       Control field format: [M4 M3 P/F M2 M1 1 1]
+ *       where M bits encode the function.
+ * @note This function handles only U-frames WITHOUT info field.
+ *       For FRMR/XID/TEST/UI, use buildUFrameWithInfo().
+ */
+static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                        iohdlc_frame_t *fp, uint8_t u_fun, bool set_pf,
+                        bool is_command) {
+  /* Set address field per ISO 13239 4.2.2 */
+  uint8_t addr = is_command ? p->addr : s->addr;
+  IOHDLC_FRAME_ADDR(s, fp) = addr;
+  
+  /* Build control field:
+     U-frame format: bits 0-1 = 11 (U-frame identifier)
+     Bits 2-7 contain M bits (function code) and P/F bit.
+     u_fun contains only the M bits, we must OR with 0x03 to set bits 0-1. */
+  uint8_t ctrl = u_fun | IOHDLC_U_ID;  /* Add U-frame identifier (0x03) */
+  
+  /* Set or clear P/F bit */
+  if (set_pf) {
+    ctrl |= IOHDLC_PF_BIT;   /* Set P/F bit (bit 4) */
+  } else {
+    ctrl &= ~IOHDLC_PF_BIT;  /* Clear P/F bit */
+  }
+  
+  IOHDLC_FRAME_CTRL(s, fp, 0) = ctrl;
+  
+  /* Calculate elen: FFF + ADDR + CTRL (no info field for basic U-frames).
+     frame_offset accounts for FFF size (0, 1, or 2 bytes). */
+  uint8_t *end = fp->frame + s->frame_offset;
+  end += 2;  /* ADDR(1) + CTRL(1) */
+  fp->elen = (uint16_t)(end - fp->frame);
+  
+  /* Valorize FFF if present.
+     Per ISO 13239 4.9: FFF contains "count of octets in the frame excluding
+     the opening and closing flag sequences", i.e., total_len = FFF + ADDR + CTRL + INFO + FCS.
+     For U-frame without info: total_len = FFF_size + 1 + 1 + 2 = FFF_size + 4 */
+  if (s->frame_offset > 0) {
+    uint16_t total_len = fp->elen + 2;  /* +2 for FCS (added by driver) */
+    
+    if (s->frame_offset == 1) {
+      /* TYPE 0: 1 byte, bit 7=0, bit 6-0=length (max 127) */
+      fp->frame[0] = (uint8_t)total_len;
+      
+    } else if (s->frame_offset == 2) {
+      /* TYPE 1: 2 byte, bit 15-12=1000, bit 11-0=length (max 4095) */
+      fp->frame[0] = 0x80 | ((total_len >> 8) & 0x0F);  /* 1000 LLLL */
+      fp->frame[1] = (uint8_t)(total_len & 0xFF);       /* LLLLLLLL */
+    }
+  }
+}
+
+/**
+ * @brief   Send frame to driver and release it.
+ * @details Wrapper for hdlcSendFrame() that handles errors and frame release.
+ *          The frame is always released after transmission attempt.
+ *          
+ * @param[in] s     Station descriptor
+ * @param[in] fp    Frame to send (will be released after send)
+ * 
+ * @return          true if frame sent successfully, false on error
+ * 
+ * @note The driver is responsible for:
+ *       - FCS calculation and insertion
+ *       - FLAG (0x7E) insertion (opening/closing)
+ *       - Octet transparency encoding (if enabled)
+ *       - FFF (Frame Format Field) valorization (if enabled)
+ * @note This function always releases the frame, even on error.
+ */
+static bool sendFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+  size_t err = hdlcSendFrame(s->driver, fp);
+  hdlcReleaseFrame(s->frame_pool, fp);
+  return (err == 0);
 }
 
 static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
@@ -957,7 +1065,13 @@ void ioHdlcTxEntry(void *stationp) {
       if (sendOpportunity(s)) {
         p->um_state &= ~IOHDLC_UM_RCVED;  /* ack UM */
         IOHDLC_ACK_P(s);                  /* ack P  */
-        /* TODO: Build and send UM response p->um_rsp.*/
+        
+        /* Build and send UM response. */
+        iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
+        if (fp != NULL) {
+          buildUFrame(s, p, fp, p->um_rsp, true, false);  /* F=1, response */
+          (void)sendFrame(s, fp);
+        }
       } else
         continue;
     }
@@ -983,7 +1097,13 @@ void ioHdlcTxEntry(void *stationp) {
       /* A link management has been requested.*/
       p->um_state |= IOHDLC_UM_SENDING;
       if (sendOpportunity(s)) {
-        /* TODO: Build and send UM command p->um_cmd.*/
+        /* Build and send UM command. */
+        iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
+        if (fp != NULL) {
+          buildUFrame(s, p, fp, p->um_cmd, true, true);  /* P=1, command */
+          (void)sendFrame(s, fp);
+        }
+        
         ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
         p->um_state &= ~IOHDLC_UM_SENDING;
         p->um_state |= IOHDLC_UM_SENT;

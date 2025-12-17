@@ -142,7 +142,7 @@
 #define IOHDLC_OPT_STB      (1U << 2) /**< @brief Option 15.1 - Start/stop transmission with basic
                                                                 transparency. Default. */
 #define IOHDLC_OPT_FFF_OCT  4         /* Bit 33 -> Octet nr.4 */
-#define IOHDLC_OPT_FFF      (1U << 0) /**< @brief Option 22   - Frame format field. Type 0 supported. */
+#define IOHDLC_OPT_FFF      (1U << 0) /**< @brief Option 22   - Frame format field. Type 0/1 supported. */
 
 #define IOHDLC_OPT_INH_OCT  4         /* Bit 35 -> Octet nr.4 */
 #define IOHDLC_OPT_INH      (1U << 2) /**< @brief Option 24   - Inhibit bit or octet insertion. */
@@ -355,7 +355,7 @@ struct iohdlc_station {
 struct iohdlc_station_config {
   uint8_t  mode;          /**< @brief initial operational mode               */
   uint8_t  flags;         /**< @brief station flags: TWA, PRIMARY.           */
-  uint8_t  modulus;       /**< @brief modulus, expressed as log2 modulus.    */
+  uint8_t  log2mod;       /**< @brief log2mod, log2(modulus).                */
   uint32_t addr;          /**< @brief address of the station.                */
   ioHdlcDriver *driver;   /**< @brief the link driver interface implementor. */
   ioHdlcFramePool *fpp;   /**< @brief the frame pool used by the station.    */
