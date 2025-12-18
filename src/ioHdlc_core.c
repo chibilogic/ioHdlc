@@ -764,6 +764,35 @@ static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 /*===========================================================================*/
 
 /**
+ * @brief   Valorize FFF (Frame Format Field) if enabled.
+ * @details Writes FFF bytes at the beginning of the frame buffer.
+ *          Per ISO 13239 4.9: FFF contains "count of octets in the frame
+ *          excluding the opening and closing flag sequences".
+ *          total_len = FFF + ADDR + CTRL + INFO + FCS
+ *          
+ * @param[in] s     Station descriptor
+ * @param[in] fp    Frame with elen already calculated (FFF + ADDR + CTRL + INFO)
+ * 
+ * @note FFF is written to fp->frame[0] (TYPE 0) or fp->frame[0..1] (TYPE 1).
+ * @note Caller must have already set fp->elen = FFF_size + ADDR + CTRL + INFO.
+ */
+static void valorize_FFF(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+  if (s->frame_offset > 0) {
+    uint16_t total_len = fp->elen + 2;  /* +2 for FCS (added by driver) */
+    
+    if (s->frame_offset == 1) {
+      /* TYPE 0: 1 byte, bit 7=0, bit 6-0=length (max 127) */
+      fp->frame[0] = (uint8_t)total_len;
+      
+    } else if (s->frame_offset == 2) {
+      /* TYPE 1: 2 bytes, bit 15-12=1000, bit 11-0=length (max 4095) */
+      fp->frame[0] = 0x80 | ((total_len >> 8) & 0x0F);  /* 1000 LLLL */
+      fp->frame[1] = (uint8_t)(total_len & 0xFF);       /* LLLLLLLL */
+    }
+  }
+}
+
+/**
  * @brief   Build U-frame (Unnumbered frame) for transmission.
  * @details Constructs control field and sets address field according to
  *          ISO 13239 command/response semantics. Calculates elen and
@@ -779,6 +808,7 @@ static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
  * @note U-frames have 1-byte control field regardless of modulo.
  *       Control field format: [M4 M3 P/F M2 M1 1 1]
  *       where M bits encode the function.
+ *       P/F bit is always bit 4 of ctrl[0] for U-frames, even in extended modes.
  * @note This function handles only U-frames WITHOUT info field.
  *       For FRMR/XID/TEST/UI, use buildUFrameWithInfo().
  */
@@ -793,40 +823,20 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      U-frame format: bits 0-1 = 11 (U-frame identifier)
      Bits 2-7 contain M bits (function code) and P/F bit.
      u_fun contains only the M bits, we must OR with 0x03 to set bits 0-1. */
-  uint8_t ctrl = u_fun | IOHDLC_U_ID;  /* Add U-frame identifier (0x03) */
+  IOHDLC_FRAME_CTRL(s, fp, 0) = u_fun | IOHDLC_U_ID;  /* Add U-frame identifier (0x03) */
   
-  /* Set or clear P/F bit */
+  /* Set P/F bit (always bit 4 for U-frames, even in extended mode) */
   if (set_pf) {
-    ctrl |= IOHDLC_PF_BIT;   /* Set P/F bit (bit 4) */
-  } else {
-    ctrl &= ~IOHDLC_PF_BIT;  /* Clear P/F bit */
+    IOHDLC_FRAME_CTRL(s, fp, 0) |= IOHDLC_PF_BIT;
   }
   
-  IOHDLC_FRAME_CTRL(s, fp, 0) = ctrl;
-  
-  /* Calculate elen: FFF + ADDR + CTRL (no info field for basic U-frames).
-     frame_offset accounts for FFF size (0, 1, or 2 bytes). */
+  /* Calculate elen: FFF + ADDR + CTRL (U-frame always has 1 byte ctrl) */
   uint8_t *end = fp->frame + s->frame_offset;
-  end += 2;  /* ADDR(1) + CTRL(1) */
+  end += 2;  /* ADDR(1) + CTRL(1) - U-frame control is always 1 byte */
   fp->elen = (uint16_t)(end - fp->frame);
   
-  /* Valorize FFF if present.
-     Per ISO 13239 4.9: FFF contains "count of octets in the frame excluding
-     the opening and closing flag sequences", i.e., total_len = FFF + ADDR + CTRL + INFO + FCS.
-     For U-frame without info: total_len = FFF_size + 1 + 1 + 2 = FFF_size + 4 */
-  if (s->frame_offset > 0) {
-    uint16_t total_len = fp->elen + 2;  /* +2 for FCS (added by driver) */
-    
-    if (s->frame_offset == 1) {
-      /* TYPE 0: 1 byte, bit 7=0, bit 6-0=length (max 127) */
-      fp->frame[0] = (uint8_t)total_len;
-      
-    } else if (s->frame_offset == 2) {
-      /* TYPE 1: 2 byte, bit 15-12=1000, bit 11-0=length (max 4095) */
-      fp->frame[0] = 0x80 | ((total_len >> 8) & 0x0F);  /* 1000 LLLL */
-      fp->frame[1] = (uint8_t)(total_len & 0xFF);       /* LLLLLLLL */
-    }
-  }
+  /* Valorize FFF if present */
+  valorize_FFF(s, fp);
 }
 
 /**
@@ -850,6 +860,46 @@ static bool sendFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   size_t err = hdlcSendFrame(s->driver, fp);
   hdlcReleaseFrame(s->frame_pool, fp);
   return (err == 0);
+}
+
+/**
+ * @brief   Build S-frame (Supervisory frame) for transmission.
+ * @details Constructs control field with N(R) and sets address field.
+ *          Calculates elen and valorizes FFF if present.
+ *          
+ * @param[in] s           Station descriptor
+ * @param[in] p           Peer descriptor
+ * @param[in,out] fp      Frame to build (must be allocated)
+ * @param[in] s_fun       S-frame function code (IOHDLC_S_RR/RNR/REJ/SREJ)
+ * @param[in] nr          N(R) value to send (acknowledgment)
+ * @param[in] set_pf      true to set P/F bit
+ * @param[in] is_command  true if command, false if response
+ * 
+ * @note S-frames have variable control field size based on modulo.
+ *       Macros IOHDLC_FRAME_SET_NR() and IOHDLC_FRAME_SET_PF() handle
+ *       all moduli (8, 128, 32768, 2^31) automatically.
+ */
+static void buildSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                        iohdlc_frame_t *fp, uint8_t s_fun, uint32_t nr,
+                        bool set_pf, bool is_command) {
+  /* Set address field per ISO 13239 4.2.2 */
+  uint8_t addr = is_command ? p->addr : s->addr;
+  IOHDLC_FRAME_ADDR(s, fp) = addr;
+  
+  /* Build control field: S function bits + S-frame ID (0x01) */
+  IOHDLC_FRAME_CTRL(s, fp, 0) = s_fun | IOHDLC_S_ID;
+  
+  /* Set N(R) and P/F using macros (handle all moduli automatically) */
+  IOHDLC_FRAME_SET_NR(s, fp, nr);
+  IOHDLC_FRAME_SET_PF(s, fp, set_pf);
+  
+  /* Calculate elen: FFF + ADDR + CTRL (no info field for S-frames) */
+  uint8_t *end = fp->frame + s->frame_offset;
+  end += 1 + s->ctrl_size;  /* ADDR(1) + CTRL(1,2,4,8) */
+  fp->elen = (uint16_t)(end - fp->frame);
+  
+  /* Valorize FFF if present */
+  valorize_FFF(s, fp);
 }
 
 static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
