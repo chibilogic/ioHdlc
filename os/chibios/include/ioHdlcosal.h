@@ -20,6 +20,7 @@ typedef struct {
 } iohdlc_virtual_timer_t;
 
 typedef semaphore_t iohdlc_sem_t;
+typedef binary_semaphore_t iohdlc_binary_semaphore_t;
 typedef memory_pool_t iohdlc_memory_pool_t;
 
 static inline void iohdlc_sem_init(iohdlc_sem_t *sp, cnt_t n) {
@@ -36,6 +37,22 @@ static inline bool iohdlc_sem_wait_ok(iohdlc_sem_t *sp, uint32_t ms) {
 
 static inline void iohdlc_sem_signal_i(iohdlc_sem_t *sp) {
   chSemSignalI(sp);
+}
+
+static inline void iohdlc_bsem_init(iohdlc_binary_semaphore_t *bsp, bool taken) {
+  chBSemObjectInit(bsp, taken);
+}
+
+static inline msg_t iohdlc_bsem_wait_timeout(iohdlc_binary_semaphore_t *bsp, sysinterval_t timeout) {
+  return chBSemWaitTimeout(bsp, timeout);
+}
+
+static inline void iohdlc_bsem_signal(iohdlc_binary_semaphore_t *bsp) {
+  chBSemSignal(bsp);
+}
+
+static inline void iohdlc_bsem_signal_i(iohdlc_binary_semaphore_t *bsp) {
+  chBSemSignalI(bsp);
 }
 
 static inline void iohdlc_sys_lock_isr(void) { chSysLockFromISR(); }

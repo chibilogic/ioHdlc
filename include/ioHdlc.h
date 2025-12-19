@@ -268,6 +268,9 @@ struct iohdlc_station_peer {
   uint32_t  vs_atlast_pf;       /* V(S) at the time of transmission of the last
                                    frame with the P bit set in case of primary/combined station
                                    or with the F bit set in case of secondary station. */
+  uint32_t  i_pending_count;    /* Total pending I-frames: len(i_trans_q) + len(i_retrans_q).
+                                   Incremented when adding to i_trans_q, decremented when
+                                   removing from i_retrans_q. Maintained for O(1) flow control. */
   uint8_t   um_state;           /* Unnumbered state. See definitions. */
   uint8_t   ss_state;           /* Supervision state. See definitions. */
   uint8_t   um_cmd;             /* Unnumbered command to_send. */
@@ -290,6 +293,11 @@ struct iohdlc_station_peer {
                                    not N(R) nor P/F. The latter two will be set when the frame
                                    will be picked for actual transmission.
                                    No more than ks frames will be in this queue. */
+
+  /* flow control. */
+  iohdlc_binary_semaphore_t tx_sem;  /* TX flow control semaphore.
+                                        Blocks app when len(i_retrans_q) + len(i_trans_q) >= 2*ks
+                                        or pool is LOW_WATER. Signaled when space becomes available. */
 
   /* virtual timers. */
   iohdlc_virtual_timer_t reply_tmr;   /* Primary/combined station command reply time-out

@@ -142,6 +142,7 @@ static void resetPeerVars(iohdlc_station_peer_t *p) {
   p->nr = p->vr = p->vs = 0;
   p->ss_state = 0;
   p->poll_retry_count = 0;
+  p->i_pending_count = 0;
   clearFrameQ(p, &p->i_retrans_q);
   clearFrameQ(p, &p->i_recept_q);
   clearFrameQ(p, &p->i_trans_q);
@@ -336,7 +337,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       return;
     }
     
-    /* Verify F bit is set (mandatory for responses per standard). */
+    /* Verify F bit is set (mandatory for responses). */
     if (!has_pf) {
       /* Missing F bit → protocol error, discard. */
       hdlcReleaseFrame(s->frame_pool, fp);
@@ -396,16 +397,6 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 /* NRM RX helper functions.                                                  */
 /*===========================================================================*/
 
-static bool seqLessThan(uint32_t seq1, uint32_t seq2, uint32_t modmask) {
-  /* Returns true if seq1 < seq2 in modular arithmetic within HDLC window.
-     modmask is the bit mask (modulus - 1): 7 for mod 8, 127 for mod 128, etc.
-     
-     We calculate forward distance from seq1 to seq2.
-     Since window < modulus, if diff > 0, seq1 is before seq2 in sequence. */
-  uint32_t diff = (seq2 - seq1) & modmask;
-  return (diff > 0);
-}
-
 static uint32_t extractNS(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Extract N(S) from control field based on modmask. */
   if (s->modmask == 7) {
@@ -450,6 +441,8 @@ static void processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      
      Also clear checkpoint/REJ state if their tracked frames are ACKed. */
   
+  bool released_frames = false;
+  
   while (p->nr != nr && !ioHdlc_frameq_isempty(&p->i_retrans_q)) {
     iohdlc_frame_t *acked_fp = ioHdlc_frameq_remove(&p->i_retrans_q);
     uint32_t acked_ns = extractNS(s, acked_fp);
@@ -465,21 +458,32 @@ static void processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     }
     
     hdlcReleaseFrame(s->frame_pool, acked_fp);
+    p->i_pending_count--;  /* Decrement pending counter */
+    released_frames = true;
     /* Increment with modmask */
     p->nr = (p->nr + 1) & s->modmask;
   }
   
   /* Update last acknowledged N(R). */
   p->nr = nr;
+  
+  /* Signal TX semaphore if space became available.
+     App blocks when: i_pending_count >= 2*ks OR pool LOW_WATER
+     Unblock when: both conditions cleared. */
+  if (released_frames) {
+    if (p->i_pending_count < (2 * p->ks) && 
+        hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_NORMAL) {
+      iohdlc_bsem_signal(&p->tx_sem);
+    }
+  }
 }
 
 static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
   /* Move frames from i_retrans_q back to i_trans_q for checkpoint retransmission.
      Per ISO 13239 5.6.2.1: Both Primary and Secondary do this.
      
-     ISO 13239 5.6.2.1 case a): If a REJ with P/F=0 has been actioned,
-     checkpoint retransmission is inhibited if it would retransmit the same I-frame
-     (same N(R) in same numbering cycle).
+     ISO 13239 5.6.2.1 case a): An actioned REJ with P/F=0 inhibits checkpoint
+     retransmission if it would retransmit the same I-frame.
      
      Returns true if frames were moved, false otherwise.
   */
@@ -649,8 +653,15 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     p->rej_actioned = 0;
   }
   
-  // TODO: Check if queue is approaching full (watermark) to send RNR
-  // For now, assume queue has enough space (allocated for kr+1 frames)
+  /* Check frame pool watermark and set local busy if LOW_WATER.
+     This triggers RNR transmission to apply flow control. */
+  if (hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_LOW_WATER) {
+    if (!IOHDLC_ST_BUSY(s)) {
+      s->flags |= IOHDLC_FLG_BUSY;
+      p->ss_fun = IOHDLC_S_RNR;
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_SSNDREQ);
+    }
+  }
   
   /* Increment V(R) - frame accepted (use modmask for modular increment). */
   p->vr = (p->vr + 1) & s->modmask;
@@ -930,8 +941,18 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       bool set_pf = IOHDLC_IS_PRI(s) ?
         (IOHDLC_USE_TWA(s) ? IOHDLC_F_ISRCVED(s) && no_i_frame : IOHDLC_F_ISRCVED(s)) :
         (IOHDLC_P_ISRCVED(s) && no_i_frame);
-      /* TODO: Build and send S frame p->ss_fun.
-                Set P/F to set_pf.*/
+      iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
+      if (fp != NULL) {
+        const uint32_t nr = p->vr;
+        bool is_command = IOHDLC_IS_PRI(s);
+
+        if (!IOHDLC_IS_PRI(s))
+          is_command = !set_pf;
+
+        buildSFrame(s, p, fp, p->ss_fun, nr, set_pf, is_command);
+        (void)sendFrame(s, fp);
+      }
+
       p->ss_state &= ~IOHDLC_SS_SENDING;
       if (set_pf) {
         if (IOHDLC_IS_PRI(s)) {
