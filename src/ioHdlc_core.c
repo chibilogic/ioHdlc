@@ -1041,11 +1041,10 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       set_pf = is_last_frame;
     }
 
-    /* TODO: Build and send I-frame:
-       - Set N(S) = p->vs
-       - Set N(R) = p->vr
-       - Set P/F = set_pf
-       - Transmit frame */
+    /* I-frame already has address and N(S) set. Only update N(R) and P/F. */
+    IOHDLC_FRAME_SET_NR(s, fp, p->vr);
+    IOHDLC_FRAME_SET_PF(s, fp, set_pf);
+    (void)sendFrame(s, fp);
 
     /* Mark that we sent at least one I-frame. */
     i_frame_sent = true;

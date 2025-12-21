@@ -324,8 +324,8 @@ struct iohdlc_station {
   uint8_t   mode;               /* Operational mode of this station. */
   uint8_t   flags;              /* Station flags: TWA, PRIMARY, IDLE, BUSY. */
   uint8_t   pf_state;           /* P/F sent/received state. See definitions. */
-  uint32_t  modmask;            /* Modulus bit mask: 7 for mod 8, 127 for mod 128, 32767 for mod 32768, 2147483647 for mod 2^31. */
   uint8_t   pfoctet;            /* P/F octet number. Calculated from modulus. (0, 1, 2, 4). */
+  uint32_t  modmask;            /* Modulus bit mask: 7 for mod 8, 127 for mod 128, 32767 for mod 32768, 2147483647 for mod 2^31. */
   uint8_t   ctrl_size;          /* Control field size in bytes (1, 2, 4, 8). Precalculated
                                    from modulus for fast frame field access. */
   uint8_t   frame_offset;       /* Precalculated FFF offset: 0 if no FFF, 1 if FFF present.
