@@ -149,6 +149,21 @@
 /** @} */
 
 /**
+ * @name    Timeout constants
+ * @{
+ */
+#define IOHDLC_WAIT_FOREVER  0xFFFFFFFFU  /**< @brief Infinite timeout for blocking operations. */
+/** @} */
+
+/**
+ * @name    Application event mask
+ * @{
+ */
+#define IOHDLC_APP_EVT_MASK_DEFAULT  EVENT_MASK(31)  /**< @brief Default event mask for app API.
+                                                            High bit to avoid conflicts with user events. */
+/** @} */
+
+/**
  * @name    Time-critical option flags
  * @{
  * @brief   Fast-access flags for performance-critical code paths.
@@ -354,7 +369,8 @@ struct iohdlc_station {
   ioHdlcDriver *driver;         /* Data link driver the station operates on. */
 
   /* events. */
-  iohdlc_event_source_t cm_es;  /* Source of the events related to commands. */
+  iohdlc_event_source_t cm_es;   /* Event source for internal core events (RX/TX/timer). */
+  iohdlc_event_source_t app_es;  /* Event source for application events (link status, data). */
 };
 
 /**
@@ -382,10 +398,27 @@ struct iohdlc_station_config {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  int32_t ioHdlcStationLinkUp(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr, uint8_t mode);
-  int32_t ioHdlcStationLinkDown(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
-  int32_t ioHdlcWrite(iohdlc_station_peer_t *ioHdlcpeerp, const void *buf, size_t count);
-  int32_t ioHdlcRead(iohdlc_station_peer_t *ioHdlcpeerp, void *buf, size_t count);
+  /* Connection management with configurable event mask. */
+  int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr, 
+                                uint8_t mode, eventmask_t evt_mask);
+  int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr,
+                                  eventmask_t evt_mask);
+
+  /* Convenience macros using default event mask (EVENT_MASK(31)). */
+  #define ioHdlcStationLinkUp(s, addr, mode) \
+    ioHdlcStationLinkUpEx(s, addr, mode, IOHDLC_APP_EVT_MASK_DEFAULT)
+  #define ioHdlcStationLinkDown(s, addr) \
+    ioHdlcStationLinkDownEx(s, addr, IOHDLC_APP_EVT_MASK_DEFAULT)
+
+  /* Data transfer with timeout. */
+  ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *ioHdlcpeerp, const void *buf, size_t count, uint32_t timeout_ms);
+  ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *ioHdlcpeerp, void *buf, size_t count, uint32_t timeout_ms);
+
+  /* Convenience macros for blocking operations (infinite timeout). */
+  #define ioHdlcWrite(peer, buf, count) ioHdlcWriteTmo(peer, buf, count, IOHDLC_WAIT_FOREVER)
+  #define ioHdlcRead(peer, buf, count) ioHdlcReadTmo(peer, buf, count, IOHDLC_WAIT_FOREVER)
+
+  /* Peer and station management. */
   int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer, uint32_t addr, uint32_t mifl);
   iohdlc_station_peer_t *addr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
   int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, const iohdlc_station_config_t *ioHdlcsconfp);
