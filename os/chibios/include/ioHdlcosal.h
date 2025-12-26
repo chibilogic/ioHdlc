@@ -9,6 +9,8 @@
 
 #define iohdlc_event_source_t event_source_t
 
+typedef event_listener_t iohdlc_event_listener_t;
+
 /**
  * @brief Virtual timer wrapper with expiry state tracking.
  * @note  ChibiOS virtual_timer_t doesn't distinguish between "never started"
@@ -53,6 +55,30 @@ static inline void iohdlc_bsem_signal(iohdlc_binary_semaphore_t *bsp) {
 
 static inline void iohdlc_bsem_signal_i(iohdlc_binary_semaphore_t *bsp) {
   chBSemSignalI(bsp);
+}
+
+/* Event listener wrappers */
+static inline void iohdlc_evt_register(iohdlc_event_source_t *esp, 
+                                       iohdlc_event_listener_t *elp, 
+                                       eventmask_t events, 
+                                       eventflags_t flags) {
+  chEvtRegisterMaskWithFlags(esp, elp, events, flags);
+}
+
+static inline void iohdlc_evt_unregister(iohdlc_event_source_t *esp,
+                                         iohdlc_event_listener_t *elp) {
+  chEvtUnregister(esp, elp);
+}
+
+static inline eventmask_t iohdlc_evt_wait_any_timeout(eventmask_t events, 
+                                                       uint32_t timeout_ms) {
+  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ? 
+                          TIME_INFINITE : TIME_MS2I(timeout_ms);
+  return chEvtWaitAnyTimeout(events, timeout);
+}
+
+static inline eventflags_t iohdlc_evt_get_and_clear_flags(iohdlc_event_listener_t *elp) {
+  return chEvtGetAndClearFlags(elp);
 }
 
 static inline void iohdlc_sys_lock_isr(void) { chSysLockFromISR(); }

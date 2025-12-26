@@ -26,6 +26,7 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
     .is_reply_timer_expired = ioHdlcRunnerIsReplyTimerExpired,
     .wait_events            = s_wait_events,
     .broadcast_flags        = s_broadcast_flags,
+    .broadcast_flags_app    = s_broadcast_flags_app,
     .get_events_flags       = s_get_events_flags,
   };
 
@@ -117,4 +118,8 @@ static uint32_t s_get_events_flags(iohdlc_station_t *station) {
 
 static void s_broadcast_flags(iohdlc_station_t *station, uint32_t flags) {
   chEvtBroadcastFlags(&station->cm_es, (eventflags_t)flags);
+}
+
+static void s_broadcast_flags_app(iohdlc_station_t *station, uint32_t flags) {
+  chEvtBroadcastFlags(&station->app_es, (eventflags_t)flags);
 }

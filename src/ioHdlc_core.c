@@ -37,6 +37,7 @@
 
 #include "ioHdlc_core.h"
 #include "ioHdlc.h"
+#include "ioHdlc_app_events.h"
 #include "ioHdlclist.h"
 
 static const ioHdlcRunnerOps *s_runner_ops = NULL;
@@ -367,8 +368,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       resetPeerVars(p);
       resetPeerUm(p);
       
-      /* Notify application (unblock linkup/linkdown). */
+      /* Notify core internal events. */
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_CONNCHG);
+      
+      /* Notify application: determine if link up or link down based on um_cmd. */
+      s_runner_ops->broadcast_flags_app(s, (p->um_cmd == IOHDLC_U_DISC) ? 
+                            IOHDLC_APP_LINK_DOWN : IOHDLC_APP_LINK_UP);
       
     } else if (u_cmd == IOHDLC_U_DM) {
       /* DM received: peer disconnected or refused connection. */
@@ -376,8 +381,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       p->ss_state |= IOHDLC_SS_ST_DISM;
       resetPeerUm(p);
       
-      /* Notify application (unblock linkup/linkdown with error). */
+      /* Notify core internal events. */
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_CONNCHG);
+      
+      /* Notify application: DM means link refused or link down. */
+      s_runner_ops->broadcast_flags_app(s, (p->um_state & IOHDLC_UM_SENT) ? 
+                            IOHDLC_APP_LINK_REFUSED : IOHDLC_APP_LINK_LOST);
       
     } else if (u_cmd == IOHDLC_U_FRMR) {
       /* FRMR received: peer detected protocol error.
