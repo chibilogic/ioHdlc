@@ -36,6 +36,8 @@
 #ifndef IOHDLCFRAME_H_
 #define IOHDLCFRAME_H_
 
+#include "ioHdlctypes.h"
+
 #define HDLC_BASIC_MIN_L  4
 #define HDLC_FRFMT_MIN_L  5
 

@@ -36,6 +36,10 @@
 #ifndef IOHDLCDRIVER_H_
 #define IOHDLCDRIVER_H_
 
+#include "ioHdlctypes.h"
+#include "ioHdlcframe.h"
+#include "ioHdlcframepool.h"
+
 #define _iohdlc_driver_methods                                      \
   void (*start)(void *ip, void *phydrvp, void *phyconfigp,          \
       ioHdlcFramePool *fpp);                                        \
@@ -43,10 +47,10 @@
   iohdlc_frame_t * (*recv_frame)(void *ip, iohdlc_timeout_t tmo);   \
   bool (*get_hwtransparency)(void *ip);                             \
   void (*set_applytransparency)(void *ip, bool tr);                 \
-  void (*set_hasframeformat)(void *ip, bool hff);                   \
+  void (*set_hasframeformat)(void *ip, bool hff);
 
 #define _iohdlc_driver_data     \
-  ioHdlcFramePool *fpp;         \
+  ioHdlcFramePool *fpp;
 
 /**
  * HDLC driver interface

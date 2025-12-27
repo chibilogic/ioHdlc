@@ -6,6 +6,7 @@
 
 #include "ch.h"
 #include "hal.h"
+#include "ioHdlctypes.h"
 
 #define iohdlc_event_source_t event_source_t
 

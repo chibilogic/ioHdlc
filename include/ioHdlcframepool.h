@@ -36,6 +36,8 @@
 #ifndef IOHDLCFRAMEPOOL_H_
 #define IOHDLCFRAMEPOOL_H_
 
+#include <stddef.h>  /* for size_t */
+
 /**
  * @brief   Frame pool watermark state.
  */

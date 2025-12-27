@@ -37,11 +37,9 @@
 #define IOHDLCTYPES_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "ioHdlc_events.h"
-#if !defined(bool)
-#define bool uint8_t
-#endif
 
 /* ssize_t typedef for Write/Read APIs (follows POSIX semantics) */
 #if !defined(ssize_t) && !defined(_SSIZE_T_DEFINED)
@@ -68,9 +66,16 @@ typedef void (*iohdlc_rx_fn_t)(iohdlc_station_t *s,
                                iohdlc_frame_t *fp);
 
 typedef enum {
-  IOHDLC_TIMER_REPLY   = EVT_CM_C_RPLYTMO,
-  IOHDLC_TIMER_I_REPLY = EVT_CM_I_RPLYTMO,
+  IOHDLC_TIMER_REPLY   = IOHDLC_EVT_C_RPLYTMO,
+  IOHDLC_TIMER_I_REPLY = IOHDLC_EVT_I_RPLYTMO,
 } iohdlc_timer_kind_t;
+
+/**
+ * @brief   Infinite timeout for blocking operations.
+ * @details Used in Write/Read APIs to wait indefinitely.
+ */
+#define IOHDLC_WAIT_FOREVER  0xFFFFFFFFU
+
 #endif /* IOHDLCTYPES_H_ */
 
 /** @} */

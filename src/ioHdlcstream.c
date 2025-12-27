@@ -269,6 +269,7 @@ newframe:
       goto nextoctet;
     d->rx_in_frame->elen = 0;
     b = &d->rx_in_frame->frame[0];
+  }
 
 nextoctet:
   /* Arm next RX chunk. */

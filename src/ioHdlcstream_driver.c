@@ -26,7 +26,7 @@ static const struct _iohdlc_driver_vmt s_vmt = {
   .recv_frame            = drv_recv_frame,
   .get_hwtransparency    = drv_get_hwtransparency,
   .set_applytransparency = drv_set_applytransparency,
-  .set_hasframeformat    = drv_set_hasframeformat,
+  .set_hasframeformat    = drv_set_hasframeformat
 };
 
 /* Core -> upper delivery callback (ISR). */

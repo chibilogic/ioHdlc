@@ -201,7 +201,7 @@ iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
   IOHDLC_ASSERT(s != NULL, "ioHdlcNextPeer: station is NULL");
   iohdlc_station_peer_t *head = (iohdlc_station_peer_t *)&s->peers;
 
-  if (ioHdlc_peerl_isempty(head))
+  if (ioHdlc_peerl_isempty((const iohdlc_peer_list_t *)head))
     return NULL;
 
   /* Compute next with wrap to list head. */
@@ -1105,9 +1105,6 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   return cm_flags;
 }
 
-static uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
-  uint32_t cm_flags);
-
 static uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
   /* S requested
@@ -1161,8 +1158,8 @@ void ioHdlcTxEntry(void *stationp) {
 
     /* U command */
     if ((cm_flags & IOHDLC_EVT_CONNSTR) || (p->um_state & IOHDLC_UM_SENDING) || 
-        (p->um_state & IOHDLC_UM_SENT) &&
-            (r = ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_REPLY))) {
+        ((p->um_state & IOHDLC_UM_SENT) &&
+            (r = ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_REPLY)))) {
 
       cm_flags &= ~(IOHDLC_EVT_CONNSTR |
                     IOHDLC_EVT_C_RPLYTMO);  /* serve all the possible events.*/

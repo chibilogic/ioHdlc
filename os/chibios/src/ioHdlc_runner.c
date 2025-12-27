@@ -8,7 +8,11 @@
 #include "ioHdlc_runner.h"
 #include "ioHdlc.h"
 
-static event_listener_t s_cm_listener;
+/* Forward declarations for runner ops */
+static uint32_t s_wait_events(iohdlc_station_t *station, uint32_t mask);
+static uint32_t s_get_events_flags(iohdlc_station_t *station);
+static void s_broadcast_flags(iohdlc_station_t *station, uint32_t flags);
+static void s_broadcast_flags_app(iohdlc_station_t *station, uint32_t flags);
 
 static THD_FUNCTION(HdlcTxThread, arg) {
   ioHdlcTxEntry(arg);
@@ -34,8 +38,8 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
   /* Initialize core with TYPE 0 FFF (1 byte) as default.
      TODO: Make this configurable or negotiable via XID. */
   (void)ioHdlcCoreInit(station, 1);
-  /* Register event listener for station events. */
-  chEvtRegisterMaskWithFlags(&station->cm_es, &s_cm_listener, EVENT_MASK(0),
+  /* Register event listener for TX thread on station's cm_es. */
+  chEvtRegisterMaskWithFlags(&station->cm_es, &station->cm_listener, EVENT_MASK(0),
       IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE);
   chThdCreateFromHeap(NULL, 2048, "HDLC-TX", NORMALPRIO + 1, HdlcTxThread, station);
   chThdCreateFromHeap(NULL, 2048, "HDLC-RX", NORMALPRIO + 1, HdlcRxThread, station);
@@ -109,11 +113,11 @@ bool ioHdlcRunnerIsReplyTimerExpired(iohdlc_station_peer_t *peer,
 static uint32_t s_wait_events(iohdlc_station_t *station, uint32_t mask) {
   (void)mask; /* single bucket */
   (void) chEvtWaitAny(EVENT_MASK(0));
-  return (uint32_t) chEvtGetAndClearFlags(&s_cm_listener);
+  return (uint32_t) chEvtGetAndClearFlags(&station->cm_listener);
 }
 
 static uint32_t s_get_events_flags(iohdlc_station_t *station) {
-  return (uint32_t) chEvtGetAndClearFlags(&s_cm_listener);
+  return (uint32_t) chEvtGetAndClearFlags(&station->cm_listener);
 }
 
 static void s_broadcast_flags(iohdlc_station_t *station, uint32_t flags) {

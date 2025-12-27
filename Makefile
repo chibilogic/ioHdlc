@@ -140,14 +140,13 @@ LDSCRIPT= $(STARTUPLD)/BV1000GTV.ld
 
 # C sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
-CSRC = $(ALLCSRC)
-
-#       main.c \
-#       ioHdlcfmempool.c \
-#       ioHdlcll.c \
-#       ioHdlcuart.c \
-#       ioHdlc.c \
-       
+CSRC = $(ALLCSRC) \
+        src/ioHdlcll.c \
+        src/ioHdlc_core.c \
+        src/ioHdlc.c \
+        src/ioHdlcstream.c \
+        src/ioHdlcstream_driver.c \
+#       main.c       
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.

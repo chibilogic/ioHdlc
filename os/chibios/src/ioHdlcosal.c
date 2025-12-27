@@ -7,7 +7,7 @@
 #include "ch.h"
 #include "hal.h"
 #include "chmemheaps.h"
-
+#include "ioHdlc.h"
 #include "ioHdlcosal.h"
 
 #ifndef IOHDLC_DMA_HEAP_SIZE

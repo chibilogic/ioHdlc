@@ -149,13 +149,6 @@
 /** @} */
 
 /**
- * @name    Timeout constants
- * @{
- */
-#define IOHDLC_WAIT_FOREVER  0xFFFFFFFFU  /**< @brief Infinite timeout for blocking operations. */
-/** @} */
-
-/**
  * @name    Application event mask
  * @{
  */
@@ -378,6 +371,7 @@ struct iohdlc_station {
   /* events. */
   iohdlc_event_source_t cm_es;   /* Event source for internal core events (RX/TX/timer). */
   iohdlc_event_source_t app_es;  /* Event source for application events (link status, data). */
+  iohdlc_event_listener_t cm_listener; /* Event listener for TX thread. */
 };
 
 /**
