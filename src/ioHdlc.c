@@ -65,6 +65,12 @@
 #ifndef EEXIST
 #define EEXIST          17   /* File exists */
 #endif
+#ifndef ENOMEM
+#define ENOMEM          12   /* Out of memory */
+#endif
+#ifndef EAGAIN
+#define EAGAIN          11   /* Try again */
+#endif
 
 /* Maximum connection retry attempts */
 #define LINKUP_MAX_RETRIES   3
@@ -77,6 +83,9 @@
 /*===========================================================================*/
 /* Module local variables and types.                                         */
 /*===========================================================================*/
+
+/* Reference to runner ops (set by ioHdlcCoreInit) */
+extern const ioHdlcRunnerOps *s_runner_ops;
 
 /*===========================================================================*/
 /* Module local functions.                                                   */
@@ -187,8 +196,13 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   ioHdlc_frameq_init(&peer->i_retrans_q);
   ioHdlc_frameq_init(&peer->i_trans_q);
   
-  /* Initialize TX flow control semaphore */
-  iohdlc_bsem_init(&peer->tx_sem, false);  /* Initially taken (no flow) */
+  /* Initialize semaphores */
+  iohdlc_bsem_init(&peer->tx_sem, false);       /* Initially taken (no flow) */
+  iohdlc_bsem_init(&peer->i_recept_sem, false); /* Initially taken (no data) */
+  
+  /* Initialize partial read state */
+  peer->partial_read_frame = NULL;
+  peer->partial_read_offset = 0;
   
   /* Add peer to station's peer list */
   peer->next = (iohdlc_station_peer_t *)&s->peers;
@@ -404,70 +418,238 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
 
 /**
  * @brief   Write data to peer via HDLC I-frames.
- * @details Allocates frame, copies data to info field, queues for transmission.
+ * @details Fragments data into I-frames if necessary, queues for transmission.
  *          Blocks on flow control if window full or pool low watermark reached.
+ *          Loops until all bytes are queued or error occurs.
  *          
- * @param[in] peer      Peer descriptor
- * @param[in] buf       Data buffer to transmit
- * @param[in] count     Number of bytes to send
+ * @param[in] peer       Peer descriptor
+ * @param[in] buf        Data buffer to transmit
+ * @param[in] count      Number of bytes to send
  * @param[in] timeout_ms Timeout in milliseconds (IOHDLC_WAIT_FOREVER for blocking)
  * 
- * @return              Bytes written on success, -1 on error
- * @retval count        All data successfully queued
- * @retval -1           Error occurred (check station->errorno)
+ * @return               Bytes written on success, -1 on error
+ * @retval count         All data successfully queued
+ * @retval -1            Error occurred (check station->errorno)
  * 
  * @note Blocks if i_pending_count >= 2*ks OR pool is LOW_WATER.
  * @note Sets address, N(S), frame ID; N(R) and P/F set during TX.
+ * @note Automatically fragments data if count > mifls.
  */
 ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf, 
                         size_t count, uint32_t timeout_ms) {
-  /* TODO: Implement data transmission logic
-   * 1. Wait on tx_sem if flow control active
-   * 2. Allocate frame from pool
-   * 3. Copy buffer to frame info field
-   * 4. Set address, N(S) = vs (pre-increment), I-frame ID
-   * 5. Calculate elen, valorize FFF
-   * 6. Queue to i_trans_q, increment i_pending_count
-   * 7. Signal IOHDLC_EVT_ISNDREQ to TX task
-   */
-  (void)peer;
-  (void)buf;
-  (void)count;
-  (void)timeout_ms;
-  return -1;  /* Not yet implemented */
+  iohdlc_station_t *s = peer->stationp;
+  iohdlc_frame_t *fp;
+  const uint8_t *data = (const uint8_t *)buf;
+  size_t remaining = count;
+  uint8_t *info_ptr;
+  size_t chunk_size;
+  
+  /* Validate parameters */
+  if (buf == NULL || count == 0) {
+    s->errorno = EINVAL;
+    return -1;
+  }
+  
+  /* Check if connected */
+  if (!(peer->ss_state & IOHDLC_SS_ST_CONN)) {
+    s->errorno = ENOTCONN;
+    return -1;
+  }
+  
+  /* Loop to send all bytes, fragmenting if necessary */
+  while (remaining > 0) {
+    /* Flow control: wait if window full or pool low watermark */
+    msg_t result = iohdlc_bsem_wait_timeout_ms(&peer->tx_sem, timeout_ms);
+    if (result != MSG_OK) {
+      s->errorno = ETIMEDOUT;
+      return -1;
+    }
+    
+    /* Inner loop: send frames while both conditions permit.
+       This handles the case where N>1 slots become available (ACK burst).
+       Binary semaphore signals "at least 1 slot available", but we check
+       the actual condition directly to consume all available slots.
+       
+       TODO: When peer state mutex is added, migrate to condvar+mutex.
+       This lock-free check is safe because:
+       - RX thread is the only writer to i_pending_count (decrements)
+       - This (app) thread only increments i_pending_count
+       - Single-writer guarantee means read is always consistent */
+    while (remaining > 0 && 
+           peer->i_pending_count < (2 * peer->ks) &&
+           hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_NORMAL) {
+      
+      /* Allocate frame from pool */
+      fp = hdlcTakeFrame(s->frame_pool);
+      if (fp == NULL) {
+        /* Pool exhausted - should not happen given watermark check above.
+           Break inner loop and outer wait will re-check condition. */
+        break;
+      }
+      
+      /* Calculate chunk size for this frame (max mifls) */
+      chunk_size = (remaining < peer->mifls) ? remaining : peer->mifls;
+      
+      /* Set address field */
+      IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
+      
+      /* Set control field: I-frame ID and N(S) */
+      IOHDLC_FRAME_CTRL(s, fp, 0) = IOHDLC_I_ID;
+      IOHDLC_FRAME_SET_NS(s, fp, peer->vs);
+      
+      /* Increment V(S) for next frame */
+      peer->vs = (peer->vs + 1) & s->modmask;
+      
+      /* Copy data to info field */
+      info_ptr = IOHDLC_FRAME_INFO(s, fp);
+      memcpy(info_ptr, data, chunk_size);
+      
+      /* Calculate elen: FFF + ADDR + CTRL + INFO */
+      uint8_t *end = info_ptr + chunk_size;
+      fp->elen = (uint16_t)(end - fp->frame);
+      
+      /* Valorize FFF if present */
+      ioHdlcValorizeFFF(s, fp);
+      
+      /* Queue frame for transmission */
+      ioHdlc_frameq_insert(&peer->i_trans_q, fp);
+      
+      /* Increment pending count for flow control */
+      peer->i_pending_count++;
+      
+      /* Update loop variables */
+      data += chunk_size;
+      remaining -= chunk_size;
+    }
+  }
+  
+  /* Signal TX task that frames are ready */
+  s_runner_ops->broadcast_flags(s, IOHDLC_EVT_ISNDREQ);
+  
+  return (ssize_t)count;
 }
 
 /**
  * @brief   Read data from peer via HDLC I-frames.
  * @details Blocks until I-frame available in reception queue, copies to buffer.
- *          Triggers RR when pool returns to normal watermark.
+ *          Handles partial frame reads: if buffer smaller than frame, saves
+ *          frame state for next read. Returns as many bytes as possible.
  *          
- * @param[in] peer      Peer descriptor
- * @param[out] buf      Buffer to receive data
- * @param[in] count     Maximum bytes to read
+ * @param[in] peer       Peer descriptor
+ * @param[out] buf       Buffer to receive data
+ * @param[in] count      Maximum bytes to read
  * @param[in] timeout_ms Timeout in milliseconds (IOHDLC_WAIT_FOREVER for blocking)
  * 
- * @return              Bytes read on success, -1 on error
- * @retval >0           Number of bytes read
- * @retval -1           Error occurred (check station->errorno)
+ * @return               Bytes read on success, -1 on error
+ * @retval >0            Number of bytes read
+ * @retval -1            Error occurred (check station->errorno)
  * 
  * @note Blocks until frame available or timeout.
- * @note Releases frame back to pool (may trigger watermark transition).
+ * @note Releases frame back to pool when fully consumed (may trigger watermark).
+ * @note Supports partial reads: call multiple times to consume large frames.
  */
 ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf, 
                       size_t count, uint32_t timeout_ms) {
-  /* TODO: Implement data reception logic
-   * 1. Wait on i_recept_q non-empty with timeout
-   * 2. Remove frame from queue
-   * 3. Copy info field to buffer (up to count bytes)
-   * 4. Release frame (triggers watermark check → RR if NORMAL)
-   * 5. Return bytes read
-   */
-  (void)peer;
-  (void)buf;
-  (void)count;
-  (void)timeout_ms;
-  return -1;  /* Not yet implemented */
+  iohdlc_station_t *s = peer->stationp;
+  iohdlc_frame_t *fp;
+  uint8_t *info_ptr;
+  size_t info_len;
+  size_t available_bytes;
+  size_t bytes_to_copy;
+  
+  /* Validate parameters */
+  if (buf == NULL || count == 0) {
+    s->errorno = EINVAL;
+    return -1;
+  }
+  
+  /* Check if connected */
+  if (!(peer->ss_state & IOHDLC_SS_ST_CONN)) {
+    s->errorno = ENOTCONN;
+    return -1;
+  }
+  
+  size_t total_bytes_read = 0;
+  uint8_t *dest = (uint8_t *)buf;
+  
+  /* Greedy consumption loop: read frames until count exhausted or queue empty.
+     This improves efficiency by draining the queue in a single syscall
+     instead of requiring multiple calls when multiple frames are available. */
+  while (total_bytes_read < count) {
+    /* Check if we have a partial frame from previous read */
+    if (peer->partial_read_frame != NULL) {
+      fp = peer->partial_read_frame;
+    } else {
+      /* Try to get next frame from queue.
+         On first iteration: wait with timeout.
+         On subsequent iterations: try non-blocking to drain queue. */
+      msg_t result;
+      if (total_bytes_read == 0) {
+        /* First frame: wait with timeout */
+        result = iohdlc_bsem_wait_timeout_ms(&peer->i_recept_sem, timeout_ms);
+      } else {
+        /* Subsequent frames: non-blocking check to drain queue */
+        result = iohdlc_bsem_wait_timeout_ms(&peer->i_recept_sem, TIME_IMMEDIATE);
+      }
+      
+      if (result != MSG_OK) {
+        if (total_bytes_read > 0) {
+          /* Already read some bytes: return what we have */
+          break;
+        } else {
+          /* First frame timed out: return error */
+          s->errorno = ETIMEDOUT;
+          return -1;
+        }
+      }
+      
+      /* Remove frame from queue */
+      fp = ioHdlc_frameq_remove(&peer->i_recept_q);
+      if (fp == NULL) {
+        /* Queue empty: shouldn't happen after semaphore, but handle gracefully */
+        if (total_bytes_read > 0) {
+          break;  /* Return what we've read so far */
+        } else {
+          s->errorno = EAGAIN;
+          return -1;
+        }
+      }
+      
+      /* Start reading from beginning of this frame */
+      peer->partial_read_offset = 0;
+    }
+    
+    /* Get info field pointer and calculate total length */
+    info_ptr = IOHDLC_FRAME_INFO(s, fp);
+    info_len = fp->elen - (s->frame_offset + 1 + s->ctrl_size);
+    
+    /* Calculate available bytes from current offset */
+    available_bytes = info_len - peer->partial_read_offset;
+    
+    /* Copy as many bytes as fit in remaining buffer space */
+    size_t space_remaining = count - total_bytes_read;
+    bytes_to_copy = (available_bytes < space_remaining) ? available_bytes : space_remaining;
+    memcpy(dest, info_ptr + peer->partial_read_offset, bytes_to_copy);
+    
+    /* Update read state */
+    peer->partial_read_offset += bytes_to_copy;
+    dest += bytes_to_copy;
+    total_bytes_read += bytes_to_copy;
+    
+    /* Check if frame fully consumed */
+    if (peer->partial_read_offset >= info_len) {
+      /* Frame fully read: release back to pool */
+      hdlcReleaseFrame(s->frame_pool, fp);
+      peer->partial_read_frame = NULL;
+      peer->partial_read_offset = 0;
+    } else {
+      /* Frame partially read: save for next call and exit loop */
+      peer->partial_read_frame = fp;
+      break;  /* Buffer full, frame partially consumed */
+    }
+  }
+  
+  return (ssize_t)total_bytes_read;
 }
 
 /** @} */

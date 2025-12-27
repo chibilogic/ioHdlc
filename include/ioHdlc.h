@@ -313,6 +313,13 @@ struct iohdlc_station_peer {
   iohdlc_binary_semaphore_t tx_sem;  /* TX flow control semaphore.
                                         Blocks app when len(i_retrans_q) + len(i_trans_q) >= 2*ks
                                         or pool is LOW_WATER. Signaled when space becomes available. */
+  iohdlc_binary_semaphore_t i_recept_sem;  /* RX data available semaphore.
+                                              Signaled when I-frame arrives in i_recept_q.
+                                              Used by Read to block until data available. */
+
+  /* partial read state. */
+  iohdlc_frame_t *partial_read_frame;  /* Frame being read partially (NULL if none). */
+  size_t partial_read_offset;          /* Offset within partial_read_frame's info field. */
 
   /* virtual timers. */
   iohdlc_virtual_timer_t reply_tmr;   /* Primary/combined station command reply time-out

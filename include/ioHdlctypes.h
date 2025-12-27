@@ -43,6 +43,16 @@
 #define bool uint8_t
 #endif
 
+/* ssize_t typedef for Write/Read APIs (follows POSIX semantics) */
+#if !defined(ssize_t) && !defined(_SSIZE_T_DEFINED)
+#if defined(__LP64__) || defined(_WIN64)
+typedef int64_t ssize_t;
+#else
+typedef int32_t ssize_t;
+#endif
+#define _SSIZE_T_DEFINED
+#endif
+
 typedef struct iohdlc_station iohdlc_station_t;
 typedef struct iohdlc_station_config iohdlc_station_config_t;
 typedef struct iohdlc_station_peer iohdlc_station_peer_t;

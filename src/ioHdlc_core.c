@@ -40,7 +40,8 @@
 #include "ioHdlc_app_events.h"
 #include "ioHdlclist.h"
 
-static const ioHdlcRunnerOps *s_runner_ops = NULL;
+/* Runner ops pointer (shared with ioHdlc.c for broadcast_flags access) */
+const ioHdlcRunnerOps *s_runner_ops = NULL;
 
 /*===========================================================================*/
 /* Module local definitions.                                                 */
@@ -656,6 +657,9 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   /* Frame is in sequence: enqueue for application. */
   ioHdlc_frameq_insert(&p->i_recept_q, fp);
   
+  /* Signal the read semaphore to unblock ioHdlcReadTmo() if waiting */
+  iohdlc_bsem_signal(&p->i_recept_sem);
+  
   /* Clear REJ exception if this is the frame that completes recovery.
      rej_actioned = x means waiting for frame with N(S) = x-1. */
   if (p->rej_actioned != 0 && ns == ((p->rej_actioned - 1) & s->modmask)) {
@@ -796,7 +800,7 @@ static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
  * @note FFF is written to fp->frame[0] (TYPE 0) or fp->frame[0..1] (TYPE 1).
  * @note Caller must have already set fp->elen = FFF_size + ADDR + CTRL + INFO.
  */
-static void valorize_FFF(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+void ioHdlcValorizeFFF(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   if (s->frame_offset > 0) {
     uint16_t total_len = fp->elen + 2;  /* +2 for FCS (added by driver) */
     
@@ -856,7 +860,7 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   fp->elen = (uint16_t)(end - fp->frame);
   
   /* Valorize FFF if present */
-  valorize_FFF(s, fp);
+  ioHdlcValorizeFFF(s, fp);
 }
 
 /**
@@ -919,7 +923,7 @@ static void buildSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   fp->elen = (uint16_t)(end - fp->frame);
   
   /* Valorize FFF if present */
-  valorize_FFF(s, fp);
+  ioHdlcValorizeFFF(s, fp);
 }
 
 static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,

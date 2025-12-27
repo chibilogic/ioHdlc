@@ -49,6 +49,12 @@ static inline msg_t iohdlc_bsem_wait_timeout(iohdlc_binary_semaphore_t *bsp, sys
   return chBSemWaitTimeout(bsp, timeout);
 }
 
+static inline msg_t iohdlc_bsem_wait_timeout_ms(iohdlc_binary_semaphore_t *bsp, uint32_t timeout_ms) {
+  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ? 
+                          TIME_INFINITE : TIME_MS2I(timeout_ms);
+  return chBSemWaitTimeout(bsp, timeout);
+}
+
 static inline void iohdlc_bsem_signal(iohdlc_binary_semaphore_t *bsp) {
   chBSemSignal(bsp);
 }
