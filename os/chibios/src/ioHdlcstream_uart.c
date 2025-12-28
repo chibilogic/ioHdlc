@@ -59,8 +59,6 @@
  *          - Only one RX is in-flight; the core re-arms subsequent portions of
  *            the same frame (multi-chunk) via @p on_rx according to the
  *            expected length.
- *          - Functions use I or non-I variants depending on context
- *            (@p chSysIsInISR()).
  */
 
 
@@ -153,7 +151,7 @@ static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cook
   /* Consider busy if a frame is pending or TX engine not idle. */
   if (ctx->tx_framep != NULL || ctx->uartp->txstate != UART_TX_IDLE) return false;
   ctx->tx_framep = cookie;
-  if (chSysIsInISR())
+  if (port_is_isr_context())
     uartStartSendI(ctx->uartp, len, ptr);
   else
     uartStartSend(ctx->uartp, len, ptr);
@@ -169,7 +167,7 @@ static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   if (ctx->rx_busy) return false; /* one RX at a time */
   ctx->rx_busy = true; /* mark busy */
-  if (chSysIsInISR())
+  if (port_is_isr_context())
     uartStartReceiveI(ctx->uartp, len, ptr);
   else
     uartStartReceive(ctx->uartp, len, ptr);
@@ -178,7 +176,7 @@ static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
 
 static void chb_rx_cancel(void *vctx) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
-  if (chSysIsInISR())
+  if (port_is_isr_context())
     uartStopReceiveI(ctx->uartp);
   else
     uartStopReceive(ctx->uartp);

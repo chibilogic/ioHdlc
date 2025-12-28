@@ -309,6 +309,10 @@ struct iohdlc_station_peer {
   iohdlc_binary_semaphore_t i_recept_sem;  /* RX data available semaphore.
                                               Signaled when I-frame arrives in i_recept_q.
                                               Used by Read to block until data available. */
+  iohdlc_mutex_t state_mutex;  /* Mutex protecting protocol state variables:
+                                  nr, vr, vs, i_pending_count, queues (i_retrans_q, i_trans_q),
+                                  chkpt_actioned, rej_actioned, ss_state.
+                                  Uses priority inheritance to prevent priority inversion. */
 
   /* partial read state. */
   iohdlc_frame_t *partial_read_frame;  /* Frame being read partially (NULL if none). */

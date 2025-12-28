@@ -196,9 +196,10 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   ioHdlc_frameq_init(&peer->i_retrans_q);
   ioHdlc_frameq_init(&peer->i_trans_q);
   
-  /* Initialize semaphores */
+  /* Initialize semaphores and mutex */
   iohdlc_bsem_init(&peer->tx_sem, false);       /* Initially taken (no flow) */
   iohdlc_bsem_init(&peer->i_recept_sem, false); /* Initially taken (no data) */
+  iohdlc_mutex_init(&peer->state_mutex);        /* Priority-inheriting mutex for state */
   
   /* Initialize partial read state */
   peer->partial_read_frame = NULL;
@@ -468,22 +469,24 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     /* Inner loop: send frames while both conditions permit.
        This handles the case where N>1 slots become available (ACK burst).
        Binary semaphore signals "at least 1 slot available", but we check
-       the actual condition directly to consume all available slots.
-       
-       TODO: When peer state mutex is added, migrate to condvar+mutex.
-       This lock-free check is safe because:
-       - RX thread is the only writer to i_pending_count (decrements)
-       - This (app) thread only increments i_pending_count
-       - Single-writer guarantee means read is always consistent */
-    while (remaining > 0 && 
-           peer->i_pending_count < (2 * peer->ks) &&
-           hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_NORMAL) {
+       the actual condition directly to consume all available slots. */
+    while (remaining > 0) {
+      /* Lock to check condition and queue frame atomically */
+      iohdlc_mutex_lock(&peer->state_mutex);
       
-      /* Allocate frame from pool */
+      /* Check if we can send (window not full AND pool not low) */
+      if (peer->i_pending_count >= (2 * peer->ks) ||
+          hdlcPoolGetState(s->frame_pool) != IOHDLC_POOL_NORMAL) {
+        iohdlc_mutex_unlock(&peer->state_mutex);
+        break;  /* Cannot send now, go back to outer wait */
+      }
+      
+      /* Allocate frame from pool (quick operation with internal lock) */
       fp = hdlcTakeFrame(s->frame_pool);
       if (fp == NULL) {
         /* Pool exhausted - should not happen given watermark check above.
            Break inner loop and outer wait will re-check condition. */
+        iohdlc_mutex_unlock(&peer->state_mutex);
         break;
       }
       
@@ -516,6 +519,8 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
       
       /* Increment pending count for flow control */
       peer->i_pending_count++;
+      
+      iohdlc_mutex_unlock(&peer->state_mutex);
       
       /* Update loop variables */
       data += chunk_size;
@@ -581,38 +586,30 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       fp = peer->partial_read_frame;
     } else {
       /* Try to get next frame from queue.
-         On first iteration: wait with timeout.
-         On subsequent iterations: try non-blocking to drain queue. */
-      msg_t result;
+         On first iteration: wait with timeout on semaphore.
+         On subsequent iterations: check queue directly (semaphore is binary,
+         only signaled once even if multiple frames available). */
       if (total_bytes_read == 0) {
         /* First frame: wait with timeout */
-        result = iohdlc_bsem_wait_timeout_ms(&peer->i_recept_sem, timeout_ms);
-      } else {
-        /* Subsequent frames: non-blocking check to drain queue */
-        result = iohdlc_bsem_wait_timeout_ms(&peer->i_recept_sem, TIME_IMMEDIATE);
-      }
-      
-      if (result != MSG_OK) {
-        if (total_bytes_read > 0) {
-          /* Already read some bytes: return what we have */
-          break;
-        } else {
-          /* First frame timed out: return error */
+        msg_t result = iohdlc_bsem_wait_timeout_ms(&peer->i_recept_sem, timeout_ms);
+        if (result != MSG_OK) {
           s->errorno = ETIMEDOUT;
           return -1;
         }
       }
       
-      /* Remove frame from queue */
+      /* Remove frame from queue (protect with mutex) */
+      iohdlc_mutex_lock(&peer->state_mutex);
       fp = ioHdlc_frameq_remove(&peer->i_recept_q);
+      iohdlc_mutex_unlock(&peer->state_mutex);
+      
       if (fp == NULL) {
-        /* Queue empty: shouldn't happen after semaphore, but handle gracefully */
-        if (total_bytes_read > 0) {
+        /* Queue empty: on first iteration shouldn't happen after semaphore wait.
+           On subsequent iterations, this is expected when queue is drained. */
+        if (total_bytes_read > 0)
           break;  /* Return what we've read so far */
-        } else {
-          s->errorno = EAGAIN;
-          return -1;
-        }
+        s->errorno = EAGAIN;
+        return -1;
       }
       
       /* Start reading from beginning of this frame */
@@ -637,16 +634,15 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
     total_bytes_read += bytes_to_copy;
     
     /* Check if frame fully consumed */
-    if (peer->partial_read_offset >= info_len) {
-      /* Frame fully read: release back to pool */
-      hdlcReleaseFrame(s->frame_pool, fp);
-      peer->partial_read_frame = NULL;
-      peer->partial_read_offset = 0;
-    } else {
+    if (peer->partial_read_offset < info_len) {
       /* Frame partially read: save for next call and exit loop */
       peer->partial_read_frame = fp;
       break;  /* Buffer full, frame partially consumed */
     }
+    /* Frame fully read: release back to pool */
+    hdlcReleaseFrame(s->frame_pool, fp);
+    peer->partial_read_frame = NULL;
+    peer->partial_read_offset = 0;
   }
   
   return (ssize_t)total_bytes_read;

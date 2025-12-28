@@ -76,6 +76,9 @@ typedef enum {
  */
 #define IOHDLC_WAIT_FOREVER  0xFFFFFFFFU
 
+/* Forward declaration for mutex type (defined in OSAL) */
+typedef struct iohdlc_mutex iohdlc_mutex_t;
+
 #endif /* IOHDLCTYPES_H_ */
 
 /** @} */

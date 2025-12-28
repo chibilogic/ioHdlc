@@ -26,6 +26,24 @@ typedef semaphore_t iohdlc_sem_t;
 typedef binary_semaphore_t iohdlc_binary_semaphore_t;
 typedef memory_pool_t iohdlc_memory_pool_t;
 
+/* Mutex type */
+struct iohdlc_mutex {
+  mutex_t mtx;
+};
+
+/* Mutex operations */
+static inline void iohdlc_mutex_init(iohdlc_mutex_t *mp) {
+  chMtxObjectInit(&mp->mtx);
+}
+
+static inline void iohdlc_mutex_lock(iohdlc_mutex_t *mp) {
+  chMtxLock(&mp->mtx);
+}
+
+static inline void iohdlc_mutex_unlock(iohdlc_mutex_t *mp) {
+  chMtxUnlock(&mp->mtx);
+}
+
 static inline void iohdlc_sem_init(iohdlc_sem_t *sp, cnt_t n) {
   chSemObjectInit(sp, n);
 }
