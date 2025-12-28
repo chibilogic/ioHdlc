@@ -92,46 +92,6 @@ extern const ioHdlcRunnerOps *s_runner_ops;
 /*===========================================================================*/
 
 /**
- * @brief   Convert operational mode to corresponding U-frame command.
- * @details Maps IOHDLC_OM_xxx mode constants to IOHDLC_U_xxx commands.
- *
- * @param[in] mode  Operational mode (IOHDLC_OM_NRM/ARM/ABM)
- * @return          U-frame command code, or 0 if mode not supported
- */
-static uint8_t mode_to_u_cmd(uint8_t mode) {
-  switch (mode) {
-    case IOHDLC_OM_NRM:
-      return IOHDLC_U_SNRM;
-    case IOHDLC_OM_ARM:
-      return IOHDLC_U_SARM;
-    case IOHDLC_OM_ABM:
-      return IOHDLC_U_SABM;
-    default:
-      return 0;  /* Invalid mode */
-  }
-}
-
-/**
- * @brief   Convert U-frame command to operational mode.
- * @details Maps IOHDLC_U_xxx commands to IOHDLC_OM_xxx mode constants.
- *
- * @param[in] u_cmd  U-frame command code
- * @return           Operational mode, or 0 if command not a set-mode
- */
-static uint8_t u_cmd_to_mode(uint8_t u_cmd) {
-  switch (u_cmd) {
-    case IOHDLC_U_SNRM:
-      return IOHDLC_OM_NRM;
-    case IOHDLC_U_SARM:
-      return IOHDLC_OM_ARM;
-    case IOHDLC_U_SABM:
-      return IOHDLC_OM_ABM;
-    default:
-      return 0;  /* Not a set-mode command */
-  }
-}
-
-/**
  * @brief   Find peer by address in station's peer list.
  * @details Iterates through the circular linked list of peers.
  *
@@ -276,7 +236,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
     return 0;
 
   /* Validate mode and get corresponding U-frame command */
-  u_cmd = mode_to_u_cmd(mode);
+  u_cmd = IOHDLC_MODE_TO_UCMD(mode);
   if (u_cmd == 0) {
     s->errorno = EINVAL;
     return -1;
@@ -286,6 +246,9 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   iohdlc_evt_register(&s->app_es, &listener, evt_mask,
                       IOHDLC_APP_LINK_UP | IOHDLC_APP_LINK_REFUSED);
 
+  /* Set mode for this connection attempt */
+  s->mode = mode;
+  
   /* Connection retry loop */
   for (retry_count = 0; retry_count < LINKUP_MAX_RETRIES; retry_count++) {
     /* Set unnumbered command in peer descriptor */

@@ -43,6 +43,14 @@
 /* Runner ops pointer (shared with ioHdlc.c for broadcast_flags access) */
 const ioHdlcRunnerOps *s_runner_ops = NULL;
 
+/* Forward declarations for mode-specific handlers */
+static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
+static uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+static void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
+static uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+static void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
+
 /*===========================================================================*/
 /* Module local definitions.                                                 */
 /*===========================================================================*/
@@ -64,32 +72,6 @@ static void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags) {
   if (s_runner_ops && s_runner_ops->broadcast_flags)
     s_runner_ops->broadcast_flags(s, flags);
 }
-
-/* Map UM command to supported connection mode. */
-static uint8_t um2supportedConnMode(uint8_t um_cmd) {
-  if (um_cmd == IOHDLC_U_SABM)
-    return IOHDLC_OM_ABM;
-  if (um_cmd == IOHDLC_U_SNRM)
-    return IOHDLC_OM_NRM;
-  if (um_cmd == IOHDLC_U_SARM)
-    return IOHDLC_OM_ARM;
-  return 0;
-}
-
-/* Map supported connection mode to UM command. */
-static uint8_t supportedConnMode2um(uint8_t mode) {
-  if (mode == IOHDLC_OM_ABM)
-    return IOHDLC_U_SABM;
-  if (mode == IOHDLC_OM_NRM)
-    return IOHDLC_U_SNRM;
-  if (mode == IOHDLC_OM_ARM)
-    return IOHDLC_U_SARM;
-  return 0;
-}
-
-/* Clear P/F received flags on station. */
-static void ackRcvedP(iohdlc_station_peer_t *p) { p->stationp->pf_state &= ~IOHDLC_P_RCVED; }
-static void ackRcvedF(iohdlc_station_peer_t *p) { p->stationp->pf_state &= ~IOHDLC_F_RCVED; }
 
 /* Clear and release all frames in a queue. */
 static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
@@ -148,6 +130,24 @@ static void resetPeerVars(iohdlc_station_peer_t *p) {
   clearFrameQ(p, &p->i_retrans_q);
   clearFrameQ(p, &p->i_recept_q);
   clearFrameQ(p, &p->i_trans_q);
+}
+
+/* Set tx_fn and rx_fn based on mode, or reset to NULL if disconnected. */
+static void setModeFunctions(iohdlc_station_t *s, uint8_t mode) {
+  if (mode == IOHDLC_OM_NRM) {
+    s->tx_fn = nrmTx;
+    s->rx_fn = nrmRx;
+  } else if (mode == IOHDLC_OM_ARM) {
+    s->tx_fn = armTx;
+    s->rx_fn = armRx;
+  } else if (mode == IOHDLC_OM_ABM) {
+    s->tx_fn = abmTx;
+    s->rx_fn = abmRx;
+  } else {
+    /* Disconnected modes (NDM, ADM): reset to NULL */
+    s->tx_fn = NULL;
+    s->rx_fn = NULL;
+  }
 }
 
 /*
@@ -297,11 +297,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     /* Determine appropriate response based on command and current state.
        Per 6.11.4.1.1: Secondary validates command and decides response. */
     
-    uint8_t om = um2supportedConnMode(u_cmd);
+    uint8_t om = IOHDLC_UCMD_TO_MODE(u_cmd);
     if (om) {
       /* Set mode command (SNRM/SARM/SABM).
          Per 6.11.4.1.1: Secondary accepts, changes mode, resets variables. */
       s->mode = om;
+      setModeFunctions(s, om);
       resetPeerVars(p);
       p->ss_state |= IOHDLC_SS_ST_CONN;
       p->um_rsp = IOHDLC_U_UA;
@@ -314,6 +315,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       } else {
         /* Connected: accept DISC, enter disconnected mode. */
         s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+        setModeFunctions(s, s->mode);  /* Reset to NULL */
         resetPeerVars(p);
         p->um_rsp = IOHDLC_U_UA;
       }
@@ -358,10 +360,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       if (p->um_cmd == IOHDLC_U_DISC) {
         /* DISC accepted: enter disconnected mode. */
         s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+        setModeFunctions(s, s->mode);  /* Reset to NULL */
         p->ss_state &= ~IOHDLC_SS_ST_CONN;
       } else {
         /* Connection command accepted (SNRM/SARM/SABM).
            Mode was already set by linkup() before sending command. */
+        setModeFunctions(s, s->mode);
         p->ss_state |= IOHDLC_SS_ST_CONN;
       }
       
@@ -565,7 +569,6 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
      prevent TX from observing intermediate state.
   */
   
-  uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   uint32_t nr = extractNR(s, fp);
   bool pf = IOHDLC_FRAME_GET_PF(s, fp);
   
@@ -827,6 +830,16 @@ static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     /* Unexpected frame type (U-frames already handled upstream). */
     hdlcReleaseFrame(s->frame_pool, fp);
   }
+}
+
+static void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+    (void)s;
+    (void)fp;
+}
+
+static void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+    (void)s;
+    (void)fp;
 }
 
 /*===========================================================================*/
@@ -1200,6 +1213,24 @@ static uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         se devo inviare un F è response.
         se !IOHDLC_P_ISRCVED(s) è response.
         se IOHDLC_P_ISRCVED(s) è command.*/    
+  (void)s;
+  (void)p;
+  (void)cm_flags;
+  return 0;
+}
+
+static uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+  uint32_t cm_flags) {
+  /* S requested
+     NOTE per ARM:
+        Come distinguere tra command e response, in ordine di priorità:
+        se devo inviare un P è command.
+        se devo inviare un F è response.
+        se !IOHDLC_P_ISRCVED(s) è response.
+        se IOHDLC_P_ISRCVED(s) è command.*/    
+  (void)s;
+  (void)p;
+  (void)cm_flags;
   return 0;
 }
 
