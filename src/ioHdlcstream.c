@@ -214,8 +214,7 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
       }
 
       /* The raw frame is ready.
-         Delivery it and start
-         the reception of a new frame.*/
+         Delivery it and start the reception of a new frame.*/
       d->cfg.deliver_rx_frame(d->upper_ctx, (void *)d->rx_in_frame, d->rx_in_frame->elen);
       d->rx_in_frame = NULL;
       *d->rx_stagep = HDLC_FLAG;  /* the FLAG separator is also a start FLAG.*/
