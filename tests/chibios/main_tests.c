@@ -1,0 +1,172 @@
+/*
+    ioHdlc - Copyright (C) 2024 Isidoro Orabona
+
+    Test suite main for ChibiOS/ARM target.
+    Combines all OS-agnostic test scenarios.
+ */
+
+#include "ch.h"
+#include "hal.h"
+#include "chprintf.h"
+#include "test_helpers.h"
+#include "adapter_interface.h"
+#include "board_config.h"
+
+/* Select adapter based on build configuration */
+#ifdef USE_UART_ADAPTER
+  extern const test_adapter_t uart_adapter;
+  #define TEST_ADAPTER (&uart_adapter)
+#else
+  extern const test_adapter_t mock_adapter;
+  #define TEST_ADAPTER (&mock_adapter)
+#endif
+
+/* Test function prototypes from common scenarios */
+extern int test_pool_init(void);
+extern int test_take_release(void);
+extern int test_addref(void);
+extern int test_watermark(void);
+extern int test_exhaust_pool(void);
+
+/* Basic connection tests */
+extern int test_station_creation(void);
+extern int test_peer_creation(void);
+extern int test_snrm_handshake_frames(void);
+extern int test_connection_timeout(void);
+
+/*
+ * Serial configuration for test output console.
+ */
+static const SerialConfig sdcfg = {
+  .speed = 115200,
+  .cr = 0,
+  .mr = UART_MR_PAR_NO
+};
+
+/*
+ * Test runner thread.
+ */
+static THD_WORKING_AREA(waTestRunner, 4096);
+static THD_FUNCTION(TestRunner, arg) {
+  (void)arg;
+  
+  chRegSetThreadName("test_runner");
+  
+  /* Wait for serial to be ready */
+  chThdSleepMilliseconds(100);
+  
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "════════════════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "  ioHdlc Test Suite - ChibiOS/ARM\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "════════════════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "  Adapter: %s\r\n", TEST_ADAPTER->name);
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "════════════════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+  
+  /* Initialize test adapter (mock or UART) */
+  TEST_ADAPTER->init();
+  
+  /* Run Frame Pool Tests */
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "  Frame Pool Tests\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+  
+  RUN_TEST(test_pool_init);
+  RUN_TEST(test_take_release);
+  RUN_TEST(test_addref);
+  RUN_TEST(test_watermark);
+  RUN_TEST(test_exhaust_pool);
+  
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+  
+  /* Basic Connection Tests */
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "  Basic Connection Tests\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+  
+  RUN_TEST(test_station_creation);
+  RUN_TEST(test_peer_creation);
+  RUN_TEST(test_snrm_handshake_frames);
+  RUN_TEST(test_connection_timeout);
+  
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+  
+  /* Final summary */
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "  Final Summary\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "  Total Passed: %d\r\n", passed_count);
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "  Total Failed: %d\r\n", failed_count);
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+  
+  if (failed_count == 0) {
+    chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+             "✅ All Tests Completed Successfully\r\n\r\n");
+  } else {
+    chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+             "❌ Some Tests Failed\r\n\r\n");
+  }
+  
+  /* Deinitialize test adapter */
+  TEST_ADAPTER->deinit();
+  
+  /* Tests completed - loop forever */
+  while (true) {
+    chThdSleepMilliseconds(1000);
+  }
+}
+
+/*
+ * Application entry point.
+ */
+int main(void) {
+  
+  /*
+   * System initializations.
+   * - HAL initialization, this also initializes the configured device drivers
+   *   and performs the board-specific initializations.
+   * - Kernel initialization, the main() function becomes a thread and the
+   *   RTOS is active.
+   */
+  halInit();
+  chSysInit();
+  
+  /*
+   * Activates serial driver 0 using the driver default configuration.
+   */
+  sdStart(&TEST_OUTPUT_SD, &sdcfg);
+  
+  /*
+   * Creates the test runner thread.
+   */
+  chThdCreateStatic(waTestRunner, sizeof(waTestRunner), 
+                    NORMALPRIO + 1, TestRunner, NULL);
+  
+  /*
+   * Normal main() thread activity - idle loop.
+   */
+  while (true) {
+    chThdSleepMilliseconds(500);
+  }
+}
