@@ -27,7 +27,7 @@ static bool test_mock_stream_creation(void) {
   /* Cleanup */
   mock_stream_destroy(stream);
 
-  return true;
+  return 0;
 }
 
 /*===========================================================================*/
@@ -60,7 +60,7 @@ static bool test_loopback(void) {
   TEST_ASSERT(test_mem_equal(tx_data, rx_data, sizeof(tx_data)), "Data mismatch");
 
   mock_stream_destroy(stream);
-  return true;
+  return 0;
 }
 
 /*===========================================================================*/
@@ -104,7 +104,7 @@ static bool test_peer_connection(void) {
   mock_stream_destroy(stream_a);
   mock_stream_destroy(stream_b);
 
-  return true;
+  return 0;
 }
 
 /*===========================================================================*/
@@ -124,7 +124,7 @@ static bool test_read_timeout(void) {
   TEST_ASSERT_EQ(0, read_bytes, "Should timeout and return 0");
 
   mock_stream_destroy(stream);
-  return true;
+  return 0;
 }
 
 /*===========================================================================*/
@@ -157,7 +157,7 @@ static bool test_inject_drain(void) {
   TEST_ASSERT(test_mem_equal(inject_data, tx_buffer, sizeof(inject_data)), "Drained data mismatch");
 
   mock_stream_destroy(stream);
-  return true;
+  return 0;
 }
 
 /*===========================================================================*/

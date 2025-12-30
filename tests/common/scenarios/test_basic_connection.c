@@ -43,7 +43,7 @@ bool test_station_creation(void) {
    */
   
   TEST_ASSERT(true, "Stub test - placeholder");
-  return true;
+  return 0;
 }
 
 /*===========================================================================*/
@@ -56,7 +56,7 @@ bool test_peer_creation(void) {
   /* TODO: Similar to station creation, needs wrapper or proper init sequence */
   
   TEST_ASSERT(true, "Stub test - placeholder");
-  return true;
+  return 0;
 }
 
 /*===========================================================================*/
@@ -73,7 +73,7 @@ bool test_snrm_handshake_frames(void) {
   
   TEST_ASSERT(true, "Stub test - placeholder");
   test_printf("⏭️  SNRM handshake test (frame-level) - TODO\n");
-  return true;
+  return 0;
 }
 
 /*===========================================================================*/
@@ -89,7 +89,7 @@ bool test_connection_timeout(void) {
 
   TEST_ASSERT(true, "Stub test - placeholder");
   test_printf("⏭️  Connection timeout test - TODO\n");
-  return true;
+  return 0;
 }
 
 /*===========================================================================*/
