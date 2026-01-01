@@ -39,17 +39,14 @@
 #include "ioHdlc.h"
 #include "ioHdlc_app_events.h"
 #include "ioHdlclist.h"
+#include "ioHdlcosal.h"
+#include <errno.h>
 
 /* Runner ops pointer (shared with ioHdlc.c for broadcast_flags access) */
 const ioHdlcRunnerOps *s_runner_ops = NULL;
 
-/* Forward declarations for mode-specific handlers */
-static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
-static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
-static uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
-static void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
-static uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
-static void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
+/* Forward declarations for U-frame handler */
+static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
 
 /*===========================================================================*/
 /* Module local definitions.                                                 */
@@ -208,42 +205,6 @@ iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
   s->c_peer = s->c_peer ? s->c_peer->next : head->next;
 
   return s->c_peer;
-}
-
-bool ioHdlcCoreInit(iohdlc_station_t *station, uint8_t fff_type) {
-  /* Initialize fast-access critical flags from optfuncs.
-     This enables zero-branch frame field access via IOHDLC_FRAME_* macros. */
-  
-  station->flags_critical = 0;
-  
-  /* FFF (Frame Format Field) option.
-     fff_type: 0 = no FFF, 1 = TYPE 0 (1 byte, max 127), 2 = TYPE 1 (2 byte, max 4095) */
-  if (station->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF) {
-    station->flags_critical |= IOHDLC_CFLG_FFF;
-    station->frame_offset = fff_type;  /* 1 or 2 based on negotiated/configured type */
-  } else {
-    station->frame_offset = 0;  /* No FFF: addr field at offset 0 */
-  }
-  
-  /* Initialize ctrl_size based on modmask. */
-  if (station->modmask == 7) {
-    station->ctrl_size = 1;  /* Basic format: modulo 8 */
-  } else {
-    station->ctrl_size = station->pfoctet * 2;  /* Extended format */
-  }
-  
-  /* REJ recovery option. */
-  if (station->optfuncs[IOHDLC_OPT_REJ_OCT] & IOHDLC_OPT_REJ) {
-    station->flags_critical |= IOHDLC_CFLG_REJ;
-  }
-  
-  /* Start/stop with basic transparency option. */
-  if (station->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) {
-    station->flags_critical |= IOHDLC_CFLG_STB;
-  }
-  
-  /* TODO: migrate remaining station initialization logic from src/ioHdlc.c if/when needed. */
-  return true;
 }
 
 static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
@@ -800,7 +761,7 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   hdlcReleaseFrame(s->frame_pool, fp);
 }
 
-static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Handle I-frames and S-frames specific to NRM mode. */
   
   iohdlc_station_peer_t *p;
@@ -832,12 +793,12 @@ static void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   }
 }
 
-static void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     (void)s;
     (void)fp;
 }
 
-static void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     (void)s;
     (void)fp;
 }
@@ -985,7 +946,7 @@ static void buildSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   ioHdlcValorizeFFF(s, fp);
 }
 
-static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
 
   /* Check if a S is requested
@@ -1204,7 +1165,7 @@ static uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   return cm_flags;
 }
 
-static uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
   /* S requested
      NOTE per ABM:
@@ -1219,7 +1180,7 @@ static uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   return 0;
 }
 
-static uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
   /* S requested
      NOTE per ARM:

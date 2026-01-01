@@ -19,12 +19,6 @@ typedef struct {
   pthread_t rx_thread;
   bool running;
   bool thread_started;
-  
-  /* RX buffer management */
-  pthread_mutex_t rx_lock;
-  uint8_t *rx_buf;
-  size_t rx_len;
-  size_t rx_pos;
 } mock_stream_adapter_t;
 
 /**

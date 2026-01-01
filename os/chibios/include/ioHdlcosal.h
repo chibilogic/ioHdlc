@@ -82,7 +82,11 @@ static inline void iohdlc_bsem_signal_i(iohdlc_binary_semaphore_t *bsp) {
   chBSemSignalI(bsp);
 }
 
-/* Event listener wrappers */
+/* Event source/listener wrappers */
+static inline void iohdlc_evt_init(iohdlc_event_source_t *esp) {
+  chEvtObjectInit(esp);
+}
+
 static inline void iohdlc_evt_register(iohdlc_event_source_t *esp, 
                                        iohdlc_event_listener_t *elp, 
                                        eventmask_t events, 

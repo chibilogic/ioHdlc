@@ -388,6 +388,7 @@ struct iohdlc_station_config {
   uint32_t addr;          /**< @brief address of the station.                */
   ioHdlcDriver *driver;   /**< @brief the link driver interface implementor. */
   ioHdlcFramePool *fpp;   /**< @brief the frame pool used by the station.    */
+  const uint8_t *optfuncs; /**< @brief optional functions array (5 bytes), NULL for defaults */
   void *phydriver;        /**< @brief the physical driver used by the implementor. */
   void *phydriver_config; /**< @brief the physical driver configuration.     */
 };
@@ -424,7 +425,7 @@ extern "C" {
   #define ioHdlcRead(peer, buf, count) ioHdlcReadTmo(peer, buf, count, IOHDLC_WAIT_FOREVER)
 
   /* Peer and station management. */
-  int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer, uint32_t addr, uint32_t mifl);
+  int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer, uint32_t addr);
   iohdlc_station_peer_t *addr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
   int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, const iohdlc_station_config_t *ioHdlcsconfp);
   //int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, const iohdlc_station_config_t *ioHdlcsconfp);

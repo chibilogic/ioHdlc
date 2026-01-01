@@ -14,12 +14,6 @@ extern "C" {
 
 /* Runner -> Core: entry points */
 
-/* Initialize core with runner-provided context (timers/events abstractions live in runner).
- * @param station    Station descriptor to initialize
- * @param fff_type   FFF type: 0 = no FFF (basic mode), 1 = TYPE 0 (1 byte), 2 = TYPE 1 (2 byte)
- */
-bool ioHdlcCoreInit(iohdlc_station_t *station, uint8_t fff_type);
-
 /* RX path: deliver a received frame to the core (from lower layers). */
 void ioHdlcOnRxFrame(iohdlc_station_t *station, iohdlc_frame_t *fp);
 
@@ -66,6 +60,14 @@ void ioHdlcValorizeFFF(iohdlc_station_t *s, iohdlc_frame_t *fp);
 /* Thread/task entry points (runner creates threads and calls these). */
 void ioHdlcTxEntry(void *stationp);
 void ioHdlcRxEntry(void *stationp);
+
+/* Mode-specific TX/RX handlers (exposed for ioHdlcStationInit). */
+uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
+uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
+uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
 
 /* helpers */
 iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *station);

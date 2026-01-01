@@ -46,12 +46,16 @@ typedef void (*iohdlc_vt_callback_t)(void *vtp, void *par);
  * @brief   Virtual timer structure (POSIX implementation).
  */
 typedef struct {
-  timer_t timerid;              /**< POSIX timer ID */
+  timer_t timer_id;             /**< POSIX timer ID */
   iohdlc_vt_callback_t callback;/**< Callback function */
   void *par;                    /**< User parameter */
-  bool active;                  /**< Timer is running */
+  bool armed;                   /**< Timer is armed/running */
   bool expired;                 /**< Timer expired flag */
   pthread_mutex_t lock;         /**< Protect state */
+  
+  /* Runner context (for timer expiry handling) */
+  struct iohdlc_station_peer *peer;  /**< Peer owning this timer */
+  uint32_t kind;                /**< Timer kind (REPLY or I_REPLY) */
 } iohdlc_virtual_timer_t;
 
 /**
@@ -68,12 +72,12 @@ typedef struct {
  */
 typedef struct iohdlc_event_listener {
   struct iohdlc_event_listener *next;  /**< Next listener in chain */
-  pthread_t thread;                     /**< Listening thread */
+  pthread_t thread;                     /**< Listening thread (unused, kept for compatibility) */
+  iohdlc_thread_events_t *thread_events; /**< Thread event state */
   eventmask_t events;                   /**< Event mask */
   eventflags_t flags;                   /**< Pending flags */
   eventflags_t wflags;                  /**< Wanted flags */
   pthread_mutex_t lock;                 /**< Protect flags */
-  pthread_cond_t cond;                  /**< Wait condition */
 } iohdlc_event_listener_t;
 
 /**
@@ -87,6 +91,11 @@ typedef struct {
 /*===========================================================================*/
 /* Time Conversion                                                           */
 /*===========================================================================*/
+
+/**
+ * @brief   Event mask helper macro (compatible with ChibiOS).
+ */
+#define EVENT_MASK(n) ((eventmask_t)(1UL << (n)))
 
 /**
  * @brief   Message type (return codes).

@@ -138,8 +138,8 @@ static void timer_signal_handler(union sigval sv) {
   
   pthread_mutex_lock(&vtp->lock);
   
-  if (vtp->active) {
-    vtp->active = false;
+  if (vtp->armed) {
+    vtp->armed = false;
     vtp->expired = true;
     
     /* Call user callback */
@@ -163,12 +163,12 @@ void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp) {
   sev.sigev_notify_function = timer_signal_handler;
   sev.sigev_value.sival_ptr = vtp;
   
-  if (timer_create(CLOCK_MONOTONIC, &sev, &vtp->timerid) == -1) {
+  if (timer_create(CLOCK_MONOTONIC, &sev, &vtp->timer_id) == -1) {
     /* Fallback to CLOCK_REALTIME if MONOTONIC not available */
-    timer_create(CLOCK_REALTIME, &sev, &vtp->timerid);
+    timer_create(CLOCK_REALTIME, &sev, &vtp->timer_id);
   }
   
-  vtp->active = false;
+  vtp->armed = false;
   vtp->expired = false;
 }
 
@@ -179,22 +179,22 @@ void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp, uint32_t delay_ms,
   pthread_mutex_lock(&vtp->lock);
   
   /* Cancel any existing timer */
-  if (vtp->active) {
+  if (vtp->armed) {
     memset(&its, 0, sizeof(its));
-    timer_settime(vtp->timerid, 0, &its, NULL);
+    timer_settime(vtp->timer_id, 0, &its, NULL);
   }
   
   /* Set new timer */
   vtp->callback = callback;
   vtp->par = par;
-  vtp->active = true;
+  vtp->armed = true;
   vtp->expired = false;
   
   memset(&its, 0, sizeof(its));
   its.it_value.tv_sec = delay_ms / 1000;
   its.it_value.tv_nsec = (delay_ms % 1000) * 1000000L;
   
-  timer_settime(vtp->timerid, 0, &its, NULL);
+  timer_settime(vtp->timer_id, 0, &its, NULL);
   
   pthread_mutex_unlock(&vtp->lock);
 }
@@ -204,10 +204,10 @@ void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp) {
   
   pthread_mutex_lock(&vtp->lock);
   
-  if (vtp->active) {
+  if (vtp->armed) {
     memset(&its, 0, sizeof(its));
-    timer_settime(vtp->timerid, 0, &its, NULL);
-    vtp->active = false;
+    timer_settime(vtp->timer_id, 0, &its, NULL);
+    vtp->armed = false;
   }
   vtp->expired = false;
   
@@ -217,7 +217,7 @@ void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp) {
 bool iohdlc_vt_is_armed(iohdlc_virtual_timer_t *vtp) {
   bool armed;
   pthread_mutex_lock(&vtp->lock);
-  armed = vtp->active;
+  armed = vtp->armed;
   pthread_mutex_unlock(&vtp->lock);
   return armed;
 }
@@ -244,10 +244,13 @@ void iohdlc_evt_broadcast_flags(iohdlc_event_source_t *esp, eventflags_t flags) 
     
     /* Also signal thread events if listener wants them */
     if (elp->flags & elp->wflags) {
-      /* Get thread-specific event state for listener thread */
-      /* Note: This is a simplification - in real impl would need
-       * to store thread event pointer in listener or use signal */
-      pthread_cond_signal(&elp->cond);
+      /* Set pending in thread event state */
+      if (elp->thread_events) {
+        pthread_mutex_lock(&elp->thread_events->lock);
+        elp->thread_events->pending |= elp->events;
+        pthread_cond_broadcast(&elp->thread_events->cond);
+        pthread_mutex_unlock(&elp->thread_events->lock);
+      }
     }
     
     pthread_mutex_unlock(&elp->lock);
@@ -266,11 +269,11 @@ void iohdlc_evt_register(iohdlc_event_source_t *esp,
                          eventflags_t wflags) {
   memset(elp, 0, sizeof(*elp));
   elp->thread = pthread_self();
+  elp->thread_events = get_thread_events();
   elp->events = events;
   elp->wflags = wflags;
   elp->flags = 0;
   pthread_mutex_init(&elp->lock, NULL);
-  pthread_cond_init(&elp->cond, NULL);
   
   /* Add to listener chain */
   pthread_mutex_lock(&esp->lock);
@@ -297,7 +300,6 @@ void iohdlc_evt_unregister(iohdlc_event_source_t *esp,
   
   /* Cleanup listener */
   pthread_mutex_destroy(&elp->lock);
-  pthread_cond_destroy(&elp->cond);
 }
 
 eventmask_t iohdlc_evt_wait_any_timeout(eventmask_t events, uint32_t timeout_ms) {

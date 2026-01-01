@@ -40,6 +40,7 @@
 #include "ioHdlc_app_events.h"
 #include "ioHdlcosal.h"
 #include "ioHdlcqueue.h"
+#include "ioHdlclist.h"
 #include <string.h>
 
 /*===========================================================================*/
@@ -84,12 +85,126 @@
 /* Module local variables and types.                                         */
 /*===========================================================================*/
 
-/* Reference to runner ops (set by ioHdlcCoreInit) */
+/* Runner ops registration for core event broadcasting */
 extern const ioHdlcRunnerOps *s_runner_ops;
 
 /*===========================================================================*/
 /* Module local functions.                                                   */
 /*===========================================================================*/
+
+/**
+ * @brief   Initialize HDLC station with configuration.
+ * @details Initializes a station descriptor with the provided configuration:
+ *          - Calculates modulus parameters (modmask, pfoctet, ctrl_size)
+ *          - Sets operational mode and flags
+ *          - Initializes peer list and event sources
+ *          - Configures optional functions (REJ, FFF, STB)
+ *          - Sets TX/RX handlers based on mode
+ *
+ * @param[in] ioHdlcsp      Station descriptor to initialize
+ * @param[in] ioHdlcsconfp  Configuration parameters
+ * @return                  0 on success, -1 on error (check ioHdlcsp->errorno)
+ * 
+ * @note The caller must have prepared:
+ *       - Frame pool (ioHdlcsconfp->fpp)
+ *       - Driver implementation (ioHdlcsconfp->driver)
+ *       - Optional: physical device and config (phydriver, phydriver_config)
+ * 
+ * @api
+ */
+int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
+                          const iohdlc_station_config_t *ioHdlcsconfp) {
+  uint32_t mod2 = 0;
+  uint8_t mode = ioHdlcsconfp->mode;
+
+  /* Validate mode */
+  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM) &&
+      (mode != IOHDLC_OM_NRM) && (mode != IOHDLC_OM_ARM) &&
+      (mode != IOHDLC_OM_ABM)) {
+    ioHdlcsp->errorno = EINVAL;
+    return -1;
+  }
+
+  /* Basic station parameters */
+  ioHdlcsp->addr = ioHdlcsconfp->addr;
+  ioHdlcsp->flags = ioHdlcsconfp->flags;
+  ioHdlcsp->mode = mode;
+
+  /* Calculate modulus parameters */
+  mod2 = ioHdlcsconfp->log2mod;
+  ioHdlcsp->modmask = (1U << mod2) - 1;  /* 7, 127, 32767, 2147483647 */
+  ioHdlcsp->pfoctet = (mod2 + 1) / 8;
+  ioHdlcsp->ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->pfoctet * 2);
+
+  /* Default timeout */
+  ioHdlcsp->reply_timeout_ms = 100;
+
+  /* Frame pool and driver */
+  ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;
+  ioHdlcsp->driver = ioHdlcsconfp->driver;
+
+  /* Initialize peer list */
+  ioHdlc_peerl_init(&ioHdlcsp->peers);
+  ioHdlcsp->c_peer = NULL;
+
+  /* Initialize event sources (OS-agnostic via osal) */
+  iohdlc_evt_init(&ioHdlcsp->cm_es);
+  iohdlc_evt_init(&ioHdlcsp->app_es);
+
+  /* Set TX/RX handlers based on mode */
+  if (mode == IOHDLC_OM_NRM) {
+    ioHdlcsp->tx_fn = nrmTx;
+    ioHdlcsp->rx_fn = nrmRx;
+  } else if (mode == IOHDLC_OM_ARM) {
+    ioHdlcsp->tx_fn = armTx;
+    ioHdlcsp->rx_fn = armRx;
+  } else if (mode == IOHDLC_OM_ABM) {
+    ioHdlcsp->tx_fn = abmTx;
+    ioHdlcsp->rx_fn = abmRx;
+  }
+
+  /* Configure optional functions */
+  if (ioHdlcsconfp->optfuncs != NULL) {
+    /* User provided custom optional functions */
+    memcpy(ioHdlcsp->optfuncs, ioHdlcsconfp->optfuncs, sizeof(ioHdlcsp->optfuncs));
+  } else {
+    /* Use default optional functions: REJ, SST, STB, FFF enabled */
+    memset(ioHdlcsp->optfuncs, 0, sizeof(ioHdlcsp->optfuncs));
+    ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] |= IOHDLC_OPT_REJ;
+    ioHdlcsp->optfuncs[IOHDLC_OPT_SST_OCT] |= IOHDLC_OPT_SST;
+    ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] |= IOHDLC_OPT_STB;
+    ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] |= IOHDLC_OPT_FFF;
+  }
+
+  /* Initialize fast-access critical flags from optfuncs */
+  ioHdlcsp->flags_critical = 0;
+  
+  if (ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF) {
+    ioHdlcsp->flags_critical |= IOHDLC_CFLG_FFF;
+    ioHdlcsp->frame_offset = 1;  /* FFF present: addr starts at offset 1 */
+  } else {
+    ioHdlcsp->frame_offset = 0;  /* No FFF: addr starts at offset 0 */
+  }
+  
+  if (ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] & IOHDLC_OPT_REJ) {
+    ioHdlcsp->flags_critical |= IOHDLC_CFLG_REJ;
+  }
+  
+  if (ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) {
+    ioHdlcsp->flags_critical |= IOHDLC_CFLG_STB;
+  }
+
+  /* Start driver if physical device provided */
+  if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
+    ioHdlcsp->driver->vmt->start(ioHdlcsp->driver, 
+                                  ioHdlcsconfp->phydriver,
+                                  ioHdlcsconfp->phydriver_config,
+                                  ioHdlcsp->frame_pool);
+  }
+
+  ioHdlcsp->errorno = 0;
+  return 0;
+}
 
 /**
  * @brief   Find peer by address in station's peer list.
@@ -114,11 +229,12 @@ iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
 /**
  * @brief   Initialize and add a peer to an HDLC station.
  * @details Initializes peer structure, queues, semaphores and adds to station's peer list.
+ *          Maximum Information Field Length (mifl) is automatically calculated from
+ *          station's frame pool size minus protocol overhead.
  *          
  * @param[in] s     Station descriptor
- * @param[in] peer  Peer structure to initialize
+ * @param[in] peer  Peer structure to initialize (allocated by caller)
  * @param[in] addr  Peer address on the data link
- * @param[in] mifl  Maximum information field length
  * 
  * @return          0 on success, -1 on error
  * @retval 0        Peer successfully added to station
@@ -127,9 +243,13 @@ iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
  *                  - EEXIST: Peer with same address already exists
  * 
  * @note Station errorno field contains detailed error code on failure.
+ * @note mifl is calculated as: framesize - (FFF + ADDR + CTRL + FCS)
+ *       For modulo 8: framesize - (1 + 1 + 1 + 2) = framesize - 5 (if FFF enabled)
+ * 
+ * @api
  */
 int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
-                      uint32_t addr, uint32_t mifl) {
+                      uint32_t addr) {
   /* Secondary stations can only add peer when in disconnected mode */
   if (!(s->flags & IOHDLC_FLG_PRI) &&
       (s->mode != IOHDLC_OM_NDM) && (s->mode != IOHDLC_OM_ADM)) {
@@ -142,6 +262,12 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
     s->errorno = EEXIST;
     return -1;
   }
+
+  /* Calculate mifl from frame pool size minus overhead.
+     Overhead = FFF (frame_offset) + ADDR (1) + CTRL (ctrl_size) + FCS (2) */
+  uint32_t overhead = s->frame_offset + 1 + s->ctrl_size + 2;
+  uint32_t mifl = (s->frame_pool->framesize > overhead) ? 
+                  (s->frame_pool->framesize - overhead) : 64;  /* Fallback to 64 */
 
   /* Initialize the peer structure */
   memset(peer, 0, sizeof(*peer));
@@ -170,6 +296,11 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   peer->prev = s->peers.prev;
   s->peers.prev->next = peer;
   s->peers.prev = peer;
+  
+  /* Initialize c_peer to first peer if not already set */
+  if (s->c_peer == NULL) {
+    s->c_peer = peer;
+  }
   
   return 0;
 }

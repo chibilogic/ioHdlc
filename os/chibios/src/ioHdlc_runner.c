@@ -35,9 +35,7 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
   };
 
   ioHdlcRegisterRunnerOps(&s_ops);
-  /* Initialize core with TYPE 0 FFF (1 byte) as default.
-     TODO: Make this configurable or negotiable via XID. */
-  (void)ioHdlcCoreInit(station, 1);
+  
   /* Register event listener for TX thread on station's cm_es. */
   chEvtRegisterMaskWithFlags(&station->cm_es, &station->cm_listener, EVENT_MASK(0),
       IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE);

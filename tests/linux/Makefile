@@ -43,10 +43,12 @@ CORE_SRCS = \
 
 OSAL_SRCS = \
 	$(OS_LINUX_DIR)/src/ioHdlcosal.c \
-	$(OS_LINUX_DIR)/src/ioHdlcfmempool.c
+	$(OS_LINUX_DIR)/src/ioHdlcfmempool.c \
+	$(OS_LINUX_DIR)/src/ioHdlc_runner.c
 
 MOCK_SRCS = \
-	$(MOCKS_DIR)/mock_stream.c
+	$(MOCKS_DIR)/mock_stream.c \
+	$(MOCKS_DIR)/mock_stream_adapter.c
 
 COMMON_SRCS = \
 	$(COMMON_DIR)/test_helpers.c
@@ -125,7 +127,7 @@ $(BIN_DIR)/$(TEST_BASIC_CONNECTION): $(OBJ_DIR)/test_basic_connection.o $(ALL_OB
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_FRAME_POOL): $(OBJ_DIR)/test_frame_pool.o $(OSAL_OBJS) $(COMMON_OBJS)
+$(BIN_DIR)/$(TEST_FRAME_POOL): $(OBJ_DIR)/test_frame_pool.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
