@@ -318,6 +318,8 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     if (u_cmd == IOHDLC_U_UA) {
       /* UA received: command accepted. */
       
+      /* Reset peer variables. */
+      resetPeerVars(p);
       if (p->um_cmd == IOHDLC_U_DISC) {
         /* DISC accepted: enter disconnected mode. */
         s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
@@ -330,8 +332,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
         p->ss_state |= IOHDLC_SS_ST_CONN;
       }
       
-      /* Reset peer variables and clear UM state. */
-      resetPeerVars(p);
+      /* Clear UM state. */
       resetPeerUm(p);
       
       /* Notify core internal events. */

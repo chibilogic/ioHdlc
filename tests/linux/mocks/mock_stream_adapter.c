@@ -189,31 +189,35 @@ static void* adapter_rx_thread(void *arg) {
     /* Check if we have a buffer to fill */
     if (adapter->rx_buf && adapter->rx_pos < adapter->rx_len) {
       uint8_t *target = &adapter->rx_buf[adapter->rx_pos];
+      size_t remaining = adapter->rx_len - adapter->rx_pos;
       pthread_mutex_unlock(&adapter->rx_lock);
       
-      /* Read directly into the buffer */
-      ssize_t result = mock_stream_read(adapter->stream, target,
-        adapter->rx_len, 100);
+      /* Read remaining bytes into the buffer */
+      ssize_t result = mock_stream_read(adapter->stream, target, remaining, 100);
       
       if (result >= 1) {
-        /* Bytes received and already in buffer, notify core */
+        /* Bytes received, update position */
         pthread_mutex_lock(&adapter->rx_lock);
         if (adapter->rx_buf && adapter->rx_pos < adapter->rx_len) {
           adapter->rx_pos += result;
           
-          /* Notify that byte is available */
-          if (adapter->callbacks.on_rx) {
-            adapter->callbacks.on_rx(adapter->callbacks.cb_ctx, 0);
+          /* Notify when request is complete */
+          if (adapter->rx_pos >= adapter->rx_len) {
+            if (adapter->callbacks.on_rx) {
+              adapter->callbacks.on_rx(adapter->callbacks.cb_ctx, 0);
+            }
           }
         }
         pthread_mutex_unlock(&adapter->rx_lock);
       } else if (result < 0) {
-        /* Error */
+        /* Error - notify with lock held */
+        pthread_mutex_lock(&adapter->rx_lock);
         if (adapter->callbacks.on_rx_error) {
           adapter->callbacks.on_rx_error(adapter->callbacks.cb_ctx, IOHDLC_STREAM_ERR_OVERRUN);
         }
+        pthread_mutex_unlock(&adapter->rx_lock);
       }
-      /* else timeout - continue */
+      /* else timeout - continue accumulating */
     } else {
       pthread_mutex_unlock(&adapter->rx_lock);
       usleep(1000);  /* Wait 1ms before checking again */

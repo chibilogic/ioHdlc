@@ -250,6 +250,13 @@ bool test_snrm_handshake(void) {
   ioHdlcRunnerStart(&station_primary);
   ioHdlcRunnerStart(&station_secondary);
   
+  /* Allow time for threads to initialize and register listeners */
+#ifdef IOHDLC_USE_CHIBIOS
+  chThdSleepMilliseconds(50);
+#else
+  usleep(50000);  /* 50 ms */
+#endif
+  
   /* Initiate connection from primary to secondary */
   test_printf("Calling ioHdlcStationLinkUp...\n");
   int ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM); // DEBUG: Set breakpoint here
