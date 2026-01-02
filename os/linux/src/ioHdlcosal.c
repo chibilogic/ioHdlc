@@ -153,9 +153,15 @@ static void timer_signal_handler(union sigval sv) {
 
 void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp) {
   struct sigevent sev;
+  pthread_mutexattr_t attr;
   
   memset(vtp, 0, sizeof(*vtp));
-  pthread_mutex_init(&vtp->lock, NULL);
+  
+  /* Initialize recursive mutex to allow callback to call vt_set/reset */
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&vtp->lock, &attr);
+  pthread_mutexattr_destroy(&attr);
   
   /* Create POSIX timer */
   memset(&sev, 0, sizeof(sev));

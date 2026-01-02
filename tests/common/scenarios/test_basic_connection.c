@@ -67,7 +67,7 @@ static int32_t init_test_station(iohdlc_station_t *station,
   config.addr = addr;
   config.driver = driver;
   config.fpp = frame_pool;
-  config.optfuncs = NULL;  /* Use defaults: REJ, SST, STB, FFF enabled */
+  config.optfuncs = NULL;  /* Use defaults: REJ, SST, INH, FFF enabled */
   config.phydriver = NULL;
   config.phydriver_config = NULL;
 

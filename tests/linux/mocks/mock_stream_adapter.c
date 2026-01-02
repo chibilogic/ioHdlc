@@ -42,6 +42,8 @@ static const ioHdlcStreamPortOps s_port_ops = {
 /*===========================================================================*/
 
 mock_stream_adapter_t* mock_stream_adapter_create(mock_stream_t *stream) {
+  pthread_mutexattr_t Attr;
+
   if (!stream) {
     return NULL;
   }
@@ -54,7 +56,9 @@ mock_stream_adapter_t* mock_stream_adapter_create(mock_stream_t *stream) {
   adapter->stream = stream;
   adapter->running = false;
   adapter->thread_started = false;
-  pthread_mutex_init(&adapter->rx_lock, NULL);
+  pthread_mutexattr_init(&Attr);
+  pthread_mutexattr_settype(&Attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&adapter->rx_lock, &Attr);
   adapter->rx_buf = NULL;
   adapter->rx_len = 0;
   adapter->rx_pos = 0;
@@ -187,14 +191,15 @@ static void* adapter_rx_thread(void *arg) {
       uint8_t *target = &adapter->rx_buf[adapter->rx_pos];
       pthread_mutex_unlock(&adapter->rx_lock);
       
-      /* Read one byte directly into the buffer */
-      ssize_t result = mock_stream_read(adapter->stream, target, 1, 10);
+      /* Read directly into the buffer */
+      ssize_t result = mock_stream_read(adapter->stream, target,
+        adapter->rx_len, 100);
       
-      if (result == 1) {
-        /* Byte received and already in buffer, notify core */
+      if (result >= 1) {
+        /* Bytes received and already in buffer, notify core */
         pthread_mutex_lock(&adapter->rx_lock);
         if (adapter->rx_buf && adapter->rx_pos < adapter->rx_len) {
-          adapter->rx_pos++;
+          adapter->rx_pos += result;
           
           /* Notify that byte is available */
           if (adapter->callbacks.on_rx) {

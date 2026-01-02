@@ -168,12 +168,13 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     /* User provided custom optional functions */
     memcpy(ioHdlcsp->optfuncs, ioHdlcsconfp->optfuncs, sizeof(ioHdlcsp->optfuncs));
   } else {
-    /* Use default optional functions: REJ, SST, STB, FFF enabled */
+    /* Use default optional functions: REJ, SST, FFF enabled */
     memset(ioHdlcsp->optfuncs, 0, sizeof(ioHdlcsp->optfuncs));
     ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] |= IOHDLC_OPT_REJ;
     ioHdlcsp->optfuncs[IOHDLC_OPT_SST_OCT] |= IOHDLC_OPT_SST;
-    ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] |= IOHDLC_OPT_STB;
     ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] |= IOHDLC_OPT_FFF;
+    ioHdlcsp->optfuncs[IOHDLC_OPT_INH_OCT] |= IOHDLC_OPT_INH;
+    
   }
 
   /* Initialize fast-access critical flags from optfuncs */
@@ -192,6 +193,21 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   
   if (ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) {
     ioHdlcsp->flags_critical |= IOHDLC_CFLG_STB;
+  }
+
+  /* Configure driver settings before starting */
+  if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
+    /* Set transparency option (STB - Start/Stop with Basic Transparency) */
+    bool apply_transparency = (ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) != 0;
+    hdlcApplyTransparency(ioHdlcsp->driver, apply_transparency);
+    
+    /* Set frame format field option (FFF) */
+    bool has_frame_format = (ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF) != 0;
+    hdlcHasFrameFormat(ioHdlcsp->driver, has_frame_format);
+    if (has_frame_format && (ioHdlcsp->optfuncs[IOHDLC_OPT_INH_OCT] & IOHDLC_OPT_INH)) {
+      /* It takes precedence over STB. */
+      hdlcApplyTransparency(ioHdlcsp->driver, false);
+    }
   }
 
   /* Start driver if physical device provided */
@@ -286,6 +302,12 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   iohdlc_bsem_init(&peer->tx_sem, false);       /* Initially taken (no flow) */
   iohdlc_bsem_init(&peer->i_recept_sem, false); /* Initially taken (no data) */
   iohdlc_mutex_init(&peer->state_mutex);        /* Priority-inheriting mutex for state */
+  
+  /* Initialize virtual timers (reply and I-frame reply) */
+  iohdlc_vt_init(&peer->reply_tmr);
+  iohdlc_vt_init(&peer->i_reply_tmr);
+  peer->reply_tmr.peer = peer;
+  peer->i_reply_tmr.peer = peer;
   
   /* Initialize partial read state */
   peer->partial_read_frame = NULL;

@@ -94,7 +94,7 @@ void ioHdlcRunnerStop(iohdlc_station_t *station) {
 }
 
 /*===========================================================================*/
-/* Timer implementation (POSIX timer_t)                                      */
+/* Timer implementation using OSAL API                                       */
 /*===========================================================================*/
 
 static iohdlc_virtual_timer_t* s_select_timer(iohdlc_station_peer_t *peer,
@@ -102,42 +102,20 @@ static iohdlc_virtual_timer_t* s_select_timer(iohdlc_station_peer_t *peer,
   return (timer_kind == IOHDLC_TIMER_I_REPLY) ? &peer->i_reply_tmr : &peer->reply_tmr;
 }
 
-static void s_timer_signal_handler(int sig, siginfo_t *si, void *uc) {
-  (void)sig;
-  (void)uc;
+/**
+ * @brief   Timer callback invoked by OSAL when timer expires.
+ * @details Called in separate thread (SIGEV_THREAD). Broadcasts event to station.
+ */
+static void s_timer_callback(void *vtp, void *par) {
+  iohdlc_virtual_timer_t *timer = (iohdlc_virtual_timer_t *)vtp;
+  iohdlc_station_peer_t *peer = (iohdlc_station_peer_t *)par;
   
-  /* Extract timer context from siginfo */
-  iohdlc_virtual_timer_t *timer = (iohdlc_virtual_timer_t *)si->si_value.sival_ptr;
-  if (!timer || !timer->peer) {
+  if (!peer || !peer->stationp) {
     return;
   }
   
-  /* Mark timer as expired */
-  timer->expired = true;
-  
-  /* Signal events to the station - this posts to all listeners */
-  iohdlc_station_peer_t *peer = timer->peer;
+  /* Broadcast timer expiry event to station's event source */
   iohdlc_evt_broadcast_flags(&peer->stationp->cm_es, (eventflags_t)timer->kind);
-}
-
-static void s_setup_timer_signal(void) {
-  static bool initialized = false;
-  if (initialized) {
-    return;
-  }
-  
-  struct sigaction sa;
-  memset(&sa, 0, sizeof(sa));
-  sa.sa_flags = SA_SIGINFO;
-  sa.sa_sigaction = s_timer_signal_handler;
-  sigemptyset(&sa.sa_mask);
-  
-  if (sigaction(SIGRTMIN, &sa, NULL) == -1) {
-    /* Handle error */
-    return;
-  }
-  
-  initialized = true;
 }
 
 void ioHdlcRunnerStartReplyTimer(iohdlc_station_peer_t *peer,
@@ -145,43 +123,12 @@ void ioHdlcRunnerStartReplyTimer(iohdlc_station_peer_t *peer,
                                  uint32_t timeout_ms) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
   
-  s_setup_timer_signal();
-  
-  /* Stop existing timer if armed */
-  if (timer->armed) {
-    timer_delete(timer->timer_id);
-    timer->armed = false;
-  }
-  
-  /* Create new timer */
-  struct sigevent sev;
-  memset(&sev, 0, sizeof(sev));
-  sev.sigev_notify = SIGEV_SIGNAL;
-  sev.sigev_signo = SIGRTMIN;
-  sev.sigev_value.sival_ptr = timer;
-  
-  if (timer_create(CLOCK_MONOTONIC, &sev, &timer->timer_id) == -1) {
-    return;
-  }
-  
-  /* Set timer context */
-  timer->peer = peer;
+  /* Store timer kind for callback */
   timer->kind = timer_kind;
   timer->expired = false;
-  timer->armed = true;
   
-  /* Arm timer */
-  struct itimerspec its;
-  its.it_value.tv_sec = timeout_ms / 1000;
-  its.it_value.tv_nsec = (timeout_ms % 1000) * 1000000;
-  its.it_interval.tv_sec = 0;
-  its.it_interval.tv_nsec = 0;
-  
-  if (timer_settime(timer->timer_id, 0, &its, NULL) == -1) {
-    timer_delete(timer->timer_id);
-    timer->armed = false;
-    return;
-  }
+  /* Use OSAL API to set the timer */
+  iohdlc_vt_set(timer, timeout_ms, s_timer_callback, peer);
 }
 
 void ioHdlcRunnerRestartReplyTimer(iohdlc_station_peer_t *peer,
@@ -189,17 +136,10 @@ void ioHdlcRunnerRestartReplyTimer(iohdlc_station_peer_t *peer,
                                    uint32_t timeout_ms) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
   
-  if (timer->armed) {
-    /* Just restart with new timeout */
+  if (iohdlc_vt_is_armed(timer)) {
+    /* Reset expired flag and restart timer */
     timer->expired = false;
-    
-    struct itimerspec its;
-    its.it_value.tv_sec = timeout_ms / 1000;
-    its.it_value.tv_nsec = (timeout_ms % 1000) * 1000000;
-    its.it_interval.tv_sec = 0;
-    its.it_interval.tv_nsec = 0;
-    
-    timer_settime(timer->timer_id, 0, &its, NULL);
+    iohdlc_vt_set(timer, timeout_ms, s_timer_callback, peer);
   }
 }
 
@@ -207,17 +147,15 @@ void ioHdlcRunnerStopReplyTimer(iohdlc_station_peer_t *peer,
                                 iohdlc_timer_kind_t timer_kind) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
   
-  if (timer->armed) {
-    timer_delete(timer->timer_id);
-    timer->armed = false;
-    timer->expired = false;
-  }
+  /* Use OSAL API to reset the timer */
+  iohdlc_vt_reset(timer);
+  timer->expired = false;
 }
 
 bool ioHdlcRunnerIsReplyTimerExpired(iohdlc_station_peer_t *peer,
                                      iohdlc_timer_kind_t timer_kind) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
-  return !timer->armed && timer->expired;
+  return !iohdlc_vt_is_armed(timer) && timer->expired;
 }
 
 /*===========================================================================*/
