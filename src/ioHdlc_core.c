@@ -41,6 +41,7 @@
 #include "ioHdlclist.h"
 #include "ioHdlcosal.h"
 #include <errno.h>
+#include <stdio.h>
 
 /* Runner ops pointer (shared with ioHdlc.c for broadcast_flags access) */
 const ioHdlcRunnerOps *s_runner_ops = NULL;
@@ -963,7 +964,6 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      It can be requested by this TX itself, if it have no I-frame to txmit, or
      following a poll timeout (RR or RNR), or if the transmission window 
      is full.*/
-
   if ((cm_flags & IOHDLC_EVT_SSNDREQ) || (p->ss_state & IOHDLC_SS_SENDING)) {
     cm_flags &= ~IOHDLC_EVT_SSNDREQ;
     
@@ -1033,6 +1033,8 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Retry: force P bit to be sent on next I-frame. */
     s->pf_state |= IOHDLC_F_RCVED;
   }
+
+  cm_flags &= ~(IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ);
 
   bool i_frame_sent = false;  /* Track if at least one I-frame was sent. */
   while (true) {
@@ -1204,6 +1206,12 @@ void ioHdlcTxEntry(void *stationp) {
   bool r;
 
   if (!s) return;
+
+  /* Register event listener */
+  iohdlc_evt_register(&s->cm_es, &s->cm_listener,
+                      EVENT_MASK(0),
+                      IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|
+                      IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ);
   for (;;) {
     if (!cm_flags) {
       if (s_runner_ops && s_runner_ops->wait_events)
@@ -1211,6 +1219,12 @@ void ioHdlcTxEntry(void *stationp) {
       else
         break; /* cannot wait, exit */
     }
+
+    /* Check if stop requested */
+    if (s->stop_requested) {
+      break;
+    }
+    
     /* Proceed by priority. U -> S -> I -> OS.*/
     p = s->c_peer;
     if (NULL == p) { cm_flags = 0; continue; }
@@ -1275,15 +1289,27 @@ void ioHdlcTxEntry(void *stationp) {
     if (s->tx_fn)
       cm_flags = s->tx_fn(s, p, cm_flags);
   }
+
+  iohdlc_evt_unregister(&s->cm_es, &s->cm_listener);
 }
 
 void ioHdlcRxEntry(void *stationp) {
   iohdlc_station_t *s = (iohdlc_station_t *)stationp;
   if (!s) return;
   for (;;) {
-    iohdlc_frame_t *fp = hdlcRecvFrame(s->driver, (iohdlc_timeout_t)0xFFFFFFFFu);
+    /* Check if stop requested */
+    if (s->stop_requested) {
+      break;
+    }
+    
+    /* Use short timeout (100ms) to allow stop check */
+    iohdlc_frame_t *fp = hdlcRecvFrame(s->driver, (iohdlc_timeout_t)1000);
     if (fp == NULL) {
-      /* Idle line */
+      /* Check again before treating as idle line */
+      if (s->stop_requested) {
+        break;
+      }
+      /* Idle line or timeout */
       s->flags |= IOHDLC_FLG_IDL;
       if (s->flags & IOHDLC_FLG_TWA) {
         /* In TWA mode, line idle might be significant - broadcast event. */

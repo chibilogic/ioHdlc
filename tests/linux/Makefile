@@ -60,12 +60,16 @@ COMMON_TEST_SRCS = \
 
 # Linux-specific test scenarios
 LINUX_TEST_SRCS = \
-	$(SCENARIOS_DIR)/test_mock_stream.c
+	$(SCENARIOS_DIR)/test_mock_stream.c \
+	$(SCENARIOS_DIR)/test_osal_bsem.c \
+	$(SCENARIOS_DIR)/test_osal_events.c
 
 # Test scenarios
 TEST_MOCK_STREAM = test_mock_stream
 TEST_BASIC_CONNECTION = test_basic_connection
 TEST_FRAME_POOL = test_frame_pool
+TEST_OSAL_BSEM = test_osal_bsem
+TEST_OSAL_EVENTS = test_osal_events
 
 # Object files
 CORE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
@@ -79,9 +83,11 @@ ALL_OBJS = $(CORE_OBJS) $(OSAL_OBJS) $(MOCK_OBJS) $(COMMON_OBJS)
 TEST_BINS = $(BIN_DIR)/$(TEST_MOCK_STREAM)
 TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION)
 TEST_BINS += $(BIN_DIR)/$(TEST_FRAME_POOL)
+TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
+TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
 
 # Targets
-.PHONY: all clean test dirs
+.PHONY: all clean test test-osal dirs
 
 all: dirs $(TEST_BINS)
 
@@ -131,6 +137,14 @@ $(BIN_DIR)/$(TEST_FRAME_POOL): $(OBJ_DIR)/test_frame_pool.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
+$(BIN_DIR)/$(TEST_OSAL_BSEM): $(OBJ_DIR)/test_osal_bsem.o $(OBJ_DIR)/osal_ioHdlcosal.o $(COMMON_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/$(TEST_OSAL_EVENTS): $(OBJ_DIR)/test_osal_events.o $(OBJ_DIR)/osal_ioHdlcosal.o $(COMMON_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+
 # Run tests
 test: all
 	@echo ""
@@ -147,6 +161,21 @@ test: all
 	@echo "════════════════════════════════════════════════════════"
 	@echo ""
 
+# Run OSAL tests only
+test-osal: $(BIN_DIR)/$(TEST_OSAL_BSEM) $(BIN_DIR)/$(TEST_OSAL_EVENTS)
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Running OSAL Tests"
+	@echo "════════════════════════════════════════════════════════"
+	@echo ""
+	@$(BIN_DIR)/$(TEST_OSAL_BSEM) || exit 1
+	@$(BIN_DIR)/$(TEST_OSAL_EVENTS) || exit 1
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  OSAL Tests Completed Successfully"
+	@echo "════════════════════════════════════════════════════════"
+	@echo ""
+
 # Clean
 clean:
 	@echo "Cleaning build directory..."
@@ -157,11 +186,13 @@ help:
 	@echo "ioHdlc Linux Test Suite"
 	@echo ""
 	@echo "Targets:"
-	@echo "  all     - Build all test binaries"
-	@echo "  test    - Build and run all tests"
-	@echo "  clean   - Remove build artifacts"
-	@echo "  help    - Show this message"
+	@echo "  all       - Build all test binaries"
+	@echo "  test      - Build and run all tests"
+	@echo "  test-osal - Build and run OSAL tests only"
+	@echo "  clean     - Remove build artifacts"
+	@echo "  help      - Show this message"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make test              # Run all tests"
+	@echo "  make test-osal         # Run OSAL tests only"
 	@echo "  make clean && make     # Rebuild from scratch"

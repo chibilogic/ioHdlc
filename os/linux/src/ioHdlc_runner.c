@@ -11,7 +11,19 @@
 #include <signal.h>
 #include <time.h>
 #include <string.h>
+#include <stdlib.h>
 #include <errno.h>
+
+/*===========================================================================*/
+/* Runner context (Linux-specific)                                          */
+/*===========================================================================*/
+
+typedef struct {
+  pthread_t tx_thread;
+  pthread_t rx_thread;
+  bool tx_started;
+  bool rx_started;
+} linux_runner_context_t;
 
 /*===========================================================================*/
 /* Forward declarations                                                      */
@@ -29,17 +41,7 @@ static void s_broadcast_flags_app(iohdlc_station_t *station, uint32_t flags);
 static void* hdlc_tx_thread(void *arg) {
   iohdlc_station_t *station = (iohdlc_station_t *)arg;
   
-  /* Register event listener for this TX thread */
-  iohdlc_evt_register(&station->cm_es, &station->cm_listener,
-                      EVENT_MASK(0),
-                      IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|
-                      IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE);
-  
   ioHdlcTxEntry(station);
-  
-  /* Unregister before thread exits */
-  iohdlc_evt_unregister(&station->cm_es, &station->cm_listener);
-  
   return NULL;
 }
 
@@ -66,31 +68,62 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
 
   ioHdlcRegisterRunnerOps(&s_ops);
   
-  /* Create TX and RX threads (listener will be registered by TX thread itself) */
-  pthread_t tx_thread, rx_thread;
-  pthread_attr_t attr;
-  
-  pthread_attr_init(&attr);
-  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-  
-  if (pthread_create(&tx_thread, &attr, hdlc_tx_thread, station) != 0) {
-    /* Handle error */
-    pthread_attr_destroy(&attr);
+  /* Allocate and initialize runner context */
+  linux_runner_context_t *ctx = (linux_runner_context_t *)malloc(sizeof(linux_runner_context_t));
+  if (!ctx) {
     return;
   }
+  memset(ctx, 0, sizeof(*ctx));
+  station->runner_context = ctx;
+  station->stop_requested = false;
   
-  if (pthread_create(&rx_thread, &attr, hdlc_rx_thread, station) != 0) {
-    /* Handle error */
-    pthread_attr_destroy(&attr);
+  /* Create TX and RX threads (joinable, not detached) */
+  if (pthread_create(&ctx->tx_thread, NULL, hdlc_tx_thread, station) != 0) {
+    free(ctx);
+    station->runner_context = NULL;
     return;
   }
+  ctx->tx_started = true;
   
-  pthread_attr_destroy(&attr);
+  if (pthread_create(&ctx->rx_thread, NULL, hdlc_rx_thread, station) != 0) {
+    /* TX thread already started, need to stop it */
+    station->stop_requested = true;
+    s_broadcast_flags(station, 0xFFFFFFFF);  /* Wake up TX thread */
+    pthread_join(ctx->tx_thread, NULL);
+    free(ctx);
+    station->runner_context = NULL;
+    return;
+  }
+  ctx->rx_started = true;
 }
 
 void ioHdlcRunnerStop(iohdlc_station_t *station) {
-  (void)station;
-  /* TODO: add thread references and perform graceful stop if needed. */
+  linux_runner_context_t *ctx = (linux_runner_context_t *)station->runner_context;
+  
+  if (!ctx) {
+    return;  /* Runner not started or already stopped */
+  }
+  
+  /* Request threads to stop */
+  station->stop_requested = true;
+  
+  /* Wake up TX thread (may be blocked in wait_events) */
+  s_broadcast_flags(station, 0xFFFFFFFF);
+  
+  /* Join threads - they will see stop_requested and exit gracefully */
+  if (ctx->tx_started) {
+    pthread_join(ctx->tx_thread, NULL);
+    ctx->tx_started = false;
+  }
+  
+  if (ctx->rx_started) {
+    pthread_join(ctx->rx_thread, NULL);
+    ctx->rx_started = false;
+  }
+  
+  /* Free context */
+  free(ctx);
+  station->runner_context = NULL;
 }
 
 /*===========================================================================*/

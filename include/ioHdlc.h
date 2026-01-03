@@ -376,6 +376,10 @@ struct iohdlc_station {
   iohdlc_event_source_t cm_es;   /* Event source for internal core events (RX/TX/timer). */
   iohdlc_event_source_t app_es;  /* Event source for application events (link status, data). */
   iohdlc_event_listener_t cm_listener; /* Event listener for TX thread. */
+
+  /* runner context (OS-specific). */
+  volatile bool stop_requested;  /* Flag to request thread termination. */
+  void *runner_context;          /* OS-specific runner data (thread handles, etc). */
 };
 
 /**
@@ -396,6 +400,28 @@ struct iohdlc_station_config {
 /*===========================================================================*/
 /* Module macros.                                                            */
 /*===========================================================================*/
+
+/**
+ * @brief   Convert U-frame command to operational mode.
+ * @details Maps IOHDLC_U_xxx commands to IOHDLC_OM_xxx mode constants.
+ * @param   u_cmd  U-frame command code
+ * @return  Operational mode, or 0 if command not a set-mode
+ */
+#define IOHDLC_UCMD_TO_MODE(u_cmd) \
+  ((u_cmd) == IOHDLC_U_SNRM ? IOHDLC_OM_NRM : \
+   (u_cmd) == IOHDLC_U_SARM ? IOHDLC_OM_ARM : \
+   (u_cmd) == IOHDLC_U_SABM ? IOHDLC_OM_ABM : 0)
+
+/**
+ * @brief   Convert operational mode to U-frame command.
+ * @details Maps IOHDLC_OM_xxx mode constants to IOHDLC_U_xxx commands.
+ * @param   mode  Operational mode
+ * @return  U-frame command code, or 0 if mode invalid
+ */
+#define IOHDLC_MODE_TO_UCMD(mode) \
+  ((mode) == IOHDLC_OM_NRM ? IOHDLC_U_SNRM : \
+   (mode) == IOHDLC_OM_ARM ? IOHDLC_U_SARM : \
+   (mode) == IOHDLC_OM_ABM ? IOHDLC_U_SABM : 0)
 
 /*===========================================================================*/
 /* External declarations.                                                    */
@@ -436,32 +462,6 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
-
-/*===========================================================================*/
-/* Module inline functions.                                                  */
-/*===========================================================================*/
-
-/**
- * @brief   Convert U-frame command to operational mode.
- * @details Maps IOHDLC_U_xxx commands to IOHDLC_OM_xxx mode constants.
- * @param   u_cmd  U-frame command code
- * @return  Operational mode, or 0 if command not a set-mode
- */
-#define IOHDLC_UCMD_TO_MODE(u_cmd) \
-  ((u_cmd) == IOHDLC_U_SNRM ? IOHDLC_OM_NRM : \
-   (u_cmd) == IOHDLC_U_SARM ? IOHDLC_OM_ARM : \
-   (u_cmd) == IOHDLC_U_SABM ? IOHDLC_OM_ABM : 0)
-
-/**
- * @brief   Convert operational mode to U-frame command.
- * @details Maps IOHDLC_OM_xxx mode constants to IOHDLC_U_xxx commands.
- * @param   mode  Operational mode
- * @return  U-frame command code, or 0 if mode invalid
- */
-#define IOHDLC_MODE_TO_UCMD(mode) \
-  ((mode) == IOHDLC_OM_NRM ? IOHDLC_U_SNRM : \
-   (mode) == IOHDLC_OM_ARM ? IOHDLC_U_SARM : \
-   (mode) == IOHDLC_OM_ABM ? IOHDLC_U_SABM : 0)
 
 #endif /* IOHDLC_H_ */
 

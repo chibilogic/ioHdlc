@@ -142,9 +142,13 @@ typedef struct {
 
 /**
  * @brief   Binary semaphore structure (POSIX).
+ * @details Uses mutex+condvar+flag to ensure true binary semantics.
+ *          Flag is either true or false, never accumulates.
  */
 typedef struct {
-  sem_t sem;
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
+  bool signaled;
 } iohdlc_bsem_t;
 
 /* Alias for compatibility */
@@ -153,8 +157,7 @@ typedef iohdlc_bsem_t iohdlc_binary_semaphore_t;
 /**
  * @brief   Initialize binary semaphore.
  */
-#define iohdlc_bsem_init(bsem, taken) \
-  sem_init(&(bsem)->sem, 0, (taken) ? 0 : 1)
+void iohdlc_bsem_init(iohdlc_bsem_t *bsem, bool taken);
 
 /**
  * @brief   Wait on binary semaphore with timeout.
@@ -173,22 +176,17 @@ static inline msg_t iohdlc_bsem_wait_timeout_ms(iohdlc_bsem_t *bsem, uint32_t ti
 
 /**
  * @brief   Signal binary semaphore.
+ * @details Sets signaled flag to true (never accumulates beyond 1).
  */
-#define iohdlc_bsem_signal(bsem) sem_post(&(bsem)->sem)
+void iohdlc_bsem_signal(iohdlc_bsem_t *bsem);
 
 /**
  * @brief   Reset binary semaphore.
  */
 static inline void iohdlc_bsem_reset(iohdlc_bsem_t *bsem, bool taken) {
-  int val;
-  sem_getvalue(&bsem->sem, &val);
-  while (val > 0) {
-    sem_trywait(&bsem->sem);
-    sem_getvalue(&bsem->sem, &val);
-  }
-  if (!taken) {
-    sem_post(&bsem->sem);
-  }
+  pthread_mutex_lock(&bsem->mutex);
+  bsem->signaled = !taken;
+  pthread_mutex_unlock(&bsem->mutex);
 }
 
 /*===========================================================================*/

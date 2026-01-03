@@ -60,27 +60,58 @@ static iohdlc_thread_events_t* get_thread_events(void) {
 /*===========================================================================*/
 
 /**
+ * @brief   Initialize binary semaphore.
+ *
+ * @param[in] bsem      Pointer to binary semaphore
+ * @param[in] taken     Initial state: true = taken (not signaled), false = available (signaled)
+ */
+void iohdlc_bsem_init(iohdlc_bsem_t *bsem, bool taken) {
+  pthread_mutex_init(&bsem->mutex, NULL);
+  pthread_cond_init(&bsem->cond, NULL);
+  bsem->signaled = !taken;
+}
+
+/**
+ * @brief   Signal binary semaphore.
+ * @details Sets signaled flag to true. Multiple signals do NOT accumulate.
+ *
+ * @param[in] bsem      Pointer to binary semaphore
+ */
+void iohdlc_bsem_signal(iohdlc_bsem_t *bsem) {
+  pthread_mutex_lock(&bsem->mutex);
+  bsem->signaled = true;
+  pthread_cond_signal(&bsem->cond);
+  pthread_mutex_unlock(&bsem->mutex);
+}
+
+/**
  * @brief   Wait on binary semaphore with timeout.
  * @details Supports infinite, immediate, and timed waits.
+ *          True binary semantics: flag is consumed on successful wait.
  *
  * @param[in] bsem      Pointer to binary semaphore
  * @param[in] timeout   Timeout in milliseconds
  * @return              0 on success, -ETIMEDOUT on timeout
  */
 int iohdlc_bsem_wait_timeout(iohdlc_bsem_t *bsem, iohdlc_systime_t timeout) {
+  int result = 0;
+  
+  pthread_mutex_lock(&bsem->mutex);
+  
   if (timeout == IOHDLC_TIME_INFINITE) {
     /* Blocking wait */
-    if (sem_wait(&bsem->sem) == 0) {
-      return 0;
+    while (!bsem->signaled) {
+      pthread_cond_wait(&bsem->cond, &bsem->mutex);
     }
-    return -errno;
+    bsem->signaled = false;  /* Consume signal */
   }
   else if (timeout == IOHDLC_TIME_IMMEDIATE) {
     /* Non-blocking try */
-    if (sem_trywait(&bsem->sem) == 0) {
-      return 0;
+    if (!bsem->signaled) {
+      result = -ETIMEDOUT;
+    } else {
+      bsem->signaled = false;  /* Consume signal */
     }
-    return (errno == EAGAIN) ? -ETIMEDOUT : -errno;
   }
   else {
     /* Timed wait */
@@ -97,11 +128,27 @@ int iohdlc_bsem_wait_timeout(iohdlc_bsem_t *bsem, iohdlc_systime_t timeout) {
       ts.tv_nsec -= 1000000000L;
     }
     
-    if (sem_timedwait(&bsem->sem, &ts) == 0) {
-      return 0;
+    /* Wait with timeout, handling spurious wakeups */
+    while (!bsem->signaled) {
+      int ret = pthread_cond_timedwait(&bsem->cond, &bsem->mutex, &ts);
+      if (ret == ETIMEDOUT) {
+        result = -ETIMEDOUT;
+        break;
+      }
+      else if (ret != 0) {
+        result = -ret;
+        break;
+      }
     }
-    return (errno == ETIMEDOUT) ? -ETIMEDOUT : -errno;
+    
+    /* Consume signal if successful */
+    if (result == 0 && bsem->signaled) {
+      bsem->signaled = false;
+    }
   }
+  
+  pthread_mutex_unlock(&bsem->mutex);
+  return result;
 }
 
 /*===========================================================================*/
@@ -281,7 +328,7 @@ void iohdlc_evt_register(iohdlc_event_source_t *esp,
   elp->flags = 0;
   pthread_mutex_init(&elp->lock, NULL);
   
-  /* Add to listener chain */
+  /* Add to listener chain (insert at head) */
   pthread_mutex_lock(&esp->lock);
   elp->next = esp->listeners;
   esp->listeners = elp;

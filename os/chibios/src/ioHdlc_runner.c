@@ -36,9 +36,6 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
 
   ioHdlcRegisterRunnerOps(&s_ops);
   
-  /* Register event listener for TX thread on station's cm_es. */
-  chEvtRegisterMaskWithFlags(&station->cm_es, &station->cm_listener, EVENT_MASK(0),
-      IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE);
   chThdCreateFromHeap(NULL, 2048, "HDLC-TX", NORMALPRIO + 1, HdlcTxThread, station);
   chThdCreateFromHeap(NULL, 2048, "HDLC-RX", NORMALPRIO + 1, HdlcRxThread, station);
 }

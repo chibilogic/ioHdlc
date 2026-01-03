@@ -137,7 +137,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->pfoctet * 2);
 
   /* Default timeout */
-  ioHdlcsp->reply_timeout_ms = 100;
+  ioHdlcsp->reply_timeout_ms = 1000;
 
   /* Frame pool and driver */
   ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;
@@ -150,6 +150,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   /* Initialize event sources (OS-agnostic via osal) */
   iohdlc_evt_init(&ioHdlcsp->cm_es);
   iohdlc_evt_init(&ioHdlcsp->app_es);
+
+  /* Initialize runner state */
+  ioHdlcsp->stop_requested = false;
+  ioHdlcsp->runner_context = NULL;
 
   /* Set TX/RX handlers based on mode */
   if (mode == IOHDLC_OM_NRM) {
@@ -299,8 +303,8 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   ioHdlc_frameq_init(&peer->i_trans_q);
   
   /* Initialize semaphores and mutex */
-  iohdlc_bsem_init(&peer->tx_sem, false);       /* Initially taken (no flow) */
-  iohdlc_bsem_init(&peer->i_recept_sem, false); /* Initially taken (no data) */
+  iohdlc_bsem_init(&peer->tx_sem, false);       /* Initially not taken (no flow) */
+  iohdlc_bsem_init(&peer->i_recept_sem, true);  /* Initially taken (no data) */
   iohdlc_mutex_init(&peer->state_mutex);        /* Priority-inheriting mutex for state */
   
   /* Initialize virtual timers (reply and I-frame reply) */

@@ -294,6 +294,219 @@ bool test_snrm_handshake(void) {
 }
 
 /*===========================================================================*/
+/* Test: Data Exchange                                                       */
+/*===========================================================================*/
+
+/**
+ * @brief   Test bidirectional data exchange after SNRM handshake.
+ * @details Validates:
+ *          - I-frame transmission from primary to secondary
+ *          - I-frame reception and content verification
+ *          - Echo response from secondary to primary
+ *          - Complete round-trip data integrity
+ */
+static int test_data_exchange(void) {
+  test_printf("🧪 Running test_data_exchange...\n");
+  
+  int test_result = 0;  /* Success by default, set to 1 on failure */
+  
+  /* Test message */
+  const char *test_msg = "Hello ioHdlc, welcome in the HDLC world.";
+  size_t msg_len = strlen(test_msg);
+  
+  /* Setup: same as test_snrm_handshake */
+  mock_stream_t *stream_primary, *stream_secondary;
+  mock_stream_adapter_t *adapter_primary, *adapter_secondary;
+  ioHdclStreamDriver driver_primary, driver_secondary;
+  iohdlc_station_t station_primary, station_secondary;
+  ioHdlcFrameMemPool pool_primary, pool_secondary;
+  iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
+  iohdlc_station_config_t config;
+  int32_t result;
+  
+  /* Create mock streams */
+  mock_stream_config_t stream_config = {
+    .loopback = false,
+    .inject_errors = false,
+    .error_rate = 0,
+    .delay_us = 0
+  };
+  
+  stream_primary = mock_stream_create(&stream_config);
+  stream_secondary = mock_stream_create(&stream_config);
+  TEST_ASSERT_GOTO(stream_primary != NULL && stream_secondary != NULL, "Stream creation failed");
+  mock_stream_connect(stream_primary, stream_secondary);
+  
+  /* Create adapters */
+  adapter_primary = mock_stream_adapter_create(stream_primary);
+  adapter_secondary = mock_stream_adapter_create(stream_secondary);
+  TEST_ASSERT_GOTO(adapter_primary != NULL && adapter_secondary != NULL, "Adapter creation failed");
+  
+  /* Get ports */
+  ioHdlcStreamPort port_primary = mock_stream_adapter_get_port(adapter_primary);
+  ioHdlcStreamPort port_secondary = mock_stream_adapter_get_port(adapter_secondary);
+  
+  /* Initialize stream drivers */
+  ioHdclStreamDriverInit(&driver_primary);
+  ioHdclStreamDriverInit(&driver_secondary);
+  
+  /* Initialize frame pools */
+  static uint8_t arena_primary[8192];
+  static uint8_t arena_secondary[8192];
+  fmpInit(&pool_primary, arena_primary, sizeof(arena_primary), FRAME_SIZE, 8);
+  fmpInit(&pool_secondary, arena_secondary, sizeof(arena_secondary), FRAME_SIZE, 8);
+  
+  /* Configure primary station */
+  config.mode = IOHDLC_OM_NRM;
+  config.flags = IOHDLC_FLG_PRI;
+  config.log2mod = 3;
+  config.addr = PRIMARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_primary;
+  config.fpp = &pool_primary;
+  config.optfuncs = NULL;
+  config.phydriver = &port_primary;
+  config.phydriver_config = NULL;
+  
+  memset(&station_primary, 0, sizeof(station_primary));
+  result = ioHdlcStationInit(&station_primary, &config);
+  TEST_ASSERT(result == 0, "Primary station init failed");
+  
+  /* Configure secondary station */
+  memset(&config, 0, sizeof(config));
+  config.mode = IOHDLC_OM_NDM;
+  config.flags = 0;
+  config.log2mod = 3;
+  config.addr = SECONDARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_secondary;
+  config.fpp = &pool_secondary;
+  config.optfuncs = NULL;
+  config.phydriver = &port_secondary;
+  config.phydriver_config = NULL;
+  
+  memset(&station_secondary, 0, sizeof(station_secondary));
+  result = ioHdlcStationInit(&station_secondary, &config);
+  TEST_ASSERT(result == 0, "Secondary station init failed");
+  
+  /* Add peers */
+  result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
+  TEST_ASSERT(result == 0, "Add peer to primary failed");
+  
+  result = ioHdlcAddPeer(&station_secondary, &peer_at_secondary, PRIMARY_ADDR);
+  TEST_ASSERT(result == 0, "Add peer to secondary failed");
+  
+  /* Start runner threads */
+  ioHdlcRunnerStart(&station_primary);
+  ioHdlcRunnerStart(&station_secondary);
+  
+#ifdef IOHDLC_USE_CHIBIOS
+  chThdSleepMilliseconds(50);
+#else
+  usleep(50000);
+#endif
+  
+  /* Establish connection (SNRM handshake) */
+  int ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
+  TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
+  
+#ifdef IOHDLC_USE_CHIBIOS
+  chThdSleepMilliseconds(100);
+#else
+  usleep(100000);
+#endif
+  
+  TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
+  TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_secondary), "Secondary peer should be connected");
+  
+  test_printf("Connection established, starting data exchange...\n");
+  
+  /* Allow extra time for connection to stabilize */
+#ifdef IOHDLC_USE_CHIBIOS
+  chThdSleepMilliseconds(100);
+#else
+  usleep(100000);
+#endif
+  
+  /* Declare buffers */
+  char recv_buf[128];
+  char echo_buf[128];
+  
+  /* Primary sends message to secondary */
+  test_printf("Primary sending %zu bytes...\n", msg_len);
+  ssize_t sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 2000);
+  if (sent != (ssize_t)msg_len) {
+    test_printf("❌ Primary write returned %zd (expected %zu), errno=%d\n", 
+                sent, msg_len, station_primary.errorno);
+  }
+  TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
+  test_printf("Primary sent %zd bytes\n", sent);
+  
+  /* Give time for frame to be transmitted and received */
+#ifdef IOHDLC_USE_CHIBIOS
+  chThdSleepMilliseconds(200);
+#else
+  usleep(200000);
+#endif
+  
+  /* Secondary receives message */
+  memset(recv_buf, 0, sizeof recv_buf);
+  ssize_t received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, sizeof recv_buf - 1, 2000);
+  test_printf("Secondary read returned %zd bytes (expected %zu), errno=%d\n",
+              received, msg_len, station_secondary.errorno);
+  if (received > 0 && received <= (ssize_t)sizeof(recv_buf)) {
+    /* Null-terminate for printing */
+    recv_buf[received < (ssize_t)sizeof(recv_buf) ? received : sizeof(recv_buf)-1] = '\0';
+    test_printf("  Data: \"%s\"\n", recv_buf);
+    /* Also print hex for first 20 bytes to debug */
+    test_printf("  Hex: ");
+    for (ssize_t i = 0; i < received && i < 20; i++) {
+      test_printf("%02x ", (unsigned char)recv_buf[i]);
+    }
+    test_printf("\n");
+  }
+  TEST_ASSERT_GOTO(received == (ssize_t)msg_len, "Secondary read failed");
+  TEST_ASSERT_GOTO(memcmp(recv_buf, test_msg, msg_len) == 0, "Received data mismatch");
+  test_printf("Secondary received %zd bytes: \"%s\"\n", received, recv_buf);
+  
+  /* Secondary echoes message back to primary */
+  sent = ioHdlcWriteTmo(&peer_at_secondary, recv_buf, received, 2000);
+  TEST_ASSERT_GOTO(sent == received, "Secondary echo write failed");
+  test_printf("Secondary echoed %zd bytes\n", sent);
+  
+  /* Give time for echo to be transmitted and received */
+#ifdef IOHDLC_USE_CHIBIOS
+  chThdSleepMilliseconds(200);
+#else
+  usleep(200000);
+#endif
+  
+  /* Primary receives echo */
+  memset(echo_buf, 0, sizeof(echo_buf));
+  received = ioHdlcReadTmo(&peer_at_primary, echo_buf, sizeof(echo_buf) - 1, 2000);
+  TEST_ASSERT_GOTO(received == (ssize_t)msg_len, "Primary echo read failed");
+  TEST_ASSERT_GOTO(memcmp(echo_buf, test_msg, msg_len) == 0, "Echo data mismatch");
+  test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);
+  
+  test_printf("✅ Data exchange completed successfully\n");
+  
+  /* Disconnect */
+  ret = ioHdlcStationLinkDown(&station_primary, SECONDARY_ADDR);
+  TEST_ASSERT_GOTO(ret == 0, "LinkDown failed");
+  
+test_cleanup:
+  /* Stop runners */
+  ioHdlcRunnerStop(&station_primary);
+  ioHdlcRunnerStop(&station_secondary);
+  
+  /* Cleanup */
+  mock_stream_adapter_destroy(adapter_primary);
+  mock_stream_adapter_destroy(adapter_secondary);
+  mock_stream_destroy(stream_primary);
+  mock_stream_destroy(stream_secondary);
+  
+  return test_result;
+}
+
+/*===========================================================================*/
 /* Main Test Runner                                                          */
 /*===========================================================================*/
 
@@ -307,6 +520,7 @@ int main(void) {
 
   RUN_TEST(test_station_creation);
   RUN_TEST(test_peer_creation);
+  RUN_TEST(test_data_exchange);
   RUN_TEST(test_snrm_handshake);
 
   TEST_SUMMARY();
