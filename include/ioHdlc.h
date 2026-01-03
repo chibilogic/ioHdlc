@@ -172,8 +172,6 @@
                                    next frame to tx, or in the last frame if NRM. */
 #define IOHDLC_F_RCVED    0x02  /* Primary: F received in response to a sent P. If
                                    not set, P was sent. It's set at reset.*/
-#define IOHDLC_P_SLCIT    0x04  /* Primary: Solicit response.*/
-#define IOHDLC_PF_INHB    0x80  /* P/F checkpoint inhibited. slcit */
 
 /* um_state definitions. */
 #define IOHDLC_UM_SENT    0x01  /* Unnumbered command sent and not acknowledged yet. */
@@ -184,8 +182,7 @@
 #define IOHDLC_SS_BUSY    0x01  /* Busy state.
                                    Temporarily the peer cannot receive I-frames. */
 #define IOHDLC_SS_SENDING 0x02  /* An S-frame is being sent to the peer. */                                     
-//#define IOHDLC_SS_RNR_RCV 0x04  /* RNR received from the peer. */
-//#define IOHDLC_SS_RNR_SNT 0x08  /* RNR sent to the peer. */
+#define IOHDLC_SS_IFR_RCV 0x04  /* I-frame received from the peer. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
@@ -284,8 +281,6 @@ struct iohdlc_station_peer {
   uint8_t   um_cmd;             /* Unnumbered command to_send. */
   uint8_t   um_rsp;             /* Unnumbered response. */
   uint8_t   ss_fun;             /* Supervision function to send. */
-  uint32_t  ss_nr;              /* N(R) in the S frame to send, rcvd, sent. */
-  uint8_t   ss_fsent;           /* Last supervision function sent. TODO: Is it necessary?*/
 
   /* data queues. */
   iohdlc_frame_q_t i_retrans_q; /* I-frame retransmission queue. No more than ks frames

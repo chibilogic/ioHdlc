@@ -629,7 +629,6 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     bool should_broadcast = false;
     if (!IOHDLC_USE_TWA(s) && p->rej_actioned == 0) {
       p->ss_fun = IOHDLC_S_REJ;
-      p->ss_nr = p->vr;
       p->rej_actioned = p->vr + 1;  /* Mark REJ as actioned (value = N(R) + 1) */
       should_broadcast = true;
     }
@@ -646,6 +645,7 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   }
   
   /* Frame is in sequence: enqueue for application. */
+  p->ss_state |= IOHDLC_SS_IFR_RCV;
   ioHdlc_frameq_insert(&p->i_recept_q, fp);
   
   /* Clear REJ exception if this is the frame that completes recovery.
@@ -992,6 +992,9 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
           is_command = !set_pf;
 
         buildSFrame(s, p, fp, p->ss_fun, nr, set_pf, is_command);
+        printf("SA 0x%02X C=0x%02X\n",
+               IOHDLC_FRAME_ADDR(s, fp),
+               IOHDLC_FRAME_CTRL(s, fp, 0));
         (void)sendFrame(s, fp);
       }
 
@@ -1030,8 +1033,9 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       return cm_flags;
     }
     
-    /* Retry: force P bit to be sent on next I-frame. */
+    /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
     s->pf_state |= IOHDLC_F_RCVED;
+    p->ss_state |= IOHDLC_SS_IFR_RCV;
   }
 
   cm_flags &= ~(IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ);
@@ -1152,7 +1156,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
   /* If no I-frame was sent but we have the opportunity/need to respond,
      prepare to send an opportunistic S-frame (RR or RNR). */
-  if (!i_frame_sent) {
+  if (!i_frame_sent && (p->ss_state & IOHDLC_SS_IFR_RCV)) {
     /* In TWA, if we still have permission on the link but didn't send I-frames,
        we should send an S-frame to acknowledge and cede the link.
        In TWS, we may also want to send periodic acknowledgments. */
@@ -1164,6 +1168,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       cm_flags |= IOHDLC_EVT_SSNDREQ;
     }
   }
+  p->ss_state &= ~IOHDLC_SS_IFR_RCV;
 
   return cm_flags;
 }
