@@ -302,8 +302,8 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   ioHdlc_frameq_init(&peer->i_retrans_q);
   ioHdlc_frameq_init(&peer->i_trans_q);
   
-  /* Initialize semaphores and mutex */
-  iohdlc_bsem_init(&peer->tx_sem, false);       /* Initially not taken (no flow) */
+  /* Initialize flow control condvar, semaphore and mutex */
+  iohdlc_condvar_init(&peer->tx_cv);            /* TX flow control (used with state_mutex) */
   iohdlc_bsem_init(&peer->i_recept_sem, true);  /* Initially taken (no data) */
   iohdlc_mutex_init(&peer->state_mutex);        /* Priority-inheriting mutex for state */
   
@@ -577,75 +577,82 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     return -1;
   }
   
-  /* Loop to send all bytes, fragmenting if necessary */
+  /* Loop to send all bytes, fragmenting if necessary.
+     Uses condition variable for flow control: wait on actual condition
+     (window full OR pool low) instead of proxy semaphore token.
+     This eliminates signal collapse when multiple ACKs arrive (burst). */
   while (remaining > 0) {
-    /* Flow control: wait if window full or pool low watermark */
-    msg_t result = iohdlc_bsem_wait_timeout_ms(&peer->tx_sem, timeout_ms);
-    if (result != MSG_OK) {
-      s->errorno = ETIMEDOUT;
+    /* Acquire mutex for condition check and frame construction */
+    iohdlc_mutex_lock(&peer->state_mutex);
+    
+    /* Flow control: wait while window full OR pool low.
+       Condition variable automatically releases mutex during wait
+       and re-acquires it before returning. */
+    while (peer->i_pending_count >= (2 * peer->ks) ||
+           hdlcPoolGetState(s->frame_pool) != IOHDLC_POOL_NORMAL) {
+      msg_t result = iohdlc_condvar_wait_timeout(&peer->tx_cv,
+                                                  &peer->state_mutex,
+                                                  IOHDLC_TIME_MS2I(timeout_ms));
+      if (result == MSG_TIMEOUT) {
+        iohdlc_mutex_unlock(&peer->state_mutex);
+        s->errorno = ETIMEDOUT;
+        return -1;
+      }
+    }
+    
+    /* Condition satisfied: window has space AND pool is normal.
+       Calculate chunk size for this frame (max mifls). */
+    chunk_size = (remaining < peer->mifls) ? remaining : peer->mifls;
+    
+    /* Capture V(S) and increment for next frame */
+    uint32_t vs_value = peer->vs;
+    peer->vs = (peer->vs + 1) & s->modmask;
+    
+    /* Release mutex temporarily to allocate frame (pool has internal lock) */
+    iohdlc_mutex_unlock(&peer->state_mutex);
+    
+    /* Allocate frame from pool */
+    fp = hdlcTakeFrame(s->frame_pool);
+    if (fp == NULL) {
+      /* Pool exhausted - shouldn't happen given watermark check above */
+      s->errorno = ENOMEM;
       return -1;
     }
     
-    /* Inner loop: send frames while both conditions permit.
-       This handles the case where N>1 slots become available (ACK burst).
-       Binary semaphore signals "at least 1 slot available", but we check
-       the actual condition directly to consume all available slots. */
-    while (remaining > 0) {
-      /* Lock to check condition and queue frame atomically */
-      iohdlc_mutex_lock(&peer->state_mutex);
-      
-      /* Check if we can send (window not full AND pool not low) */
-      if (peer->i_pending_count >= (2 * peer->ks) ||
-          hdlcPoolGetState(s->frame_pool) != IOHDLC_POOL_NORMAL) {
-        iohdlc_mutex_unlock(&peer->state_mutex);
-        break;  /* Cannot send now, go back to outer wait */
-      }
-      
-      /* Allocate frame from pool (quick operation with internal lock) */
-      fp = hdlcTakeFrame(s->frame_pool);
-      if (fp == NULL) {
-        /* Pool exhausted - should not happen given watermark check above.
-           Break inner loop and outer wait will re-check condition. */
-        iohdlc_mutex_unlock(&peer->state_mutex);
-        break;
-      }
-      
-      /* Calculate chunk size for this frame (max mifls) */
-      chunk_size = (remaining < peer->mifls) ? remaining : peer->mifls;
-      
-      /* Set address field */
-      IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
-      
-      /* Set control field: I-frame ID and N(S) */
-      IOHDLC_FRAME_CTRL(s, fp, 0) = IOHDLC_I_ID;
-      IOHDLC_FRAME_SET_NS(s, fp, peer->vs);
-      
-      /* Increment V(S) for next frame */
-      peer->vs = (peer->vs + 1) & s->modmask;
-      
-      /* Copy data to info field */
-      info_ptr = IOHDLC_FRAME_INFO(s, fp);
-      memcpy(info_ptr, data, chunk_size);
-      
-      /* Calculate elen: FFF + ADDR + CTRL + INFO */
-      uint8_t *end = info_ptr + chunk_size;
-      fp->elen = (uint16_t)(end - fp->frame);
-      
-      /* Valorize FFF if present */
-      ioHdlcValorizeFFF(s, fp);
-      
-      /* Queue frame for transmission */
-      ioHdlc_frameq_insert(&peer->i_trans_q, fp);
-      
-      /* Increment pending count for flow control */
-      peer->i_pending_count++;
-      
-      iohdlc_mutex_unlock(&peer->state_mutex);
-      
-      /* Update loop variables */
-      data += chunk_size;
-      remaining -= chunk_size;
-    }
+    /* Build frame outside mutex (no shared state accessed) */
+    
+    /* Set address field */
+    IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
+    
+    /* Set control field: I-frame ID and N(S) */
+    IOHDLC_FRAME_CTRL(s, fp, 0) = IOHDLC_I_ID;
+    IOHDLC_FRAME_SET_NS(s, fp, vs_value);
+    
+    /* Copy data to info field */
+    info_ptr = IOHDLC_FRAME_INFO(s, fp);
+    memcpy(info_ptr, data, chunk_size);
+    
+    /* Calculate elen: FFF + ADDR + CTRL + INFO */
+    uint8_t *end = info_ptr + chunk_size;
+    fp->elen = (uint16_t)(end - fp->frame);
+    
+    /* Valorize FFF if present */
+    ioHdlcValorizeFFF(s, fp);
+    
+    /* Re-acquire mutex to enqueue frame and update state */
+    iohdlc_mutex_lock(&peer->state_mutex);
+    
+    /* Queue frame for transmission */
+    ioHdlc_frameq_insert(&peer->i_trans_q, fp);
+    
+    /* Increment pending count for flow control */
+    peer->i_pending_count++;
+    
+    iohdlc_mutex_unlock(&peer->state_mutex);
+    
+    /* Update loop variables */
+    data += chunk_size;
+    remaining -= chunk_size;
   }
   
   /* Signal TX task that frames are ready */
@@ -653,6 +660,8 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
   
   return (ssize_t)count;
 }
+
+void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags);
 
 /**
  * @brief   Read data from peer via HDLC I-frames.
@@ -701,6 +710,8 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
      This improves efficiency by draining the queue in a single syscall
      instead of requiring multiple calls when multiple frames are available. */
   while (total_bytes_read < count) {
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
+
     /* Check if we have a partial frame from previous read */
     if (peer->partial_read_frame != NULL) {
       fp = peer->partial_read_frame;

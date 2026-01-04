@@ -298,9 +298,10 @@ struct iohdlc_station_peer {
                                    No more than ks frames will be in this queue. */
 
   /* flow control. */
-  iohdlc_binary_semaphore_t tx_sem;  /* TX flow control semaphore.
-                                        Blocks app when len(i_retrans_q) + len(i_trans_q) >= 2*ks
-                                        or pool is LOW_WATER. Signaled when space becomes available. */
+  iohdlc_condvar_t tx_cv;  /* TX flow control condition variable.
+                              Blocks app when i_pending_count >= 2*ks or pool is LOW_WATER.
+                              Broadcast when space becomes available (ACK received or pool normal).
+                              Used with state_mutex for wait/signal operations. */
   iohdlc_binary_semaphore_t i_recept_sem;  /* RX data available semaphore.
                                               Signaled when I-frame arrives in i_recept_q.
                                               Used by Read to block until data available. */

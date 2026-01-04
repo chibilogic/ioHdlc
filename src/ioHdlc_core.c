@@ -66,7 +66,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
 /*===========================================================================*/
 
 /* Broadcast event flags to station event source. */
-static void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags) {
+void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags) {
   if (s_runner_ops && s_runner_ops->broadcast_flags)
     s_runner_ops->broadcast_flags(s, flags);
 }
@@ -580,8 +580,8 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
       /* Secondary received P=1: must respond with F=1.
          Signal TX for I-frame tx and honor the P/F bit. */
       s->pf_state |= IOHDLC_P_RCVED;
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
     }
-    ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
     
   } else {
     /* pf == false (F=0 for Primary, P=0 for Secondary) */
@@ -598,9 +598,11 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
   
   iohdlc_mutex_unlock(&p->state_mutex);
   
-  /* Signal TX semaphore if space became available (outside lock) */
+  /* Broadcast TX condition variable if space became available (outside lock).
+     Wakes ALL waiting write threads so they can re-check condition.
+     This is efficient with burst ACKs: 3 ACKs -> 3 writes can proceed. */
   if (should_signal_tx) {
-    iohdlc_bsem_signal(&p->tx_sem);
+    iohdlc_condvar_broadcast(&p->tx_cv);
   }
   
   /* Broadcast event if checkpoint moved frames (outside lock) */
