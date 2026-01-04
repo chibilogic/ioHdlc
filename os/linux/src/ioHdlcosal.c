@@ -152,6 +152,102 @@ int iohdlc_bsem_wait_timeout(iohdlc_bsem_t *bsem, iohdlc_systime_t timeout) {
 }
 
 /*===========================================================================*/
+/* Condition Variable (ChibiOS-compatible API)                               */
+/*===========================================================================*/
+
+/**
+ * @brief   Initialize condition variable.
+ * @note    Maps to chCondObjectInit() in ChibiOS.
+ *
+ * @param[in] cvp       Pointer to condition variable
+ */
+void iohdlc_condvar_init(iohdlc_condvar_t *cvp) {
+  pthread_cond_init(&cvp->cond, NULL);
+}
+
+/**
+ * @brief   Destroy condition variable.
+ *
+ * @param[in] cvp       Pointer to condition variable
+ */
+void iohdlc_condvar_destroy(iohdlc_condvar_t *cvp) {
+  pthread_cond_destroy(&cvp->cond);
+}
+
+/**
+ * @brief   Wait on condition variable (infinite timeout).
+ * @pre     Caller must hold the associated mutex locked.
+ * @post    Mutex is re-acquired before return.
+ * @note    Maps to chCondWait() in ChibiOS.
+ *
+ * @param[in] cvp       Condition variable
+ * @param[in] mtxp      Associated mutex (must be locked by caller)
+ * @return              MSG_OK (always, no timeout)
+ */
+msg_t iohdlc_condvar_wait(iohdlc_condvar_t *cvp, iohdlc_mutex_t *mtxp) {
+  pthread_cond_wait(&cvp->cond, &mtxp->mtx);
+  return MSG_OK;
+}
+
+/**
+ * @brief   Wait on condition variable with timeout.
+ * @pre     Caller must hold the associated mutex locked.
+ * @post    Mutex is re-acquired before return (even on timeout).
+ * @note    Maps to chCondWaitTimeout() in ChibiOS.
+ *
+ * @param[in] cvp       Condition variable
+ * @param[in] mtxp      Associated mutex (must be locked by caller)
+ * @param[in] timeout   Timeout in milliseconds (IOHDLC_TIME_INFINITE for no timeout)
+ * @return              MSG_OK on success, MSG_TIMEOUT on timeout
+ */
+msg_t iohdlc_condvar_wait_timeout(iohdlc_condvar_t *cvp, 
+                                   iohdlc_mutex_t *mtxp,
+                                   iohdlc_systime_t timeout) {
+  if (timeout == IOHDLC_TIME_INFINITE) {
+    pthread_cond_wait(&cvp->cond, &mtxp->mtx);
+    return MSG_OK;
+  }
+  
+  /* Convert timeout to absolute time */
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  
+  ts.tv_sec += timeout / 1000;
+  ts.tv_nsec += (timeout % 1000) * 1000000L;
+  
+  /* Handle nanosecond overflow */
+  if (ts.tv_nsec >= 1000000000L) {
+    ts.tv_sec += 1;
+    ts.tv_nsec -= 1000000000L;
+  }
+  
+  /* Wait with timeout */
+  int ret = pthread_cond_timedwait(&cvp->cond, &mtxp->mtx, &ts);
+  
+  return (ret == ETIMEDOUT) ? MSG_TIMEOUT : MSG_OK;
+}
+
+/**
+ * @brief   Signal condition variable (wake one waiting thread).
+ * @note    Maps to chCondSignal() in ChibiOS.
+ *
+ * @param[in] cvp       Condition variable
+ */
+void iohdlc_condvar_signal(iohdlc_condvar_t *cvp) {
+  pthread_cond_signal(&cvp->cond);
+}
+
+/**
+ * @brief   Broadcast condition variable (wake all waiting threads).
+ * @note    Maps to chCondBroadcast() in ChibiOS.
+ *
+ * @param[in] cvp       Condition variable
+ */
+void iohdlc_condvar_broadcast(iohdlc_condvar_t *cvp) {
+  pthread_cond_broadcast(&cvp->cond);
+}
+
+/*===========================================================================*/
 /* Memory Allocation                                                         */
 /*===========================================================================*/
 

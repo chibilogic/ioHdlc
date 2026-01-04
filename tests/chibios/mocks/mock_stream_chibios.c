@@ -184,21 +184,30 @@ size_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size,
     chThdSleepMilliseconds(stream->config.delay_ms);
   }
   
-  /* Write to own TX buffer */
-  size_t written = buffer_write(&stream->tx_buf, buf, size, TIME_MS2I(timeout_ms));
-  
   /* Handle loopback or peer connection */
   chMtxLock(&stream->state_lock);
   
-  if (stream->config.loopback) {
-    /* Loopback: TX -> own RX */
-    buffer_write(&stream->rx_buf, buf, written, TIME_IMMEDIATE);
-  } else if (stream->peer != NULL) {
-    /* Peer connection: TX -> peer's RX */
-    buffer_write(&stream->peer->rx_buf, buf, written, TIME_IMMEDIATE);
-  }
+  size_t written;
   
-  chMtxUnlock(&stream->state_lock);
+  if (stream->config.loopback) {
+    /* Loopback: write to own TX buffer, then copy to own RX */
+    chMtxUnlock(&stream->state_lock);
+    written = buffer_write(&stream->tx_buf, buf, size, TIME_MS2I(timeout_ms));
+    if (written > 0) {
+      chMtxLock(&stream->state_lock);
+      buffer_write(&stream->rx_buf, buf, written, TIME_IMMEDIATE);
+      chMtxUnlock(&stream->state_lock);
+    }
+  } else if (stream->peer != NULL) {
+    /* Peer connection: write directly to peer's RX (skip own TX buffer) */
+    mock_stream_t *peer = stream->peer;
+    chMtxUnlock(&stream->state_lock);
+    written = buffer_write(&peer->rx_buf, buf, size, TIME_MS2I(timeout_ms));
+  } else {
+    /* No loopback, no peer: write to own TX buffer only */
+    chMtxUnlock(&stream->state_lock);
+    written = buffer_write(&stream->tx_buf, buf, size, TIME_MS2I(timeout_ms));
+  }
   
   return written;
 }

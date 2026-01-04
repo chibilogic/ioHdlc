@@ -213,46 +213,53 @@ ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size
     return -1;
   }
 
-  /* Write to our TX buffer */
-  ssize_t written = buffer_write(&stream->tx_buf, buf, size, timeout_ms);
+  /* Simulate delay if configured */
+  if (stream->config.delay_us > 0) {
+    usleep(stream->config.delay_us);
+  }
 
-  if (written > 0) {
-    /* Simulate delay if configured */
-    if (stream->config.delay_us > 0) {
-      usleep(stream->config.delay_us);
-    }
+  pthread_mutex_lock(&stream->state_lock);
 
-    pthread_mutex_lock(&stream->state_lock);
-
-    /* Apply error injection if configured */
-    uint8_t *data_to_send = (uint8_t *)buf;
-    uint8_t corrupted_data[size];
-    
-    if (stream->config.inject_errors && stream->config.error_rate > 0) {
-      memcpy(corrupted_data, buf, written);
-      for (size_t i = 0; i < (size_t)written; i++) {
-        /* Generate random number 0-999 */
-        uint32_t rnd = (uint32_t)rand() % 1000;
-        if (rnd < stream->config.error_rate) {
-          /* Flip a random bit in this byte */
-          uint8_t bit = rand() % 8;
-          corrupted_data[i] ^= (1 << bit);
-        }
+  /* Apply error injection if configured */
+  uint8_t *data_to_send = (uint8_t *)buf;
+  uint8_t corrupted_data[size];
+  
+  if (stream->config.inject_errors && stream->config.error_rate > 0) {
+    memcpy(corrupted_data, buf, size);
+    for (size_t i = 0; i < size; i++) {
+      /* Generate random number 0-999 */
+      uint32_t rnd = (uint32_t)rand() % 1000;
+      if (rnd < stream->config.error_rate) {
+        /* Flip a random bit in this byte */
+        uint8_t bit = rand() % 8;
+        corrupted_data[i] ^= (1 << bit);
       }
-      data_to_send = corrupted_data;
     }
+    data_to_send = corrupted_data;
+  }
 
-    /* Loopback: TX → our RX */
-    if (stream->config.loopback) {
-      buffer_write(&stream->rx_buf, data_to_send, written, 0);
-    }
-
-    /* Peer connection: TX → peer's RX */
-    if (stream->peer) {
-      buffer_write(&stream->peer->rx_buf, data_to_send, written, 0);
-    }
-
+  ssize_t written;
+  
+  /* Loopback: write to own TX buffer, then copy to own RX */
+  if (stream->config.loopback) {
     pthread_mutex_unlock(&stream->state_lock);
+    written = buffer_write(&stream->tx_buf, data_to_send, size, timeout_ms);
+    if (written > 0) {
+      pthread_mutex_lock(&stream->state_lock);
+      buffer_write(&stream->rx_buf, data_to_send, written, 0);
+      pthread_mutex_unlock(&stream->state_lock);
+    }
+  }
+  /* Peer connection: write directly to peer's RX (skip own TX buffer) */
+  else if (stream->peer) {
+    mock_stream_t *peer = stream->peer;
+    pthread_mutex_unlock(&stream->state_lock);
+    written = buffer_write(&peer->rx_buf, data_to_send, size, timeout_ms);
+  }
+  /* No loopback, no peer: write to own TX buffer only */
+  else {
+    pthread_mutex_unlock(&stream->state_lock);
+    written = buffer_write(&stream->tx_buf, data_to_send, size, timeout_ms);
   }
 
   return written;

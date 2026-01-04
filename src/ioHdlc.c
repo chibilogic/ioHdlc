@@ -137,7 +137,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->pfoctet * 2);
 
   /* Default timeout */
-  ioHdlcsp->reply_timeout_ms = 1000;
+  ioHdlcsp->reply_timeout_ms = 100;
 
   /* Frame pool and driver */
   ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;

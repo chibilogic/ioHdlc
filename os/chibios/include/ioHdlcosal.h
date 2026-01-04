@@ -82,6 +82,75 @@ static inline void iohdlc_bsem_signal_i(iohdlc_binary_semaphore_t *bsp) {
   chBSemSignalI(bsp);
 }
 
+/*===========================================================================*/
+/* Condition Variable (maps to ChibiOS condition_variable_t)                 */
+/*===========================================================================*/
+
+typedef condition_variable_t iohdlc_condvar_t;
+
+/**
+ * @brief   Initialize condition variable.
+ */
+static inline void iohdlc_condvar_init(iohdlc_condvar_t *cvp) {
+  chCondObjectInit(cvp);
+}
+
+/**
+ * @brief   Destroy condition variable (no-op in ChibiOS).
+ */
+static inline void iohdlc_condvar_destroy(iohdlc_condvar_t *cvp) {
+  (void)cvp;  /* ChibiOS has no destroy operation */
+}
+
+/**
+ * @brief   Wait on condition variable (infinite timeout).
+ * @pre     Caller must hold the associated mutex locked.
+ * @post    Mutex is re-acquired before return.
+ *
+ * @param[in] cvp       Condition variable
+ * @param[in] mtxp      Associated mutex (must be locked by caller)
+ * @return              MSG_OK (always)
+ */
+static inline msg_t iohdlc_condvar_wait(iohdlc_condvar_t *cvp, iohdlc_mutex_t *mtxp) {
+  (void)mtxp;  /* ChibiOS chCondWait uses implicit mutex from priority */
+  return chCondWait(cvp);
+}
+
+/**
+ * @brief   Wait on condition variable with timeout.
+ * @pre     Caller must hold the associated mutex locked.
+ * @post    Mutex is re-acquired before return.
+ *
+ * @param[in] cvp       Condition variable
+ * @param[in] mtxp      Associated mutex (must be locked by caller)
+ * @param[in] timeout   Timeout in system ticks
+ * @return              MSG_OK on success, MSG_TIMEOUT on timeout
+ */
+static inline msg_t iohdlc_condvar_wait_timeout(iohdlc_condvar_t *cvp, 
+                                                  iohdlc_mutex_t *mtxp,
+                                                  sysinterval_t timeout) {
+  (void)mtxp;  /* ChibiOS chCondWaitTimeout uses implicit mutex */
+  return chCondWaitTimeout(cvp, timeout);
+}
+
+/**
+ * @brief   Signal condition variable (wake one waiting thread).
+ *
+ * @param[in] cvp       Condition variable
+ */
+static inline void iohdlc_condvar_signal(iohdlc_condvar_t *cvp) {
+  chCondSignal(cvp);
+}
+
+/**
+ * @brief   Broadcast condition variable (wake all waiting threads).
+ *
+ * @param[in] cvp       Condition variable
+ */
+static inline void iohdlc_condvar_broadcast(iohdlc_condvar_t *cvp) {
+  chCondBroadcast(cvp);
+}
+
 /* Event source/listener wrappers */
 static inline void iohdlc_evt_init(iohdlc_event_source_t *esp) {
   chEvtObjectInit(esp);

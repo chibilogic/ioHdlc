@@ -154,6 +154,19 @@ typedef struct {
 /* Alias for compatibility */
 typedef iohdlc_bsem_t iohdlc_binary_semaphore_t;
 
+/*===========================================================================*/
+/* Mutex (forward declaration needed by condvar)                            */
+/*===========================================================================*/
+
+/**
+ * @brief   Mutex structure (POSIX).
+ */
+struct iohdlc_mutex {
+  pthread_mutex_t mtx;
+};
+
+typedef struct iohdlc_mutex iohdlc_mutex_t;
+
 /**
  * @brief   Initialize binary semaphore.
  */
@@ -188,6 +201,75 @@ static inline void iohdlc_bsem_reset(iohdlc_bsem_t *bsem, bool taken) {
   bsem->signaled = !taken;
   pthread_mutex_unlock(&bsem->mutex);
 }
+
+/*===========================================================================*/
+/* Condition Variable (aligned with ChibiOS chCond API)                      */
+/*===========================================================================*/
+
+/**
+ * @brief   Condition variable structure (POSIX).
+ * @details Compatible with ChibiOS condition_variable_t API.
+ */
+typedef struct {
+  pthread_cond_t cond;
+} iohdlc_condvar_t;
+
+/* Alias for ChibiOS compatibility */
+typedef iohdlc_condvar_t condition_variable_t;
+
+/**
+ * @brief   Initialize condition variable.
+ * @note    Maps to chCondObjectInit() in ChibiOS.
+ */
+void iohdlc_condvar_init(iohdlc_condvar_t *cvp);
+
+/**
+ * @brief   Destroy condition variable.
+ */
+void iohdlc_condvar_destroy(iohdlc_condvar_t *cvp);
+
+/**
+ * @brief   Wait on condition variable (infinite timeout).
+ * @pre     Caller must hold the associated mutex locked.
+ * @post    Mutex is re-acquired before return.
+ * @note    Maps to chCondWait() in ChibiOS.
+ * 
+ * @param[in] cvp       Condition variable
+ * @param[in] mtxp      Associated mutex (must be locked by caller)
+ * @return              MSG_OK (always, no timeout)
+ */
+msg_t iohdlc_condvar_wait(iohdlc_condvar_t *cvp, iohdlc_mutex_t *mtxp);
+
+/**
+ * @brief   Wait on condition variable with timeout.
+ * @pre     Caller must hold the associated mutex locked.
+ * @post    Mutex is re-acquired before return (even on timeout).
+ * @note    Maps to chCondWaitTimeout() in ChibiOS.
+ * 
+ * @param[in] cvp       Condition variable
+ * @param[in] mtxp      Associated mutex (must be locked by caller)
+ * @param[in] timeout   Timeout in system ticks (use IOHDLC_TIME_MS2I for ms)
+ * @return              MSG_OK on success, MSG_TIMEOUT on timeout
+ */
+msg_t iohdlc_condvar_wait_timeout(iohdlc_condvar_t *cvp, 
+                                   iohdlc_mutex_t *mtxp,
+                                   iohdlc_systime_t timeout);
+
+/**
+ * @brief   Signal condition variable (wake one waiting thread).
+ * @note    Maps to chCondSignal() in ChibiOS.
+ * 
+ * @param[in] cvp       Condition variable
+ */
+void iohdlc_condvar_signal(iohdlc_condvar_t *cvp);
+
+/**
+ * @brief   Broadcast condition variable (wake all waiting threads).
+ * @note    Maps to chCondBroadcast() in ChibiOS.
+ * 
+ * @param[in] cvp       Condition variable
+ */
+void iohdlc_condvar_broadcast(iohdlc_condvar_t *cvp);
 
 /*===========================================================================*/
 /* Counting Semaphore                                                        */
@@ -240,20 +322,13 @@ typedef struct {
 } iohdlc_memory_pool_t;
 
 /*===========================================================================*/
-/* Mutex                                                                     */
+/* Mutex Operations                                                          */
 /*===========================================================================*/
-
-/**
- * @brief   Mutex structure (POSIX).
- */
-struct iohdlc_mutex {
-  pthread_mutex_t mtx;
-};
 
 /**
  * @brief   Initialize mutex.
  */
-static inline void iohdlc_mutex_init(struct iohdlc_mutex *m) {
+static inline void iohdlc_mutex_init(iohdlc_mutex_t *m) {
   pthread_mutexattr_t attr;
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);

@@ -520,8 +520,8 @@ int main(void) {
 
   RUN_TEST(test_station_creation);
   RUN_TEST(test_peer_creation);
-  RUN_TEST(test_data_exchange);
   RUN_TEST(test_snrm_handshake);
+  RUN_TEST(test_data_exchange);
 
   TEST_SUMMARY();
 

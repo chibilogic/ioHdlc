@@ -333,6 +333,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
         p->ss_state |= IOHDLC_SS_ST_CONN;
       }
       
+      uint8_t cmd = p->um_cmd;  /* Save command for app notification */
       /* Clear UM state. */
       resetPeerUm(p);
       
@@ -340,7 +341,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_CONNCHG);
       
       /* Notify application: determine if link up or link down based on um_cmd. */
-      s_runner_ops->broadcast_flags_app(s, (p->um_cmd == IOHDLC_U_DISC) ? 
+      s_runner_ops->broadcast_flags_app(s, (cmd == IOHDLC_U_DISC) ? 
                             IOHDLC_APP_LINK_DOWN : IOHDLC_APP_LINK_UP);
       
     } else if (u_cmd == IOHDLC_U_DM) {
