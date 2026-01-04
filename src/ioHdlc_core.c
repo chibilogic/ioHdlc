@@ -576,9 +576,11 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
       
     } else {
-      /* Secondary received P=1: must respond with F=1. */
+      /* Secondary received P=1: must respond with F=1.
+         Signal TX for I-frame tx and honor the P/F bit. */
       s->pf_state |= IOHDLC_P_RCVED;
     }
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
     
   } else {
     /* pf == false (F=0 for Primary, P=0 for Secondary) */
@@ -645,7 +647,7 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   }
   
   /* Frame is in sequence: enqueue for application. */
-  p->ss_state |= IOHDLC_SS_IFR_RCV;
+  p->ss_state |= IOHDLC_SS_IF_RCVD;
   ioHdlc_frameq_insert(&p->i_recept_q, fp);
   
   /* Clear REJ exception if this is the frame that completes recovery.
@@ -774,11 +776,20 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   addr = IOHDLC_FRAME_ADDR(s, fp);
   ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   
-  /* Identify peer from address. */
-  p = addr2peer(s, addr);
-  if (p == NULL) {
-    hdlcReleaseFrame(s->frame_pool, fp);
-    return;
+  /* Check address. */
+  p = s->c_peer;
+  if (IOHDLC_IS_PRI(s)) {
+    /* Primary: address must match current peer. */
+    if (addr != p->addr) {
+      hdlcReleaseFrame(s->frame_pool, fp);
+      return;
+    }
+  } else {
+    /* Secondary: address must match station address. */
+    if (addr != s->addr) {
+      hdlcReleaseFrame(s->frame_pool, fp);
+      return;
+    }
   }
   
   /* Common checkpoint and acknowledgment processing for all I/S frames. */
@@ -952,9 +963,8 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
 
   /* Check if a S is requested
-     NRM NOTE:
-      In TWA, sending (S)REJ has poor utility. So we choose to send
-      only RR and RNR and the recption of REJ in TWA is ignored.
+     In TWA, sending (S)REJ has poor utility. So we choose to send
+     only RR and RNR and the recption of REJ in TWA is ignored.
            
      The sending of an S frame can be requested by receiver in these cases:
         receiver detects an out of sequence error (REJ) if not TWA
@@ -988,13 +998,11 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       if (fp != NULL) {
         bool is_command = IOHDLC_IS_PRI(s);
 
-        if (!IOHDLC_IS_PRI(s))
-          is_command = !set_pf;
-
         buildSFrame(s, p, fp, p->ss_fun, nr, set_pf, is_command);
-        printf("SA 0x%02X C=0x%02X\n",
+        printf("S%d A=0x%02X C=0x%02X P/F=%d\n", s->addr,
                IOHDLC_FRAME_ADDR(s, fp),
-               IOHDLC_FRAME_CTRL(s, fp, 0));
+               IOHDLC_FRAME_CTRL(s, fp, 0),
+               set_pf);
         (void)sendFrame(s, fp);
       }
 
@@ -1035,10 +1043,10 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     
     /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
     s->pf_state |= IOHDLC_F_RCVED;
-    p->ss_state |= IOHDLC_SS_IFR_RCV;
+    p->ss_state |= IOHDLC_SS_IF_RCVD;
   }
 
-  cm_flags &= ~(IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ);
+  cm_flags &= ~(IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ|IOHDLC_EVT_PFHONOR);
 
   bool i_frame_sent = false;  /* Track if at least one I-frame was sent. */
   while (true) {
@@ -1132,7 +1140,12 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* I-frame already has address and N(S) set. Only update N(R) and P/F. */
     IOHDLC_FRAME_SET_NR(s, fp, nr_value);
     IOHDLC_FRAME_SET_PF(s, fp, set_pf);
-    (void)sendFrame(s, fp);
+    (void)hdlcSendFrame(s->driver, fp);
+    printf("I%d A=0x%02X NS=0x%02X NR=0x%02X P/F=%d\n", s->addr,
+            IOHDLC_FRAME_ADDR(s, fp),
+            extractNS(s, fp),
+            extractNR(s, fp),
+            set_pf);
 
     /* Mark that we sent at least one I-frame. */
     i_frame_sent = true;
@@ -1156,7 +1169,8 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
   /* If no I-frame was sent but we have the opportunity/need to respond,
      prepare to send an opportunistic S-frame (RR or RNR). */
-  if (!i_frame_sent && (p->ss_state & IOHDLC_SS_IFR_RCV)) {
+  if (!i_frame_sent && ((p->ss_state & IOHDLC_SS_IF_RCVD) ||
+                        IOHDLC_P_ISRCVED(s) || IOHDLC_F_ISRCVED(s))) {
     /* In TWA, if we still have permission on the link but didn't send I-frames,
        we should send an S-frame to acknowledge and cede the link.
        In TWS, we may also want to send periodic acknowledgments. */
@@ -1168,7 +1182,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       cm_flags |= IOHDLC_EVT_SSNDREQ;
     }
   }
-  p->ss_state &= ~IOHDLC_SS_IFR_RCV;
+  p->ss_state &= ~IOHDLC_SS_IF_RCVD;
 
   return cm_flags;
 }
@@ -1214,9 +1228,9 @@ void ioHdlcTxEntry(void *stationp) {
 
   /* Register event listener */
   iohdlc_evt_register(&s->cm_es, &s->cm_listener,
-                      EVENT_MASK(0),
-                      IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|
-                      IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ);
+                    EVENT_MASK(0),
+                    IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|IOHDLC_EVT_PFHONOR|
+                    IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ);
   for (;;) {
     if (!cm_flags) {
       if (s_runner_ops && s_runner_ops->wait_events)

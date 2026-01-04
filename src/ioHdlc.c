@@ -720,7 +720,9 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       
       /* Remove frame from queue (protect with mutex) */
       iohdlc_mutex_lock(&peer->state_mutex);
-      fp = ioHdlc_frameq_remove(&peer->i_recept_q);
+      fp = NULL;
+      if (!ioHdlc_frameq_isempty(&peer->i_recept_q))
+        fp = ioHdlc_frameq_remove(&peer->i_recept_q);
       iohdlc_mutex_unlock(&peer->state_mutex);
       
       if (fp == NULL) {

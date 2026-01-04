@@ -182,7 +182,7 @@
 #define IOHDLC_SS_BUSY    0x01  /* Busy state.
                                    Temporarily the peer cannot receive I-frames. */
 #define IOHDLC_SS_SENDING 0x02  /* An S-frame is being sent to the peer. */                                     
-#define IOHDLC_SS_IFR_RCV 0x04  /* I-frame received from the peer. */
+#define IOHDLC_SS_IF_RCVD 0x04  /* I-frame received from the peer. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
