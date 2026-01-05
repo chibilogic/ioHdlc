@@ -214,6 +214,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     }
   }
 
+  /* Set F received on primary station. */
+  if (IOHDLC_IS_PRI(ioHdlcsp))
+    ioHdlcsp->pf_state |= IOHDLC_F_RCVED;
+
   /* Start driver if physical device provided */
   if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
     ioHdlcsp->driver->vmt->start(ioHdlcsp->driver, 
@@ -706,11 +710,11 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
   size_t total_bytes_read = 0;
   uint8_t *dest = (uint8_t *)buf;
   
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
   /* Greedy consumption loop: read frames until count exhausted or queue empty.
      This improves efficiency by draining the queue in a single syscall
      instead of requiring multiple calls when multiple frames are available. */
   while (total_bytes_read < count) {
-    ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
 
     /* Check if we have a partial frame from previous read */
     if (peer->partial_read_frame != NULL) {

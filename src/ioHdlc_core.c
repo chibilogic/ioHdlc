@@ -71,11 +71,17 @@ void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags) {
     s_runner_ops->broadcast_flags(s, flags);
 }
 
+static void ioHdlcBroadcastFlagsApp(iohdlc_station_t *s, uint32_t flags) {
+  if (s_runner_ops && s_runner_ops->broadcast_flags)
+    s_runner_ops->broadcast_flags_app(s, flags);
+}
+
 /* Clear and release all frames in a queue. */
 static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
   while (!ioHdlc_frameq_isempty(q)) {
-    hdlcReleaseFrame(p->stationp->frame_pool, q->next);
-    ioHdlc_frameq_delete(q->next);
+    iohdlc_frame_t *fp = q->next;
+    ioHdlc_frameq_delete(fp);
+    hdlcReleaseFrame(p->stationp->frame_pool, fp);
   }
 }
 
@@ -275,10 +281,8 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
         /* Already disconnected: respond with DM. */
         p->um_rsp = IOHDLC_U_DM;
       } else {
-        /* Connected: accept DISC, enter disconnected mode. */
-        s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-        setModeFunctions(s, s->mode);  /* Reset to NULL */
-        resetPeerVars(p);
+        /* Connected: accept DISC, enter disconnected mode.
+           The TX will complete the disconnect operations. */
         p->um_rsp = IOHDLC_U_UA;
       }
       
@@ -341,7 +345,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_CONNCHG);
       
       /* Notify application: determine if link up or link down based on um_cmd. */
-      s_runner_ops->broadcast_flags_app(s, (cmd == IOHDLC_U_DISC) ? 
+      ioHdlcBroadcastFlagsApp(s, (cmd == IOHDLC_U_DISC) ? 
                             IOHDLC_APP_LINK_DOWN : IOHDLC_APP_LINK_UP);
       
     } else if (u_cmd == IOHDLC_U_DM) {
@@ -651,6 +655,7 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   
   /* Frame is in sequence: enqueue for application. */
   p->ss_state |= IOHDLC_SS_IF_RCVD;
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
   ioHdlc_frameq_insert(&p->i_recept_q, fp);
   
   /* Clear REJ exception if this is the frame that completes recovery.
@@ -1266,6 +1271,12 @@ void ioHdlcTxEntry(void *stationp) {
         if (fp != NULL) {
           buildUFrame(s, p, fp, p->um_rsp, true, false);  /* F=1, response */
           (void)sendFrame(s, fp);
+          if (p->um_cmd == IOHDLC_U_DISC) {
+            /* DISC has been received: disconnect the link. */
+            s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+            setModeFunctions(s, s->mode);  /* Reset to NULL */
+            resetPeerVars(p);
+          }
         }
       } else
         continue;
@@ -1325,7 +1336,7 @@ void ioHdlcRxEntry(void *stationp) {
     }
     
     /* Use short timeout (100ms) to allow stop check */
-    iohdlc_frame_t *fp = hdlcRecvFrame(s->driver, (iohdlc_timeout_t)1000);
+    iohdlc_frame_t *fp = hdlcRecvFrame(s->driver, (iohdlc_timeout_t)500);
     if (fp == NULL) {
       /* Check again before treating as idle line */
       if (s->stop_requested) {

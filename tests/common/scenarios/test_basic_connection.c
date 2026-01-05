@@ -358,7 +358,7 @@ static int test_data_exchange(void) {
   
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;
-  config.flags = IOHDLC_FLG_PRI;
+  config.flags = IOHDLC_FLG_PRI|IOHDLC_FLG_TWA;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
@@ -374,7 +374,7 @@ static int test_data_exchange(void) {
   /* Configure secondary station */
   memset(&config, 0, sizeof(config));
   config.mode = IOHDLC_OM_NDM;
-  config.flags = 0;
+  config.flags = IOHDLC_FLG_TWA;
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
@@ -493,6 +493,11 @@ static int test_data_exchange(void) {
   TEST_ASSERT_GOTO(ret == 0, "LinkDown failed");
   
 test_cleanup:
+#ifdef IOHDLC_USE_CHIBIOS
+  chThdSleepMilliseconds(200);
+#else
+  usleep(200000);
+#endif
   /* Stop runners */
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);
