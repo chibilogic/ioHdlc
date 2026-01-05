@@ -29,6 +29,7 @@ CFLAGS += -I$(MOCKS_DIR)
 CFLAGS += -I$(COMMON_DIR)
 CFLAGS += -I$(LINUX_DIR)
 CFLAGS += -DIOHDLC_USE_POSIX
+CFLAGS += $(CFLAGS_EXTRA)
 
 # Linker flags
 LDFLAGS = -pthread -lrt
@@ -37,6 +38,7 @@ LDFLAGS = -pthread -lrt
 CORE_SRCS = \
 	$(SRC_DIR)/ioHdlc_core.c \
 	$(SRC_DIR)/ioHdlc.c \
+	$(SRC_DIR)/ioHdlc_log.c \
 	$(SRC_DIR)/ioHdlcll.c \
 	$(SRC_DIR)/ioHdlcstream.c \
 	$(SRC_DIR)/ioHdlcstream_driver.c
@@ -193,6 +195,13 @@ help:
 	@echo "  help      - Show this message"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make test              # Run all tests"
-	@echo "  make test-osal         # Run OSAL tests only"
-	@echo "  make clean && make     # Rebuild from scratch"
+	@echo "  make test                                    # Run all tests"
+	@echo "  make test-osal                               # Run OSAL tests only"
+	@echo "  make clean && make                           # Rebuild from scratch"
+	@echo "  make CFLAGS_EXTRA=\"-DIOHDLC_LOG_LEVEL=1\"     # Enable frame logging"
+	@echo ""
+	@echo "Logging levels (IOHDLC_LOG_LEVEL):"
+	@echo "  0 - OFF (default, zero overhead)"
+	@echo "  1 - FRAMES (frame headers only)"
+	@echo "  2 - DATA (headers + partial payload)"
+	@echo "  3 - FULL (headers + complete hex dump)"

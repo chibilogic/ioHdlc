@@ -99,8 +99,7 @@ static THD_FUNCTION(TestRunner, arg) {
   
   RUN_TEST(test_station_creation);
   RUN_TEST(test_peer_creation);
-  RUN_TEST(test_snrm_handshake_frames);
-  RUN_TEST(test_connection_timeout);
+  RUN_TEST(test_snrm_handshake);
   
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
   

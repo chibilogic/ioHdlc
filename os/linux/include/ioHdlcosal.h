@@ -53,8 +53,7 @@ typedef struct {
   bool expired;                 /**< Timer expired flag */
   pthread_mutex_t lock;         /**< Protect state */
   
-  /* Runner context (for timer expiry handling) */
-  struct iohdlc_station_peer *peer;  /**< Peer owning this timer */
+  /* Timer kind (for event broadcasting in runner) */
   uint32_t kind;                /**< Timer kind (REPLY or I_REPLY) */
 } iohdlc_virtual_timer_t;
 
@@ -456,6 +455,22 @@ void iohdlc_evt_signal(eventmask_t events);
 #include <assert.h>
 #define IOHDLC_ASSERT(cond, msg) assert((cond) && (msg))
 #endif
+
+/*===========================================================================*/
+/* Logging Support (OS-abstracted)                                           */
+/*===========================================================================*/
+
+/**
+ * @brief   Get current time in milliseconds (relative to first call).
+ * @return  Milliseconds with fractional part as double.
+ */
+double iohdlc_osal_get_time_ms(void);
+
+/**
+ * @brief   Printf-like output for logging.
+ * @note    Linux: outputs to stderr.
+ */
+#define IOHDLC_OSAL_PRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 
 #endif /* IOHDLCOSAL_H */
 

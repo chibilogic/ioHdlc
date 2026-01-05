@@ -39,10 +39,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* Include sys/types.h if available to get ssize_t from system headers */
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__) || \
+    (defined(__NEWLIB__) && defined(__arm__))
+#include <sys/types.h>
+#endif
+
 #include "ioHdlc_events.h"
 
-/* ssize_t typedef for Write/Read APIs (follows POSIX semantics) */
-#if !defined(ssize_t) && !defined(_SSIZE_T_DEFINED)
+/* Define ssize_t only if system headers didn't provide it */
+#if !defined(_SSIZE_T_DEFINED) && !defined(__ssize_t_defined) && !defined(_SSIZE_T_DECLARED)
 #if defined(__LP64__) || defined(_WIN64)
 typedef int64_t ssize_t;
 #else

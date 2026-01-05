@@ -314,8 +314,6 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   /* Initialize virtual timers (reply and I-frame reply) */
   iohdlc_vt_init(&peer->reply_tmr);
   iohdlc_vt_init(&peer->i_reply_tmr);
-  peer->reply_tmr.peer = peer;
-  peer->i_reply_tmr.peer = peer;
   
   /* Initialize partial read state */
   peer->partial_read_frame = NULL;

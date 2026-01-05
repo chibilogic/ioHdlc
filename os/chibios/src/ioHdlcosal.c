@@ -39,3 +39,32 @@ void iohdlc_dma_free(void *p) {
   if (p) chHeapFree(p);
 }
 
+/*===========================================================================*/
+/* Logging Support                                                           */
+/*===========================================================================*/
+
+/**
+ * @brief   Stream for logging output (configured by application).
+ */
+struct base_sequential_stream *iohdlc_osal_log_stream = NULL;
+
+/**
+ * @brief   Get current time in milliseconds (relative to first call).
+ * @return  Milliseconds with fractional part as double.
+ */
+double iohdlc_osal_get_time_ms(void) {
+  static systime_t first_time = 0;
+  static bool initialized = false;
+  
+  systime_t now = chVTGetSystemTime();
+  
+  if (!initialized) {
+    first_time = now;
+    initialized = true;
+    return 0.0;
+  }
+  
+  systime_t elapsed = chTimeDiffX(first_time, now);
+  return (double)TIME_I2MS(elapsed);
+}
+

@@ -109,6 +109,30 @@ static void buffer_clear(mock_buffer_t *buf) {
 /* Mock Stream Implementation                                                */
 /*===========================================================================*/
 
+mock_stream_t* mock_stream_create(const mock_stream_config_t *config) {
+  /* Allocate memory from ChibiOS heap */
+  mock_stream_t *stream = (mock_stream_t *)chHeapAlloc(NULL, sizeof(mock_stream_t));
+  if (stream == NULL) {
+    return NULL;
+  }
+  
+  /* Initialize the stream */
+  mock_stream_init(stream, config);
+  return stream;
+}
+
+void mock_stream_destroy(mock_stream_t *stream) {
+  if (stream == NULL) {
+    return;
+  }
+  
+  /* Deinitialize */
+  mock_stream_deinit(stream);
+  
+  /* Free memory */
+  chHeapFree(stream);
+}
+
 void mock_stream_init(mock_stream_t *stream, const mock_stream_config_t *config) {
   buffer_init(&stream->rx_buf);
   buffer_init(&stream->tx_buf);
@@ -119,7 +143,9 @@ void mock_stream_init(mock_stream_t *stream, const mock_stream_config_t *config)
   } else {
     /* Default configuration */
     stream->config.loopback = false;
-    stream->config.delay_ms = 0;
+    stream->config.inject_errors = false;
+    stream->config.error_rate = 0;
+    stream->config.delay_us = 0;
   }
   
   stream->peer = NULL;
@@ -179,9 +205,12 @@ size_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size,
     return 0;
   }
   
-  /* Simulate transmission delay */
-  if (stream->config.delay_ms > 0) {
-    chThdSleepMilliseconds(stream->config.delay_ms);
+  /* Simulate transmission delay (convert microseconds to milliseconds) */
+  if (stream->config.delay_us > 0) {
+    uint32_t delay_ms = (stream->config.delay_us + 999) / 1000;  /* Round up */
+    if (delay_ms > 0) {
+      chThdSleepMilliseconds(delay_ms);
+    }
   }
   
   /* Handle loopback or peer connection */

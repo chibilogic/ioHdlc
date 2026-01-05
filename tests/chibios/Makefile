@@ -142,6 +142,7 @@ LDSCRIPT = $(STARTUPLD)/BV1000GTV.ld
 IOHDLC_CORE_SRCS = \
 	$(SRC_DIR)/ioHdlc_core.c \
 	$(SRC_DIR)/ioHdlc.c \
+	$(SRC_DIR)/ioHdlc_log.c \
 	$(SRC_DIR)/ioHdlcll.c \
 	$(SRC_DIR)/ioHdlcstream.c \
 	$(SRC_DIR)/ioHdlcstream_driver.c
@@ -240,7 +241,8 @@ ifdef USE_UART_ADAPTER
   UDEFS += -DUSE_UART_ADAPTER
 else
   TEST_ADAPTER_SRCS = adapters/adapter_mock.c \
-                      mocks/mock_stream_chibios.c
+                      mocks/mock_stream_chibios.c \
+                      mocks/mock_stream_adapter_chibios.c
   UDEFS += -DUSE_MOCK_ADAPTER
 endif
 

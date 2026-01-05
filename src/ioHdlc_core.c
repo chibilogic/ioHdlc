@@ -38,6 +38,7 @@
 #include "ioHdlc_core.h"
 #include "ioHdlc.h"
 #include "ioHdlc_app_events.h"
+#include "ioHdlc_log.h"
 #include "ioHdlclist.h"
 #include "ioHdlcosal.h"
 #include <errno.h>
@@ -1007,11 +1008,16 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         bool is_command = IOHDLC_IS_PRI(s);
 
         buildSFrame(s, p, fp, p->ss_fun, nr, set_pf, is_command);
-        printf("S%d A=0x%02X C=0x%02X P/F=%d\n", s->addr,
-               IOHDLC_FRAME_ADDR(s, fp),
-               IOHDLC_FRAME_CTRL(s, fp, 0),
-               set_pf);
+#if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
+        /* Log S-frame transmission (before send, frame will be released) */
+        iohdlc_log_sfun_t log_fun = (p->ss_fun >> 2);
+        uint8_t log_flags = (p->ss_fun == IOHDLC_S_RNR) ? IOHDLC_LOG_FLAG_BUSY : 0;
+        uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
+#endif        
         (void)sendFrame(s, fp);
+        
+        IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
+                          log_fun, nr, set_pf, log_flags);
       }
 
       iohdlc_mutex_lock(&p->state_mutex);
@@ -1148,12 +1154,21 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* I-frame already has address and N(S) set. Only update N(R) and P/F. */
     IOHDLC_FRAME_SET_NR(s, fp, nr_value);
     IOHDLC_FRAME_SET_PF(s, fp, set_pf);
+
+#if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
+    /* Extract values for logging (before send, frame will be released) */
+    size_t info_len = fp->elen - (s->frame_offset + 1 + s->ctrl_size);
+    uint32_t log_ns = extractNS(s, fp);
+    uint32_t log_nr = extractNR(s, fp);
+    uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
+#endif
+
     (void)hdlcSendFrame(s->driver, fp);
-    printf("I%d A=0x%02X NS=0x%02X NR=0x%02X P/F=%d\n", s->addr,
-            IOHDLC_FRAME_ADDR(s, fp),
-            extractNS(s, fp),
-            extractNR(s, fp),
-            set_pf);
+    
+    /* Log I-frame transmission */
+    IOHDLC_LOG_IFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
+                      log_ns, log_nr, set_pf, info_len,
+                      p->i_pending_count, p->ks, 0);
 
     /* Mark that we sent at least one I-frame. */
     i_frame_sent = true;
@@ -1270,7 +1285,20 @@ void ioHdlcTxEntry(void *stationp) {
         iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
         if (fp != NULL) {
           buildUFrame(s, p, fp, p->um_rsp, true, false);  /* F=1, response */
+
+#if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
+          /* Extract values for logging before send */
+          uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
+          iohdlc_log_ufun_t log_fun = (p->um_rsp == IOHDLC_U_UA) ? IOHDLC_LOG_UA :
+                                       (p->um_rsp == IOHDLC_U_DM) ? IOHDLC_LOG_DM :
+                                       (p->um_rsp == IOHDLC_U_FRMR) ? IOHDLC_LOG_FRMR : 0;
+#endif
+
           (void)sendFrame(s, fp);
+          
+          /* Log U-frame transmission */
+          IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, true);
+
           if (p->um_cmd == IOHDLC_U_DISC) {
             /* DISC has been received: disconnect the link. */
             s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
@@ -1307,7 +1335,20 @@ void ioHdlcTxEntry(void *stationp) {
         iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
         if (fp != NULL) {
           buildUFrame(s, p, fp, p->um_cmd, true, true);  /* P=1, command */
+
+#if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
+          /* Extract values for logging before send */
+          uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
+          iohdlc_log_ufun_t log_fun = (p->um_cmd == IOHDLC_U_SNRM) ? IOHDLC_LOG_SNRM :
+                                       (p->um_cmd == IOHDLC_U_SARM) ? IOHDLC_LOG_SARM :
+                                       (p->um_cmd == IOHDLC_U_SABM) ? IOHDLC_LOG_SABM :
+                                       (p->um_cmd == IOHDLC_U_DISC) ? IOHDLC_LOG_DISC : 0;
+#endif
+
           (void)sendFrame(s, fp);
+          
+          /* Log U-frame transmission */
+          IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, true);
         }
         
         ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
@@ -1335,7 +1376,7 @@ void ioHdlcRxEntry(void *stationp) {
       break;
     }
     
-    /* Use short timeout (100ms) to allow stop check */
+    /* Use short timeout (500ms) to allow stop check */
     iohdlc_frame_t *fp = hdlcRecvFrame(s->driver, (iohdlc_timeout_t)500);
     if (fp == NULL) {
       /* Check again before treating as idle line */
@@ -1354,7 +1395,34 @@ void ioHdlcRxEntry(void *stationp) {
     
     /* Decode control octet to determine frame type. */
     const uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
-    
+
+#if defined(IOHDLC_LOG_R)
+#if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
+    const uint8_t addr = IOHDLC_FRAME_ADDR(s, fp);
+    const bool pf = IOHDLC_FRAME_GET_PF(s, fp);
+#endif
+    /* Log received frame based on type */
+    if (IOHDLC_IS_I_FRM(ctrl)) {
+      size_t info_len = fp->elen - (s->frame_offset + 1 + s->ctrl_size);
+      IOHDLC_LOG_IFRAME(IOHDLC_LOG_RX, s->addr, addr,
+                        extractNS(s, fp), extractNR(s, fp), pf, info_len, 0, 0, 0);
+    } else if (IOHDLC_IS_S_FRM(ctrl)) {
+      iohdlc_log_sfun_t log_fun = (ctrl & IOHDLC_S_FUN_MASK) >> 2;
+      uint8_t log_flags = ((ctrl & IOHDLC_S_FUN_MASK) == IOHDLC_S_RNR) ? IOHDLC_LOG_FLAG_BUSY : 0;
+      IOHDLC_LOG_SFRAME(IOHDLC_LOG_RX, s->addr, addr, log_fun, extractNR(s, fp), pf, log_flags);
+    } else if (IOHDLC_IS_U_FRM(ctrl)) {
+      uint8_t u_cmd = ctrl & IOHDLC_U_FUN_MASK;
+      iohdlc_log_ufun_t log_fun = (u_cmd == IOHDLC_U_SNRM) ? IOHDLC_LOG_SNRM :
+                                   (u_cmd == IOHDLC_U_SARM) ? IOHDLC_LOG_SARM :
+                                   (u_cmd == IOHDLC_U_SABM) ? IOHDLC_LOG_SABM :
+                                   (u_cmd == IOHDLC_U_DISC) ? IOHDLC_LOG_DISC :
+                                   (u_cmd == IOHDLC_U_UA) ? IOHDLC_LOG_UA :
+                                   (u_cmd == IOHDLC_U_DM) ? IOHDLC_LOG_DM :
+                                   (u_cmd == IOHDLC_U_FRMR) ? IOHDLC_LOG_FRMR : 0;
+      IOHDLC_LOG_UFRAME(IOHDLC_LOG_RX, s->addr, addr, log_fun, pf);
+    }
+#endif
+
     /* Handle U-frames common to all modes. */
     if (IOHDLC_IS_U_FRM(ctrl)) {
       handleUFrame(s, fp);

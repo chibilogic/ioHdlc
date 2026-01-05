@@ -209,7 +209,7 @@ bool test_snrm_handshake(void) {
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
-  config.fpp = &pool_primary;
+  config.fpp = (ioHdlcFramePool *)&pool_primary;
   config.optfuncs = NULL;
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
@@ -225,7 +225,7 @@ bool test_snrm_handshake(void) {
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
-  config.fpp = &pool_secondary;
+  config.fpp = (ioHdlcFramePool *)&pool_secondary;
   config.optfuncs = NULL;
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;
@@ -358,11 +358,11 @@ static int test_data_exchange(void) {
   
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;
-  config.flags = IOHDLC_FLG_PRI|IOHDLC_FLG_TWA;
+  config.flags = IOHDLC_FLG_PRI | IOHDLC_FLG_TWA;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
-  config.fpp = &pool_primary;
+  config.fpp = (ioHdlcFramePool *)&pool_primary;
   config.optfuncs = NULL;
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
@@ -374,11 +374,11 @@ static int test_data_exchange(void) {
   /* Configure secondary station */
   memset(&config, 0, sizeof(config));
   config.mode = IOHDLC_OM_NDM;
-  config.flags = IOHDLC_FLG_TWA;
+  config.flags = 0|IOHDLC_FLG_TWA;
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
-  config.fpp = &pool_secondary;
+  config.fpp = (ioHdlcFramePool *)&pool_secondary;
   config.optfuncs = NULL;
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;
@@ -419,13 +419,6 @@ static int test_data_exchange(void) {
   
   test_printf("Connection established, starting data exchange...\n");
   
-  /* Allow extra time for connection to stabilize */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);
-#endif
-  
   /* Declare buffers */
   char recv_buf[128];
   char echo_buf[128];
@@ -440,13 +433,6 @@ static int test_data_exchange(void) {
   TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
   test_printf("Primary sent %zd bytes\n", sent);
   
-  /* Give time for frame to be transmitted and received */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
-  
   /* Secondary receives message */
   memset(recv_buf, 0, sizeof recv_buf);
   ssize_t received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, sizeof recv_buf - 1, 2000);
@@ -454,7 +440,7 @@ static int test_data_exchange(void) {
               received, msg_len, station_secondary.errorno);
   if (received > 0 && received <= (ssize_t)sizeof(recv_buf)) {
     /* Null-terminate for printing */
-    recv_buf[received < (ssize_t)sizeof(recv_buf) ? received : sizeof(recv_buf)-1] = '\0';
+    recv_buf[received < (ssize_t)sizeof(recv_buf) ? (size_t)received : sizeof(recv_buf)-1] = '\0';
     test_printf("  Data: \"%s\"\n", recv_buf);
     /* Also print hex for first 20 bytes to debug */
     test_printf("  Hex: ");
@@ -471,13 +457,6 @@ static int test_data_exchange(void) {
   sent = ioHdlcWriteTmo(&peer_at_secondary, recv_buf, received, 2000);
   TEST_ASSERT_GOTO(sent == received, "Secondary echo write failed");
   test_printf("Secondary echoed %zd bytes\n", sent);
-  
-  /* Give time for echo to be transmitted and received */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
   
   /* Primary receives echo */
   memset(echo_buf, 0, sizeof(echo_buf));

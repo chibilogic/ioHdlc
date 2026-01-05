@@ -6,9 +6,8 @@
 #ifndef MOCK_STREAM_ADAPTER_H
 #define MOCK_STREAM_ADAPTER_H
 
-#include "mock_stream.h"
+#include "mock_stream_chibios.h"
 #include "../../../include/ioHdlcstream.h"
-#include <pthread.h>
 
 /**
  * @brief   Mock stream adapter structure.

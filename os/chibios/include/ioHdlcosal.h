@@ -83,6 +83,33 @@ static inline void iohdlc_bsem_signal_i(iohdlc_binary_semaphore_t *bsp) {
 }
 
 /*===========================================================================*/
+/* Time Conversion                                                           */
+/*===========================================================================*/
+
+/**
+ * @brief   Convert milliseconds to system ticks (ChibiOS TIME_MS2I wrapper).
+ */
+#define IOHDLC_TIME_MS2I(ms) TIME_MS2I(ms)
+
+/**
+ * @brief   Infinite timeout constant.
+ */
+#define IOHDLC_WAIT_FOREVER  0xFFFFFFFFU
+
+/*===========================================================================*/
+/* Virtual Timer                                                             */
+/*===========================================================================*/
+
+/**
+ * @brief   Initialize virtual timer.
+ * @note    On ChibiOS, virtual timers are statically initialized,
+ *          so this is a no-op. Just clear the expired flag.
+ */
+static inline void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp) {
+  vtp->expired = false;
+}
+
+/*===========================================================================*/
 /* Condition Variable (maps to ChibiOS condition_variable_t)                 */
 /*===========================================================================*/
 
@@ -201,5 +228,23 @@ static inline void iohdlc_thread_yield(void) { chThdYield(); }
 
 void *iohdlc_dma_alloc(size_t size, size_t align);
 void iohdlc_dma_free(void *p);
+
+/*===========================================================================*/
+/* Logging Support (OS-abstracted)                                           */
+/*===========================================================================*/
+
+/**
+ * @brief   Get current time in milliseconds (relative to first call).
+ * @return  Milliseconds with fractional part as double.
+ */
+double iohdlc_osal_get_time_ms(void);
+
+/**
+ * @brief   Printf-like output for logging.
+ * @note    ChibiOS: outputs to configured stream (iohdlc_log_stream).
+ *          Must be set before logging is used.
+ */
+extern struct base_sequential_stream *iohdlc_osal_log_stream;
+#define IOHDLC_OSAL_PRINTF(fmt, ...) chprintf(iohdlc_osal_log_stream, fmt, ##__VA_ARGS__)
 
 #endif /* IOHDLCOSAL_H_ */

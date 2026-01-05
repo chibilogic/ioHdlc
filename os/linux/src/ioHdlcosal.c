@@ -518,3 +518,31 @@ eventflags_t iohdlc_evt_get_and_clear_flags(iohdlc_event_listener_t *elp) {
   
   return flags;
 }
+
+/*===========================================================================*/
+/* Logging Support                                                           */
+/*===========================================================================*/
+
+#include <sys/time.h>
+
+/**
+ * @brief   Get current time in milliseconds (relative to first call).
+ * @return  Milliseconds with fractional part as double.
+ */
+double iohdlc_osal_get_time_ms(void) {
+  static struct timeval first_tv = {0, 0};
+  static int initialized = 0;
+  struct timeval now;
+  
+  gettimeofday(&now, NULL);
+  
+  if (!initialized) {
+    first_tv = now;
+    initialized = 1;
+    return 0.0;
+  }
+  
+  double elapsed_sec = (now.tv_sec - first_tv.tv_sec);
+  double elapsed_usec = (now.tv_usec - first_tv.tv_usec);
+  return elapsed_sec * 1000.0 + elapsed_usec / 1000.0;
+}

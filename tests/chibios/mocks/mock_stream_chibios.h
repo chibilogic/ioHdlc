@@ -29,7 +29,9 @@
  */
 typedef struct {
   bool loopback;          /**< TX data automatically fed to RX */
-  uint32_t delay_ms;      /**< Simulated transmission delay */
+  bool inject_errors;     /**< Randomly corrupt data (not implemented on ChibiOS) */
+  uint32_t error_rate;    /**< Error probability (0-1000 = 0-100%, not implemented) */
+  uint32_t delay_us;      /**< Simulated transmission delay in microseconds */
 } mock_stream_config_t;
 
 /**
@@ -62,14 +64,29 @@ typedef struct mock_stream {
 /*===========================================================================*/
 
 /**
- * @brief   Initialize a mock stream.
+ * @brief   Create a new mock stream (allocates memory).
+ * @param[in] config    Configuration (NULL for defaults)
+ * @return              Pointer to mock stream, or NULL on error
+ * @note    ChibiOS version: uses chHeapAlloc for allocation
+ */
+mock_stream_t* mock_stream_create(const mock_stream_config_t *config);
+
+/**
+ * @brief   Destroy a mock stream (frees memory).
+ * @param[in] stream    Mock stream to destroy
+ * @note    ChibiOS version: uses chHeapFree for deallocation
+ */
+void mock_stream_destroy(mock_stream_t *stream);
+
+/**
+ * @brief   Initialize a mock stream (static allocation).
  * @param[in] stream    Pointer to mock stream structure
  * @param[in] config    Configuration (NULL for defaults)
  */
 void mock_stream_init(mock_stream_t *stream, const mock_stream_config_t *config);
 
 /**
- * @brief   Deinitialize a mock stream.
+ * @brief   Deinitialize a mock stream (static allocation).
  * @param[in] stream    Mock stream to deinitialize
  */
 void mock_stream_deinit(mock_stream_t *stream);
