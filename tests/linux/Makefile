@@ -40,8 +40,7 @@ CORE_SRCS = \
 	$(SRC_DIR)/ioHdlc.c \
 	$(SRC_DIR)/ioHdlc_log.c \
 	$(SRC_DIR)/ioHdlcll.c \
-	$(SRC_DIR)/ioHdlcstream.c \
-	$(SRC_DIR)/ioHdlcstream_driver.c
+	$(SRC_DIR)/ioHdlcswdriver.c
 
 OSAL_SRCS = \
 	$(OS_LINUX_DIR)/src/ioHdlcosal.c \

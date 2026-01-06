@@ -7,7 +7,7 @@
 #define MOCK_STREAM_ADAPTER_H
 
 #include "mock_stream.h"
-#include "../../../include/ioHdlcstream.h"
+#include "../../../include/ioHdlcstreamport.h"
 #include <pthread.h>
 
 /**
@@ -43,7 +43,7 @@ void mock_stream_adapter_destroy(mock_stream_adapter_t *adapter);
 /**
  * @brief   Get ioHdlcStreamPort for adapter.
  * @param[in] adapter   Adapter instance
- * @return              Port structure for ioHdlcStream/ioHdlcStreamDriver
+ * @return              Port structure for ioHdlcSwDriver transport layer
  */
 ioHdlcStreamPort mock_stream_adapter_get_port(mock_stream_adapter_t *adapter);
 

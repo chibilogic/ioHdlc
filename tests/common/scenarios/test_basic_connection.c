@@ -13,7 +13,7 @@
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
 #include "ioHdlcqueue.h"
-#include "ioHdlcstream_driver.h"
+#include "ioHdlcswdriver.h"
 #include "ioHdlc_runner.h"
 #include "ioHdlcfmempool.h"
 #include <string.h>
@@ -162,7 +162,7 @@ bool test_snrm_handshake(void) {
   /* Two stations connected via mock streams */
   mock_stream_t *stream_primary, *stream_secondary;
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
-  ioHdclStreamDriver driver_primary, driver_secondary;
+  ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_t station_primary, station_secondary;
   ioHdlcFrameMemPool pool_primary, pool_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
@@ -194,8 +194,8 @@ bool test_snrm_handshake(void) {
   ioHdlcStreamPort port_secondary = mock_stream_adapter_get_port(adapter_secondary);
   
   /* Initialize stream drivers */
-  ioHdclStreamDriverInit(&driver_primary);
-  ioHdclStreamDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary);
+  ioHdlcSwDriverInit(&driver_secondary);
   
   /* Initialize frame pools with arena */
   static uint8_t arena_primary[8192];
@@ -317,7 +317,7 @@ static int test_data_exchange(void) {
   /* Setup: same as test_snrm_handshake */
   mock_stream_t *stream_primary, *stream_secondary;
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
-  ioHdclStreamDriver driver_primary, driver_secondary;
+  ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_t station_primary, station_secondary;
   ioHdlcFrameMemPool pool_primary, pool_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
@@ -347,8 +347,8 @@ static int test_data_exchange(void) {
   ioHdlcStreamPort port_secondary = mock_stream_adapter_get_port(adapter_secondary);
   
   /* Initialize stream drivers */
-  ioHdclStreamDriverInit(&driver_primary);
-  ioHdclStreamDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary);
+  ioHdlcSwDriverInit(&driver_secondary);
   
   /* Initialize frame pools */
   static uint8_t arena_primary[8192];

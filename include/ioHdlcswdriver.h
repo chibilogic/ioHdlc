@@ -25,42 +25,64 @@
 */
 
 /**
- * @file    include/ioHdlcstream_driver.h
- * @brief   ioHdlcDriver wrapper using ioHdlcStream core (OS-agnostic w.r.t. HAL).
+ * @file    include/ioHdlcswdriver.h
+ * @brief   HDLC software driver (unified framing + protocol logic).
+ * @details Implements ioHdlcDriver interface with software transparency and FCS.
+ *          Uses ioHdlcStreamPort for transport abstraction (UART, SPI, Mock, etc).
  */
 
-#ifndef IOHDLCSTREAM_DRIVER_H
-#define IOHDLCSTREAM_DRIVER_H
+#ifndef IOHDLCSWDRIVER_H
+#define IOHDLCSWDRIVER_H
 
 #include "ioHdlcdriver.h"
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
 #include "ioHdlcqueue.h"
 #include "ioHdlcll.h"
-#include "ioHdlcstream.h"
+#include "ioHdlcstreamport.h"
 #include "ioHdlcosal.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct ioHdclStreamDriver {
+/**
+ * @brief   HDLC software driver structure.
+ * @details Implements complete HDLC protocol with software transparency and FCS.
+ *          Integrates RX multi-chunk state machine, protocol logic, and blocking API.
+ */
+typedef struct ioHdlcSwDriver {
+  /* ioHdlcDriver interface */
   const struct _iohdlc_driver_vmt *vmt;
   _iohdlc_driver_data
 
-  ioHdlcStream         core;
+  /* Port abstraction */
+  ioHdlcStreamPort    port;
+  ioHdlcStreamCallbacks hal_cbs;
 
+  /* Configuration */
+  bool apply_transparency;
+  bool has_frame_format;
+
+  /* RX state (multi-chunk assembly) */
+  uint8_t          *rx_stagep;    /* Staging octet buffer (DMA-safe) */
+  iohdlc_frame_t   *rx_in_frame;  /* Current frame being filled, NULL if idle */
+
+  /* RX queue for blocking API */
   iohdlc_sem_t         raw_recept_sem;
   iohdlc_frame_q_t     raw_recept_q;
 
-  bool apply_transparency;
-  bool has_frame_format;
-} ioHdclStreamDriver;
+  bool     started;
+} ioHdlcSwDriver;
 
-void ioHdclStreamDriverInit(ioHdclStreamDriver *uhp);
+/**
+ * @brief   Initialize software HDLC driver.
+ * @param[in] drv   Driver instance to initialize
+ */
+void ioHdlcSwDriverInit(ioHdlcSwDriver *drv);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* IOHDLCSTREAM_DRIVER_H */
+#endif /* IOHDLCSWDRIVER_H */

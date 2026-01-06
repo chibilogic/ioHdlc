@@ -144,8 +144,7 @@ IOHDLC_CORE_SRCS = \
 	$(SRC_DIR)/ioHdlc.c \
 	$(SRC_DIR)/ioHdlc_log.c \
 	$(SRC_DIR)/ioHdlcll.c \
-	$(SRC_DIR)/ioHdlcstream.c \
-	$(SRC_DIR)/ioHdlcstream_driver.c
+	$(SRC_DIR)/ioHdlcswdriver.c
 
 # Common test infrastructure
 COMMON_TEST_SRCS = \

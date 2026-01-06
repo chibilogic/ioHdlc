@@ -8,7 +8,7 @@
 #ifndef ADAPTER_INTERFACE_H
 #define ADAPTER_INTERFACE_H
 
-#include "ioHdlcstream.h"
+#include "ioHdlcstreamport.h"
 
 /**
  * @brief Test adapter interface.

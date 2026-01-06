@@ -7,7 +7,7 @@
 #include "ch.h"
 #include "hal.h"
 
-#include "ioHdlcstream.h"
+#include "ioHdlcstreamport.h"
 
 typedef struct ioHdlcStreamChibiosUart {
   UARTDriver  *uartp;

@@ -5,9 +5,12 @@
  */
 
 #include "mock_stream_adapter.h"
-#include "../../../include/ioHdlcstream_driver.h"
+#include "../../../include/ioHdlcstreamport.h"
 #include <stdlib.h>
 #include <string.h>
+
+/* ChibiOS doesn't have ssize_t */
+typedef int ssize_t;
 
 /* Port operations */
 static void port_start(void *ctx, const ioHdlcStreamCallbacks *cbs);

@@ -1,11 +1,11 @@
 /**
  * @file    mock_stream_adapter.c
  * @brief   Mock stream adapter implementation.
- * @details Connects mock_stream to ioHdlcStreamDriver via ioHdlcStreamPort.
+ * @details Connects mock_stream to ioHdlcSwDriver via ioHdlcStreamPort.
  */
 
 #include "mock_stream_adapter.h"
-#include "../../../include/ioHdlcstream_driver.h"
+#include "../../../include/ioHdlcstreamport.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
