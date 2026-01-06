@@ -54,9 +54,6 @@ void ioHdlcStopReplyTimer(iohdlc_station_peer_t *peer,
 bool ioHdlcIsReplyTimerExpired(iohdlc_station_peer_t *peer,
                                iohdlc_timer_kind_t timer_kind);
 
-/* Frame building helpers exposed for application API. */
-void ioHdlcValorizeFFF(iohdlc_station_t *s, iohdlc_frame_t *fp);
-
 /* Thread/task entry points (runner creates threads and calls these). */
 void ioHdlcTxEntry(void *stationp);
 void ioHdlcRxEntry(void *stationp);

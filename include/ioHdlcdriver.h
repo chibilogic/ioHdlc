@@ -40,14 +40,57 @@
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
 
+/*===========================================================================*/
+/* Driver Capabilities Structures                                           */
+/*===========================================================================*/
+
+/**
+ * @brief Driver FCS (Frame Check Sequence) capabilities
+ */
+typedef struct {
+  uint8_t  supported_sizes[4];  /**< Array of supported FCS sizes (e.g., [0,2,4,0]) */
+  uint8_t  default_size;        /**< Default FCS size (e.g., 2 for 16-bit CRC) */
+  bool     hw_support;          /**< true if FCS computed/verified in hardware */
+} ioHdlcDriverFcsCapabilities;
+
+/**
+ * @brief Driver transparency capabilities
+ */
+typedef struct {
+  bool     hw_support;          /**< true if transparency implemented in hardware */
+  bool     sw_available;        /**< true if driver can apply transparency in software */
+} ioHdlcDriverTransparencyCapabilities;
+
+/**
+ * @brief Driver FFF (Frame Format Field) capabilities
+ */
+typedef struct {
+  uint8_t  supported_types[4];  /**< Array of supported FFF sizes: 0=none, 1=TYPE0, 2=TYPE1 */
+  uint8_t  default_type;        /**< Default FFF type (0=none, 1=TYPE0, 2=TYPE1) */
+  bool     hw_support;          /**< true if FFF handled in hardware */
+} ioHdlcDriverFffCapabilities;
+
+/**
+ * @brief Complete driver capabilities
+ * @note Driver must provide this via get_capabilities() before start()
+ */
+typedef struct {
+  ioHdlcDriverFcsCapabilities          fcs;
+  ioHdlcDriverTransparencyCapabilities transparency;
+  ioHdlcDriverFffCapabilities          fff;
+} ioHdlcDriverCapabilities;
+
+/*===========================================================================*/
+/* Driver VMT Methods                                                        */
+/*===========================================================================*/
+
 #define _iohdlc_driver_methods                                      \
   void (*start)(void *ip, void *phydrvp, void *phyconfigp,          \
       ioHdlcFramePool *fpp);                                        \
   size_t (*send_frame)(void *ip, iohdlc_frame_t *fp);               \
   iohdlc_frame_t * (*recv_frame)(void *ip, iohdlc_timeout_t tmo);   \
-  bool (*get_hwtransparency)(void *ip);                             \
-  void (*set_applytransparency)(void *ip, bool tr);                 \
-  void (*set_hasframeformat)(void *ip, bool hff);
+  const ioHdlcDriverCapabilities* (*get_capabilities)(void *ip);     \
+  int32_t (*configure)(void *ip, uint8_t fcs_size, bool transparency, uint8_t fff_type);
 
 #define _iohdlc_driver_data     \
   ioHdlcFramePool *fpp;
@@ -111,39 +154,34 @@ typedef struct {
 #define hdlcRecvFrame(ip, tmo)        ((ip)->vmt->recv_frame(ip, tmo))
 
 /**
- * @brief   Hdlc get frame hardware transparency method.
- * @details Get the octet/bit transparency hardware capability of the driver.
- * @note    The driver shall respond to this method even if it is not
- *          started yet.
+ * @brief   Hdlc get driver capabilities method.
+ * @details Query driver capabilities (FCS sizes, transparency, FFF support).
+ *          Can be called before start() to validate configuration.
+ * @note    Returns pointer to static const structure.
  *
  * @param[in]   ip    ioHdlcDriver instance pointer
  *
- * @return            true, if the driver supports and applies octet/bit
- *                    transparency/FCS/Flag in hardware, else false.
+ * @return            Pointer to driver capabilities structure
  */
-#define hdlcTransparency(ip)          ((ip)->vmt->get_hwtransparency(ip))
+#define hdlcGetCapabilities(ip)       ((ip)->vmt->get_capabilities(ip))
 
 /**
- * @brief   Hdlc apply frame transparency method.
- * @details Set the software octet transparency for the driver.
- * @note
+ * @brief   Hdlc configure driver method.
+ * @details Configure driver with FCS size, transparency, and FFF settings.
+ *          Must be called after validation and before start().
+ * @note    Returns errno-compatible error code.
  *
- * @param[in]   ip    ioHdlcDriver instance pointer
- * @param[in]   tr    set to true to request the driver to
- *                    apply software octet transparency.
- */
-#define hdlcApplyTransparency(ip, tr) ((ip)->vmt->set_applytransparency(ip, tr))
-
-/**
- * @brief   Hdlc set has frame format field method.
- * @details If set to true, the driver shall apply and use the additional
- *          frame format field.
- * @note
+ * @param[in]   ip            ioHdlcDriver instance pointer
+ * @param[in]   fcs_size      FCS size in bytes (0, 2, 4, ...)
+ * @param[in]   transparency  true to enable transparency encoding/decoding
+ * @param[in]   fff           true to enable Frame Format Field
  *
- * @param[in]   ip    ioHdlcDriver instance pointer
- * @param[in]   tr    true or false
+ * @return                    0 on success, errno-compatible error code otherwise
+ * @retval 0                  Success
+ * @retval EINVAL             Invalid configuration (e.g., fff && transparency)
+ * @retval ENOTSUP            Requested feature not supported by driver
  */
-#define hdlcHasFrameFormat(ip, tr)    ((ip)->vmt->set_hasframeformat(ip, tr))
+#define hdlcConfigure(ip, fcs, tr, ff) ((ip)->vmt->configure(ip, fcs, tr, ff))
 
 #endif /* IOHDLCDRIVER_H_ */
 

@@ -110,33 +110,33 @@ static void computeFCS(const uint8_t *buf, uint32_t l, uint16_t *crc)
 /*===========================================================================*/
 
 /*
- * @brief   Add FCS 16bit check (x^16 + x^12 + x^5 + 1) at end of the frame.
- * @note    This function is used by the drivers whenever is not implemented
- *          in hardware.
+ * @brief   Add FCS 16bit at specific offset WITHOUT modifying frame->elen.
+ * @note    This is the preferred API for drivers to preserve elen stability.
+ * @param[in] frame   Frame buffer
+ * @param[in] offset  Offset where to write FCS (typically frame->elen)
  */
-void frameAddFCS(iohdlc_frame_t *frame) {
+void frameAddFCS_at(iohdlc_frame_t *frame, size_t offset) {
   uint16_t crc;
 
-  computeFCS(frame->frame, frame->elen, &crc);
+  computeFCS(frame->frame, offset, &crc);
   crc ^= 0xffff;
-  /*
-   * The crc has the bits reversed, then sending the LSB of lower byte first
-   * means transmitting the coefficient of the highest term first,
-   * as required.
-   */
-  frame->frame[frame->elen++] = crc & 0xff;
-  frame->frame[frame->elen++] = crc >> 8;
+  
+  frame->frame[offset] = crc & 0xff;
+  frame->frame[offset + 1] = crc >> 8;
+  /* NOTE: Does NOT modify frame->elen! */
 }
 
 /*
- * @brief   Check FCS 16bit check (x^16 + x^12 + x^5 + 1).
- * @note    This function is used by the drivers whenever is not implemented
- *          in hardware.
+ * @brief   Check FCS 16bit at specific total length.
+ * @note    Preferred API for drivers with explicit length.
+ * @param[in] frame     Frame buffer
+ * @param[in] total_len Total length including FCS
+ * @return              true if FCS valid
  */
-bool frameCheckFCS(const iohdlc_frame_t *frame) {
+bool frameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len) {
   uint16_t crc;
 
-  computeFCS(frame->frame, frame->elen, &crc);
+  computeFCS(frame->frame, total_len, &crc);
 
   return crc == 0xf0b8;   /* Bit reversed of the check 0x1d0f. */
 }

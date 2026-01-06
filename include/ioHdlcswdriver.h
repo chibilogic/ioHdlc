@@ -60,9 +60,10 @@ typedef struct ioHdlcSwDriver {
   ioHdlcStreamPort    port;
   ioHdlcStreamCallbacks hal_cbs;
 
-  /* Configuration */
-  bool apply_transparency;
-  bool has_frame_format;
+  /* Configuration (set by configure()) */
+  uint8_t fcs_size;         /* FCS size in bytes (0, 2, 4) */
+  bool apply_transparency;  /* Software transparency enabled */
+  uint8_t frame_format_size;/* Frame Format Field (0, 1, 2) */
 
   /* RX state (multi-chunk assembly) */
   uint8_t          *rx_stagep;    /* Staging octet buffer (DMA-safe) */

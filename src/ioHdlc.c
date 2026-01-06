@@ -42,6 +42,7 @@
 #include "ioHdlcqueue.h"
 #include "ioHdlclist.h"
 #include <string.h>
+#include <errno.h>
 
 /*===========================================================================*/
 /* Module local definitions.                                                 */
@@ -186,7 +187,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   
   if (ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF) {
     ioHdlcsp->flags_critical |= IOHDLC_CFLG_FFF;
-    ioHdlcsp->frame_offset = 1;  /* FFF present: addr starts at offset 1 */
+    ioHdlcsp->frame_offset = 1;  /* FFF TYPE 0 present: addr starts at offset 1 */
   } else {
     ioHdlcsp->frame_offset = 0;  /* No FFF: addr starts at offset 0 */
   }
@@ -199,19 +200,65 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     ioHdlcsp->flags_critical |= IOHDLC_CFLG_STB;
   }
 
-  /* Configure driver settings before starting */
-  if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
-    /* Set transparency option (STB - Start/Stop with Basic Transparency) */
-    bool apply_transparency = (ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) != 0;
-    hdlcApplyTransparency(ioHdlcsp->driver, apply_transparency);
+  /* Configure driver settings */
+  if (ioHdlcsp->driver != NULL && ioHdlcsp->driver->vmt != NULL) {
+    /* Extract station options */
+    bool want_transparency = (ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) != 0;
+    bool inh_precedence = (ioHdlcsp->optfuncs[IOHDLC_OPT_INH_OCT] & IOHDLC_OPT_INH) != 0;
     
-    /* Set frame format field option (FFF) */
-    bool has_frame_format = (ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF) != 0;
-    hdlcHasFrameFormat(ioHdlcsp->driver, has_frame_format);
-    if (has_frame_format && (ioHdlcsp->optfuncs[IOHDLC_OPT_INH_OCT] & IOHDLC_OPT_INH)) {
-      /* It takes precedence over STB. */
-      hdlcApplyTransparency(ioHdlcsp->driver, false);
+    /* CRITICAL: FFF and Transparency are mutually exclusive */
+    if (ioHdlcsp->frame_offset && want_transparency) {
+      if (inh_precedence) {
+        want_transparency = false;  /* FFF takes precedence (INH option) */
+      } else {
+        ioHdlcsp->errorno = EINVAL; 
+        return -1;  /* Conflicting options */
+      }
     }
+    
+    /* Query driver capabilities */
+    const ioHdlcDriverCapabilities *caps = hdlcGetCapabilities(ioHdlcsp->driver);
+    
+    /* Validate FFF type against driver capabilities */
+    if (ioHdlcsp->frame_offset > 0) {
+      bool fff_supported = false;
+      for (int i = 0; i < 4; i++) {
+        if (caps->fff.supported_types[i] == ioHdlcsp->frame_offset) {
+          fff_supported = true;
+          break;
+        }
+      }
+      if (!fff_supported) {
+        ioHdlcsp->errorno = ENOTSUP;
+        return -1;  /* Driver doesn't support this FFF type */
+      }
+    }
+    
+    if (want_transparency && !caps->transparency.hw_support && 
+        !caps->transparency.sw_available) {
+      ioHdlcsp->errorno = ENOTSUP;
+      return -1;  /* Driver doesn't support transparency */
+    }
+    
+    /* Select FCS size (default: 16-bit per ISO 13239) */
+    uint8_t selected_fcs_size = caps->fcs.default_size;
+    
+    /* Select FFF type from station frame_offset (0=none, 1=TYPE0, 2=TYPE1) */
+    uint8_t selected_fff_type = ioHdlcsp->frame_offset;
+    
+    /* Configure driver with validated settings */
+    int32_t config_result = hdlcConfigure(ioHdlcsp->driver, selected_fcs_size, 
+                                          want_transparency, selected_fff_type);
+    if (config_result != 0) {
+      ioHdlcsp->errorno = config_result;
+      return -1;  /* errno-compatible error */
+    }
+    
+    /* Store FCS size for overhead calculation */
+    ioHdlcsp->fcs_size = selected_fcs_size;
+  } else {
+    /* No driver or VMT: use default FCS size (16-bit) */
+    ioHdlcsp->fcs_size = 2;
   }
 
   /* Set F received on primary station. */
@@ -288,8 +335,8 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   }
 
   /* Calculate mifl from frame pool size minus overhead.
-     Overhead = FFF (frame_offset) + ADDR (1) + CTRL (ctrl_size) + FCS (2) */
-  uint32_t overhead = s->frame_offset + 1 + s->ctrl_size + 2;
+     Overhead = FFF (frame_offset) + ADDR (1) + CTRL (ctrl_size) + FCS (fcs_size) */
+  uint32_t overhead = s->frame_offset + 1 + s->ctrl_size + s->fcs_size;
   uint32_t mifl = (s->frame_pool->framesize > overhead) ? 
                   (s->frame_pool->framesize - overhead) : 64;  /* Fallback to 64 */
 
@@ -634,8 +681,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     uint8_t *end = info_ptr + chunk_size;
     fp->elen = (uint16_t)(end - fp->frame);
     
-    /* Valorize FFF if present */
-    ioHdlcValorizeFFF(s, fp);
+    /* FFF will be valorized by driver (driver knows FCS size) */
     
     /* Re-acquire mutex to enqueue frame and update state */
     iohdlc_mutex_lock(&peer->state_mutex);

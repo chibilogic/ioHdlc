@@ -54,8 +54,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+  /* Legacy API (modifies frame->elen) */
   void frameAddFCS(iohdlc_frame_t *frame);
   bool frameCheckFCS(const iohdlc_frame_t *frame);
+  
+  /* New API (works at specific offset, does NOT modify elen) */
+  void frameAddFCS_at(iohdlc_frame_t *frame, size_t offset);
+  bool frameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len);
+  
+  /* Transparency encoding/decoding */
   bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
   void frameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
 #ifdef __cplusplus

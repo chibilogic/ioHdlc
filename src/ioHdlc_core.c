@@ -474,7 +474,7 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
   */
   
   if (ioHdlc_frameq_isempty(&p->i_retrans_q))
-    return false;  // Nothing to retransmit
+    return false;  /* Nothing to retransmit */
   
   /* Find the first frame that needs checkpoint retransmission. */
   iohdlc_frame_t *first_fp = NULL;
@@ -830,35 +830,6 @@ void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 /*===========================================================================*/
 
 /**
- * @brief   Valorize FFF (Frame Format Field) if enabled.
- * @details Writes FFF bytes at the beginning of the frame buffer.
- *          Per ISO 13239 4.9: FFF contains "count of octets in the frame
- *          excluding the opening and closing flag sequences".
- *          total_len = FFF + ADDR + CTRL + INFO + FCS
- *          
- * @param[in] s     Station descriptor
- * @param[in] fp    Frame with elen already calculated (FFF + ADDR + CTRL + INFO)
- * 
- * @note FFF is written to fp->frame[0] (TYPE 0) or fp->frame[0..1] (TYPE 1).
- * @note Caller must have already set fp->elen = FFF_size + ADDR + CTRL + INFO.
- */
-void ioHdlcValorizeFFF(iohdlc_station_t *s, iohdlc_frame_t *fp) {
-  if (s->frame_offset > 0) {
-    uint16_t total_len = fp->elen + 2;  /* +2 for FCS (added by driver) */
-    
-    if (s->frame_offset == 1) {
-      /* TYPE 0: 1 byte, bit 7=0, bit 6-0=length (max 127) */
-      fp->frame[0] = (uint8_t)total_len;
-      
-    } else if (s->frame_offset == 2) {
-      /* TYPE 1: 2 bytes, bit 15-12=1000, bit 11-0=length (max 4095) */
-      fp->frame[0] = 0x80 | ((total_len >> 8) & 0x0F);  /* 1000 LLLL */
-      fp->frame[1] = (uint8_t)(total_len & 0xFF);       /* LLLLLLLL */
-    }
-  }
-}
-
-/**
  * @brief   Build U-frame (Unnumbered frame) for transmission.
  * @details Constructs control field and sets address field according to
  *          ISO 13239 command/response semantics. Calculates elen and
@@ -901,8 +872,7 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   end += 2;  /* ADDR(1) + CTRL(1) - U-frame control is always 1 byte */
   fp->elen = (uint16_t)(end - fp->frame);
   
-  /* Valorize FFF if present */
-  ioHdlcValorizeFFF(s, fp);
+  /* FFF will be valorized by driver (driver knows FCS size) */
 }
 
 /**
@@ -964,8 +934,7 @@ static void buildSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   end += 1 + s->ctrl_size;  /* ADDR(1) + CTRL(1,2,4,8) */
   fp->elen = (uint16_t)(end - fp->frame);
   
-  /* Valorize FFF if present */
-  ioHdlcValorizeFFF(s, fp);
+  /* FFF will be valorized by driver (driver knows FCS size) */
 }
 
 uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,

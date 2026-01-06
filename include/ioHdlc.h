@@ -343,8 +343,9 @@ struct iohdlc_station {
   uint32_t  modmask;            /* Modulus bit mask: 7 for mod 8, 127 for mod 128, 32767 for mod 32768, 2147483647 for mod 2^31. */
   uint8_t   ctrl_size;          /* Control field size in bytes (1, 2, 4, 8). Precalculated
                                    from modulus for fast frame field access. */
-  uint8_t   frame_offset;       /* Precalculated FFF offset: 0 if no FFF, 1 if FFF present.
+  uint8_t   frame_offset;       /* Precalculated FFF offset: 0 if no FFF, 1 or, 2 if FFF present.
                                    Used for fast frame field access without runtime checks. */
+  uint8_t   fcs_size;           /* FCS size in bytes (0, 2, 4). Queried from driver. */
   uint8_t   flags_critical;     /* Time-critical option flags (FFF, REJ, STB) for fast access. */
   uint8_t   optfuncs[5];        /* Active HDLC optional functions among those supported.
                                    See ISO13239 Table 16. Maintains ISO format for XID. */
