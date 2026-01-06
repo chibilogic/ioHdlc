@@ -154,7 +154,6 @@ bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
   uint8_t *dstbuf = dst->frame;
   bool encoded = 0;
 
-  //ioHdlcAssert(src != dst, "frameTransparentEncode");
   for (int i = 0; i < src->elen; ++i) {
     if (HDLC_FLAG == *srcbuf || HDLC_CTLESC == *srcbuf) {
       *dstbuf++ = HDLC_CTLESC;

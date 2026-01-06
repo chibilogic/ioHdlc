@@ -587,7 +587,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     /* Acquire mutex for condition check and frame construction */
     iohdlc_mutex_lock(&peer->state_mutex);
     
-    /* Flow control: wait while window full OR pool low.
+    /* Flow control: wait while exceeding pending frames exist OR pool low.
        Condition variable automatically releases mutex during wait
        and re-acquires it before returning. */
     while (peer->i_pending_count >= (2 * peer->ks) ||
@@ -606,10 +606,6 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
        Calculate chunk size for this frame (max mifls). */
     chunk_size = (remaining < peer->mifls) ? remaining : peer->mifls;
     
-    /* Capture V(S) and increment for next frame */
-    uint32_t vs_value = peer->vs;
-    peer->vs = (peer->vs + 1) & s->modmask;
-    
     /* Release mutex temporarily to allocate frame (pool has internal lock) */
     iohdlc_mutex_unlock(&peer->state_mutex);
     
@@ -623,12 +619,12 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     
     /* Build frame outside mutex (no shared state accessed) */
     
-    /* Set address field */
+    /* Set flags and address field */
+    fp->flags = 0;
     IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
     
-    /* Set control field: I-frame ID and N(S) */
+    /* Set control field: I-frame ID */
     IOHDLC_FRAME_CTRL(s, fp, 0) = IOHDLC_I_ID;
-    IOHDLC_FRAME_SET_NS(s, fp, vs_value);
     
     /* Copy data to info field */
     info_ptr = IOHDLC_FRAME_INFO(s, fp);

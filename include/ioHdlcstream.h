@@ -131,7 +131,7 @@ typedef struct ioHdlcStream {
   /* Upper integration */
   void                    *upper_ctx;
   ioHdlcStreamConfig       cfg;
-  ioHdlcFramePool         *pool;  /* frame pool used for RX allocation */
+  ioHdlcFramePool         *pool;  /* frame pool used for frame allocation */
 
   /* HAL callbacks wrapper storage */
   ioHdlcStreamCallbacks    hal_cbs;

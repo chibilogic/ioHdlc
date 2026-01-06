@@ -59,7 +59,6 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   ioHdlcStreamPort *portp = (ioHdlcStreamPort *)phyp;
 
   ip->fpp = fpp;
-  ip->port = *portp; /* copy provided port (HAL adapter prepared elsewhere) */
 
   ioHdlcStreamConfig cfg = {
     .has_frame_format   = ip->has_frame_format,
@@ -67,7 +66,7 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
     .deliver_rx_frame   = s_core_deliver_rx,
   };
 
-  (void)ioHdlcStream_init(&ip->core, &ip->port, &cfg, ip->fpp, ip);
+  (void)ioHdlcStream_init(&ip->core, portp, &cfg, ip->fpp, ip);
   (void)ioHdlcStream_start(&ip->core);
 }
 

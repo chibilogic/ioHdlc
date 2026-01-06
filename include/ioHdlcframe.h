@@ -42,6 +42,12 @@
 #define HDLC_FRFMT_MIN_L  5
 
 /*===========================================================================*/
+/* Module constants.                                         */
+/*===========================================================================*/
+
+#define IOHDLC_FRM_NS_PRESERVE  0x01  /**< Preserve N(S) in frame. */
+
+/*===========================================================================*/
 /* Module data structures and types.                                         */
 /*===========================================================================*/
 
@@ -65,6 +71,7 @@ struct iohdlc_frame {
   iohdlc_frame_t *next;
   iohdlc_frame_t *prev;
 
+  uint8_t  flags;                 /* Frame flags (e.g., control bits) */
   uint16_t elen;                  /* Effective length of the frame, excluding
                                      FLAG and FCS. */
   uint8_t  refs;                  /* Number of references to this frame. */
@@ -133,7 +140,7 @@ struct iohdlc_frame {
       IOHDLC_FRAME_CTRL(s, fp, 0) = \
         (IOHDLC_FRAME_CTRL(s, fp, 0) & ~0xFE) | (((ns) & 0x7F) << 1); \
     } \
-  } while(0)
+  } while (0)
 
 /**
  * @brief   Set N(R) in I/S-frame control field.

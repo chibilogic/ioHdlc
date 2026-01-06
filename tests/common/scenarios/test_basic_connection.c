@@ -329,7 +329,7 @@ static int test_data_exchange(void) {
     .loopback = false,
     .inject_errors = false,
     .error_rate = 0,
-    .delay_us = 0
+    .delay_us = 100
   };
   
   stream_primary = mock_stream_create(&stream_config);
@@ -358,7 +358,7 @@ static int test_data_exchange(void) {
   
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;
-  config.flags = IOHDLC_FLG_PRI | IOHDLC_FLG_TWA;
+  config.flags = IOHDLC_FLG_PRI;  /* | IOHDLC_FLG_TWA; */
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
@@ -374,7 +374,7 @@ static int test_data_exchange(void) {
   /* Configure secondary station */
   memset(&config, 0, sizeof(config));
   config.mode = IOHDLC_OM_NDM;
-  config.flags = 0|IOHDLC_FLG_TWA;
+  config.flags = 0; /* |IOHDLC_FLG_TWA; */
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
@@ -424,15 +424,18 @@ static int test_data_exchange(void) {
   char echo_buf[128];
   
   /* Primary sends message to secondary */
-  test_printf("Primary sending %zu bytes...\n", msg_len);
-  ssize_t sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 2000);
-  if (sent != (ssize_t)msg_len) {
-    test_printf("❌ Primary write returned %zd (expected %zu), errno=%d\n", 
-                sent, msg_len, station_primary.errorno);
+  int i;
+  ssize_t sent;
+  test_printf("Primary sending %zu bytes...\n", msg_len*10);
+  for (i = 0; i < 10; ++i) {
+    sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 2000);
+    if (sent != (ssize_t)msg_len) {
+      test_printf("❌ Primary write returned %zd (expected %zu), errno=%d\n", 
+                  sent, msg_len, station_primary.errorno);
+    }
+    TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
+    test_printf("Primary sent %zd bytes\n", sent);
   }
-  TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
-  test_printf("Primary sent %zd bytes\n", sent);
-  
   /* Secondary receives message */
   memset(recv_buf, 0, sizeof recv_buf);
   ssize_t received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, sizeof recv_buf - 1, 2000);
@@ -465,6 +468,7 @@ static int test_data_exchange(void) {
   TEST_ASSERT_GOTO(memcmp(echo_buf, test_msg, msg_len) == 0, "Echo data mismatch");
   test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);
   
+  usleep(5000000);
   test_printf("✅ Data exchange completed successfully\n");
   
   /* Disconnect */

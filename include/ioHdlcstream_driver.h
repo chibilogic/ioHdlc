@@ -49,7 +49,6 @@ typedef struct ioHdclStreamDriver {
   _iohdlc_driver_data
 
   ioHdlcStream         core;
-  ioHdlcStreamPort     port;   /* Provided by caller (HAL adapter) in start() */
 
   iohdlc_sem_t         raw_recept_sem;
   iohdlc_frame_q_t     raw_recept_q;

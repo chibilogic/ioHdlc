@@ -27,7 +27,7 @@
  * @file    ioHdlc_core.c
  * @brief   ISO 13239 HDLC protocol core implementation.
  * @details Implements HDLC station core functionality including:
- *          - NRM (Normal Response Mode) RX processing
+ *          - NRM (Normal Response Mode)
  *          - I-frame, S-frame, and U-frame handling
  *          - Sequence number validation (N(S), N(R))
  *          - Checkpoint retransmission (ISO 13239 5.6.2.1)
@@ -1140,18 +1140,23 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Move frame to retransmission queue. */
     ioHdlc_frameq_insert(&p->i_retrans_q, fp);
 
-    /* Advance V(S) - use modmask for modular arithmetic on full numbering space. */
-    uint32_t new_vs = (p->vs + 1) & s->modmask;
-    p->vs = new_vs;
-
     /* Save vs_atlast_pf if setting P/F bit */
     if (set_pf) {
       p->vs_atlast_pf = p->vs;
     }
     
+    /* If the frame came from i_trans_q, set N(S) and then advance V(S) - use
+       modmask for modular arithmetic on full numbering space. */
+    if (!(fp->flags & IOHDLC_FRM_NS_PRESERVE)) {
+      fp->flags |= IOHDLC_FRM_NS_PRESERVE;
+      IOHDLC_FRAME_SET_NS(s, fp, p->vs);
+      uint32_t new_vs = (p->vs + 1) & s->modmask;
+      p->vs = new_vs;
+    }
+
     iohdlc_mutex_unlock(&p->state_mutex);
     
-    /* I-frame already has address and N(S) set. Only update N(R) and P/F. */
+    /* Update N(R) and P/F. */
     IOHDLC_FRAME_SET_NR(s, fp, nr_value);
     IOHDLC_FRAME_SET_PF(s, fp, set_pf);
 
@@ -1161,6 +1166,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     uint32_t log_ns = extractNS(s, fp);
     uint32_t log_nr = extractNR(s, fp);
     uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
+    uint8_t fflags = 0;
 #endif
 
     (void)hdlcSendFrame(s->driver, fp);
@@ -1168,7 +1174,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Log I-frame transmission */
     IOHDLC_LOG_IFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
                       log_ns, log_nr, set_pf, info_len,
-                      p->i_pending_count, p->ks, 0);
+                      p->i_pending_count, p->ks, fflags);
 
     /* Mark that we sent at least one I-frame. */
     i_frame_sent = true;

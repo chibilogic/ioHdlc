@@ -1,0 +1,80 @@
+┌─────────────────────────────────────────────────┐
+│         Station (ioHdlc.c)                      │ ← Livello applicazione
+│         Usa: ioHdlcDriver interface             │
+└────────────────┬────────────────────────────────┘
+                 │ usa hdlcStart(), hdlcSendFrame()...
+                 │
+┌────────────────▼───────────────────────────────┐
+│   ioHdclStreamDriver (ioHdlcstream_driver.h)    │ ← Livello Driver HDLC
+│   - Implementa ioHdlcDriver VMT                 │   (protocol-aware)
+│   - Gestisce FCS, transparency, frame format    │
+│   - Ha coda RX + semaforo                       │
+│   - Contiene ioHdlcStream core                  │
+└────────────────┬────────────────────────────────┘
+                 │ usa ioHdlcStream_send/init/start
+                 │
+┌────────────────▼───────────────────────────────┐
+│      ioHdlcStream (ioHdlcstream.h)              │ ← Livello Stream Core
+│   - Core OS-agnostic per multi-chunk RX/TX      │   (framing-aware)
+│   - State machine RX (header → body)           │
+│   - Gestisce pool frame                         │
+│   - Contiene ioHdlcStreamPort                   │
+│   - Callbacks HAL (on_rx, on_tx_done)           │
+└────────────────┬────────────────────────────────┘
+                 │ chiama port.ops->tx_submit/rx_submit
+                 │
+┌────────────────▼───────────────────────────────┐
+│   ioHdlcStreamPort (ioHdlcstream.h)             │ ← Livello HAL Adapter
+│   - Struct leggera: { ctx, ops }                │   (hardware-specific)
+│   - ops: puntatore a ioHdlcStreamPortOps        │
+│   - ctx: puntatore opaco al contesto HAL        │
+└────────────────┬────────────────────────────────┘
+                 │
+┌────────────────▼───────────────────────────────┐
+│   HAL Adapter concreto                          │ ← Implementazione HW
+│   Es: mock_stream_adapter, uart_adapter         │
+│   - Implementa ioHdlcStreamPortOps (VMT)        │
+│   - Gestisce hardware reale (UART/DMA/etc)      │
+│   - Ha proprio stato (es: mock_stream_adapter_t)│
+└─────────────────────────────────────────────────┘
+
+
+typedef struct ioHdlcStreamPort {
+  void *ctx;                          // Contesto opaco HAL adapter
+  const ioHdlcStreamPortOps *ops;     // VMT con funzioni start/stop/tx/rx
+} ioHdlcStreamPort;
+
+Ruolo: Interfaccia leggera HAL-agnostica. È come un "trait" o "interfaccia" in OOP.
+
+typedef struct ioHdlcStream {
+  ioHdlcStreamPort    port;
+  
+  void                    *upper_ctx; // Contesto upper layer (driver)
+  ioHdlcStreamConfig       cfg;       // has_frame_format, apply_transparency
+  ioHdlcFramePool         *pool;      // Pool frame
+  
+  ioHdlcStreamCallbacks    hal_cbs;   // Callbacks per HAL
+  
+  uint8_t          *rx_stagep;        // Buffer staging DMA-safe
+  iohdlc_frame_t   *rx_in_frame;      // Frame RX corrente
+  
+  bool     started;
+} ioHdlcStream;
+
+Ruolo: Core dello stream, OS-agnostic, gestisce state machine RX multi-chunk.
+
+typedef struct ioHdclStreamDriver {
+  const struct _iohdlc_driver_vmt *vmt;  // VMT ioHdlcDriver
+  ioHdlcFramePool *fpp;                  // ← da _iohdlc_driver_data
+  
+  ioHdlcStream         core;             // ← Contiene tutto ioHdlcStream
+  
+  iohdlc_sem_t         raw_recept_sem;   // Semaforo RX
+  iohdlc_frame_q_t     raw_recept_q;     // Coda RX
+  
+  bool apply_transparency;
+  bool has_frame_format;
+} ioHdclStreamDriver;
+
+Ruolo: Driver HDLC completo, implementa protocollo (FCS, transparency).
+
