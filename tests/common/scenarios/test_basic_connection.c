@@ -427,6 +427,7 @@ static int test_data_exchange(void) {
   /* Primary sends message to secondary */
   int i;
   ssize_t sent;
+rep:
   test_printf("Primary sending %zu bytes...\n", msg_len*10);
   for (i = 0; i < 10; ++i) {
     sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 2000);
@@ -474,7 +475,8 @@ static int test_data_exchange(void) {
   TEST_ASSERT_GOTO(memcmp(echo_buf, test_msg, msg_len) == 0, "Echo data mismatch");
   test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);
   
-  usleep(1000000);
+  usleep(200000);
+  goto rep;
   test_printf("✅ Data exchange completed successfully\n");
   
   /* Disconnect */

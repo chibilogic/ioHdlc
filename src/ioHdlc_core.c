@@ -433,6 +433,8 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   while (p->nr != nr && !ioHdlc_frameq_isempty(&p->i_retrans_q)) {
     iohdlc_frame_t *acked_fp = ioHdlc_frameq_remove(&p->i_retrans_q);
     uint32_t acked_ns = extractNS(s, acked_fp);
+
+    /* TODO: maybe we should check acked_ns vs p->nr */
     
     /* Clear checkpoint state if this was the tracked frame */
     if (p->chkpt_actioned != 0 && (p->chkpt_actioned - 1) == acked_ns) {
@@ -449,6 +451,8 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     released_frames = true;
     /* Increment with modmask */
     p->nr = (p->nr + 1) & s->modmask;
+    if (acked_ns == p->vs_atlast_pf)
+      p->vs_atlast_pf = (p->vs_atlast_pf + 1) & s->modmask;
   }
   
   /* Update last acknowledged N(R). */
@@ -574,12 +578,15 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
        inhibits if REJ is active and would retransmit the same I-frame. */
     checkpoint_moved_frames = checkpointRetransmit(s, p);
     
-    /* C. Role-specific P/F handling. */
+    /* Role-specific P/F handling. */
     if (IOHDLC_IS_PRI(s)) {
-      /* Primary received F=1: acknowledge poll and stop timer. */
+      /* Primary received F=1: acknowledge poll and stop timer.
+         Signal TX for I-frame, if any. */
       s->pf_state |= IOHDLC_F_RCVED;
       p->poll_retry_count = 0;
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
+      if (!ioHdlc_frameq_isempty(&p->i_trans_q))
+        ioHdlcBroadcastFlags(s, IOHDLC_EVT_ISNDREQ);
       
     } else {
       /* Secondary received P=1: must respond with F=1.
@@ -966,9 +973,10 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         (IOHDLC_USE_TWA(s) ? IOHDLC_F_ISRCVED(s) && no_i_frame : IOHDLC_F_ISRCVED(s)) :
         (IOHDLC_P_ISRCVED(s) && no_i_frame);
       
-      /* Read values under lock before building frame */
+      /* Read values under lock before building frame (including ss_fun snapshot) */
       const uint32_t nr = p->vr;
       const uint32_t vs_for_checkpoint = p->vs;
+      const uint8_t ss_fun_snapshot = p->ss_fun;
       
       iohdlc_mutex_unlock(&p->state_mutex);
       
@@ -976,34 +984,45 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       if (fp != NULL) {
         bool is_command = IOHDLC_IS_PRI(s);
 
-        buildSFrame(s, p, fp, p->ss_fun, nr, set_pf, is_command);
+        buildSFrame(s, p, fp, ss_fun_snapshot, nr, set_pf, is_command);
 #if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
         /* Log S-frame transmission (before send, frame will be released) */
-        iohdlc_log_sfun_t log_fun = (p->ss_fun >> 2);
-        uint8_t log_flags = (p->ss_fun == IOHDLC_S_RNR) ? IOHDLC_LOG_FLAG_BUSY : 0;
+        iohdlc_log_sfun_t log_fun = (ss_fun_snapshot >> 2);
+        uint8_t log_flags = (ss_fun_snapshot == IOHDLC_S_RNR) ? IOHDLC_LOG_FLAG_BUSY : 0;
         uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
-#endif        
+#endif
+        
+        /* Re-acquire lock for atomic state update + send + timer operations */
+        iohdlc_mutex_lock(&p->state_mutex);
+        
+        /* Update checkpoint reference and ACK P/F BEFORE sending */
+        if (set_pf) {
+          p->vs_atlast_pf = vs_for_checkpoint;
+          if (IOHDLC_IS_PRI(s)) {
+            IOHDLC_ACK_F(s);
+          } else {
+            IOHDLC_ACK_P(s);
+          }
+        }
+        
+        /* Send frame under lock to ensure state consistency */
         (void)sendFrame(s, fp);
+        
+        /* Start timer if needed (still under lock) */
+        if (set_pf && IOHDLC_IS_PRI(s)) {
+          ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
+        }
         
         IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
                           log_fun, nr, set_pf, log_flags);
-      }
-
-      iohdlc_mutex_lock(&p->state_mutex);
-      p->ss_state &= ~IOHDLC_SS_SENDING;
-      if (set_pf) {
-        /* Update checkpoint reference. */
-        p->vs_atlast_pf = vs_for_checkpoint;
-      }
-      iohdlc_mutex_unlock(&p->state_mutex);
-      
-      if (set_pf) {
-        if (IOHDLC_IS_PRI(s)) {
-          /* If sent P, ack F and start the timer.*/
-          IOHDLC_ACK_F(s);
-          ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
-        } else
-          IOHDLC_ACK_P(s);
+        
+        p->ss_state &= ~IOHDLC_SS_SENDING;
+        iohdlc_mutex_unlock(&p->state_mutex);
+      } else {
+        /* Frame allocation failed */
+        iohdlc_mutex_lock(&p->state_mutex);
+        p->ss_state &= ~IOHDLC_SS_SENDING;
+        iohdlc_mutex_unlock(&p->state_mutex);
       }
     } else {
       iohdlc_mutex_unlock(&p->state_mutex);
@@ -1117,14 +1136,17 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       p->vs = (p->vs + 1) & s->modmask;
     }
 
-    /* Save vs_atlast_pf if setting P/F bit */
+    /* Update checkpoint reference and ACK P/F BEFORE sending (atomic with state) */
     if (set_pf) {
       p->vs_atlast_pf = p->vs;
+      if (IOHDLC_IS_PRI(s)) {
+        IOHDLC_ACK_F(s);
+      } else {
+        IOHDLC_ACK_P(s);
+      }
     }
     
-    iohdlc_mutex_unlock(&p->state_mutex);
-    
-    /* Update N(R) and P/F. */
+    /* Update N(R) and P/F in frame (can be done under lock, operates on frame buffer) */
     IOHDLC_FRAME_SET_NR(s, fp, nr_value);
     IOHDLC_FRAME_SET_PF(s, fp, set_pf);
 
@@ -1137,7 +1159,15 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     uint8_t fflags = 0;
 #endif
 
+    /* Send frame under lock to ensure state consistency */
     (void)hdlcSendFrame(s->driver, fp);
+    
+    /* Start timer if needed (still under lock for atomicity) */
+    if (set_pf && IOHDLC_IS_PRI(s)) {
+      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
+    }
+    
+    iohdlc_mutex_unlock(&p->state_mutex);
     
     /* Log I-frame transmission */
     IOHDLC_LOG_IFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
@@ -1146,18 +1176,6 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
     /* Mark that we sent at least one I-frame. */
     i_frame_sent = true;
-
-    /* Handle P/F state. */
-    if (set_pf) {
-      if (IOHDLC_IS_PRI(s)) {
-        /* Primary sent P: ack any received F and start command reply timer. */
-        IOHDLC_ACK_F(s);
-        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
-      } else {
-        /* Secondary sent F: ack received P. */
-        IOHDLC_ACK_P(s);
-      }
-    }
 
     /* In TWA, stop after sending one frame with F (secondary) or P (primary). */
     if (IOHDLC_USE_TWA(s) && set_pf)
