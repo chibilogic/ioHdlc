@@ -54,11 +54,11 @@ static int32_t init_test_station(iohdlc_station_t *station,
   iohdlc_station_config_t config;
 
   /* Initialize frame pool (minimal mock) */
-  memset(frame_pool, 0, sizeof(*frame_pool));
+  memset(frame_pool, 0, sizeof *frame_pool);
   frame_pool->framesize = FRAME_SIZE;
   
   /* Initialize mock driver */
-  memset(driver, 0, sizeof(*driver));
+  memset(driver, 0, sizeof *driver);
 
   /* Configure station */
   config.mode = IOHDLC_OM_NRM;
@@ -72,7 +72,7 @@ static int32_t init_test_station(iohdlc_station_t *station,
   config.phydriver_config = NULL;
 
   /* Initialize station */
-  memset(station, 0, sizeof(*station));
+  memset(station, 0, sizeof *station);
   return ioHdlcStationInit(station, &config);
 }
 
@@ -200,8 +200,8 @@ bool test_snrm_handshake(void) {
   /* Initialize frame pools with arena */
   static uint8_t arena_primary[8192];
   static uint8_t arena_secondary[8192];
-  fmpInit(&pool_primary, arena_primary, sizeof(arena_primary), FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, arena_secondary, sizeof(arena_secondary), FRAME_SIZE, 8);
+  fmpInit(&pool_primary, arena_primary, sizeof arena_primary, FRAME_SIZE, 8);
+  fmpInit(&pool_secondary, arena_secondary, sizeof arena_secondary, FRAME_SIZE, 8);
   
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;
@@ -214,12 +214,12 @@ bool test_snrm_handshake(void) {
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
   
-  memset(&station_primary, 0, sizeof(station_primary));
+  memset(&station_primary, 0, sizeof station_primary);
   result = ioHdlcStationInit(&station_primary, &config);
   TEST_ASSERT(result == 0, "Primary station init failed");
   
   /* Configure secondary station */
-  memset(&config, 0, sizeof(config));
+  memset(&config, 0, sizeof config);
   config.mode = IOHDLC_OM_NDM;  /* Secondary starts in disconnected mode */
   config.flags = 0;  /* Secondary */
   config.log2mod = 3;
@@ -230,7 +230,7 @@ bool test_snrm_handshake(void) {
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;
   
-  memset(&station_secondary, 0, sizeof(station_secondary));
+  memset(&station_secondary, 0, sizeof station_secondary);
   result = ioHdlcStationInit(&station_secondary, &config);
   TEST_ASSERT(result == 0, "Secondary station init failed");
   
@@ -351,8 +351,8 @@ static int test_data_exchange(void) {
   /* Initialize frame pools */
   static uint8_t arena_primary[8192];
   static uint8_t arena_secondary[8192];
-  fmpInit(&pool_primary, arena_primary, sizeof(arena_primary), FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, arena_secondary, sizeof(arena_secondary), FRAME_SIZE, 8);
+  fmpInit(&pool_primary, arena_primary, sizeof arena_primary, FRAME_SIZE, 8);
+  fmpInit(&pool_secondary, arena_secondary, sizeof arena_secondary, FRAME_SIZE, 8);
   
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;
@@ -365,12 +365,12 @@ static int test_data_exchange(void) {
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
   
-  memset(&station_primary, 0, sizeof(station_primary));
+  memset(&station_primary, 0, sizeof station_primary);
   result = ioHdlcStationInit(&station_primary, &config);
   TEST_ASSERT(result == 0, "Primary station init failed");
   
   /* Configure secondary station */
-  memset(&config, 0, sizeof(config));
+  memset(&config, 0, sizeof config);
   config.mode = IOHDLC_OM_NDM;
   config.flags = 0; /* |IOHDLC_FLG_TWA; */
   config.log2mod = 3;
@@ -381,7 +381,7 @@ static int test_data_exchange(void) {
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;
   
-  memset(&station_secondary, 0, sizeof(station_secondary));
+  memset(&station_secondary, 0, sizeof station_secondary);
   result = ioHdlcStationInit(&station_secondary, &config);
   TEST_ASSERT(result == 0, "Secondary station init failed");
   
@@ -437,21 +437,26 @@ static int test_data_exchange(void) {
     TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
     test_printf("Primary sent %zd bytes\n", sent);
   }
+  usleep(500000);
+
   /* Secondary receives message */
   memset(recv_buf, 0, sizeof recv_buf);
-  ssize_t received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, sizeof recv_buf - 1, 2000);
-  test_printf("Secondary read returned %zd bytes (expected %zu), errno=%d\n",
-              received, msg_len, station_secondary.errorno);
-  if (received > 0 && received <= (ssize_t)sizeof(recv_buf)) {
-    /* Null-terminate for printing */
-    recv_buf[received < (ssize_t)sizeof(recv_buf) ? (size_t)received : sizeof(recv_buf)-1] = '\0';
-    test_printf("  Data: \"%s\"\n", recv_buf);
-    /* Also print hex for first 20 bytes to debug */
-    test_printf("  Hex: ");
-    for (ssize_t i = 0; i < received && i < 20; i++) {
-      test_printf("%02x ", (unsigned char)recv_buf[i]);
+  ssize_t received;
+  for (i = 0; i < 10; ++i) {
+    received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, msg_len, 2000);
+    test_printf("Secondary read returned %zd bytes (expected %zu), errno=%d\n",
+                received, msg_len, station_secondary.errorno);
+    if (received > 0 && received <= (ssize_t)sizeof recv_buf) {
+      /* Null-terminate for printing */
+      recv_buf[received < (ssize_t)sizeof recv_buf ? (size_t)received : sizeof recv_buf-1] = '\0';
+      test_printf("  Data: \"%s\"\n", recv_buf);
+      /* Also print hex for first 20 bytes to debug */
+      test_printf("  Hex: ");
+      for (ssize_t i = 0; i < received && i < 20; i++) {
+        test_printf("%02x ", (unsigned char)recv_buf[i]);
+      }
+      test_printf("\n");
     }
-    test_printf("\n");
   }
   TEST_ASSERT_GOTO(received == (ssize_t)msg_len, "Secondary read failed");
   TEST_ASSERT_GOTO(memcmp(recv_buf, test_msg, msg_len) == 0, "Received data mismatch");
@@ -463,13 +468,13 @@ static int test_data_exchange(void) {
   test_printf("Secondary echoed %zd bytes\n", sent);
   
   /* Primary receives echo */
-  memset(echo_buf, 0, sizeof(echo_buf));
-  received = ioHdlcReadTmo(&peer_at_primary, echo_buf, sizeof(echo_buf) - 1, 2000);
+  memset(echo_buf, 0, sizeof echo_buf);
+  received = ioHdlcReadTmo(&peer_at_primary, echo_buf, sizeof echo_buf - 1, 2000);
   TEST_ASSERT_GOTO(received == (ssize_t)msg_len, "Primary echo read failed");
   TEST_ASSERT_GOTO(memcmp(echo_buf, test_msg, msg_len) == 0, "Echo data mismatch");
   test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);
   
-  usleep(5000000);
+  usleep(1000000);
   test_printf("✅ Data exchange completed successfully\n");
   
   /* Disconnect */
@@ -510,7 +515,7 @@ int main(void) {
   RUN_TEST(test_station_creation);
   RUN_TEST(test_peer_creation);
   /* TODO: Fix thread cleanup issue between tests */
-  /* RUN_TEST(test_snrm_handshake); */
+  RUN_TEST(test_snrm_handshake);
   RUN_TEST(test_data_exchange);
 
   TEST_SUMMARY();

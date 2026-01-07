@@ -60,6 +60,10 @@ static inline void iohdlc_sem_signal_i(iohdlc_sem_t *sp) {
   chSemSignalI(sp);
 }
 
+static inline void iohdlc_sem_signal(iohdlc_sem_t *sp) {
+  chSemSignal(sp);
+}
+
 static inline void iohdlc_bsem_init(iohdlc_binary_semaphore_t *bsp, bool taken) {
   chBSemObjectInit(bsp, taken);
 }
@@ -95,6 +99,13 @@ static inline void iohdlc_bsem_signal_i(iohdlc_binary_semaphore_t *bsp) {
  * @brief   Infinite timeout constant.
  */
 #define IOHDLC_WAIT_FOREVER  0xFFFFFFFFU
+
+/**
+ * @brief   Get current time in milliseconds.
+ */
+static inline uint32_t iohdlc_time_now_ms(void) {
+  return TIME_I2MS(chVTGetSystemTimeX());
+}
 
 /*===========================================================================*/
 /* Virtual Timer                                                             */

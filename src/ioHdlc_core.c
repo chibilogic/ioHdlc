@@ -681,8 +681,8 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   
   iohdlc_mutex_unlock(&p->state_mutex);
   
-  /* Signal the read semaphore to unblock ioHdlcReadTmo() if waiting (outside lock) */
-  iohdlc_bsem_signal(&p->i_recept_sem);
+  /* Signal the counting semaphore to unblock ioHdlcReadTmo() if waiting (increment count) */
+  iohdlc_sem_signal(&p->i_recept_sem);
   
   /* Broadcast RNR event if needed (outside lock) */
   if (should_broadcast_rnr) {
@@ -1109,20 +1109,19 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Move frame to retransmission queue. */
     ioHdlc_frameq_insert(&p->i_retrans_q, fp);
 
-    /* Save vs_atlast_pf if setting P/F bit */
-    if (set_pf) {
-      p->vs_atlast_pf = p->vs;
-    }
-    
     /* If the frame came from i_trans_q, set N(S) and then advance V(S) - use
        modmask for modular arithmetic on full numbering space. */
     if (!(fp->flags & IOHDLC_FRM_NS_PRESERVE)) {
       fp->flags |= IOHDLC_FRM_NS_PRESERVE;
       IOHDLC_FRAME_SET_NS(s, fp, p->vs);
-      uint32_t new_vs = (p->vs + 1) & s->modmask;
-      p->vs = new_vs;
+      p->vs = (p->vs + 1) & s->modmask;
     }
 
+    /* Save vs_atlast_pf if setting P/F bit */
+    if (set_pf) {
+      p->vs_atlast_pf = p->vs;
+    }
+    
     iohdlc_mutex_unlock(&p->state_mutex);
     
     /* Update N(R) and P/F. */

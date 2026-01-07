@@ -73,7 +73,7 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
   if (!ctx) {
     return;
   }
-  memset(ctx, 0, sizeof(*ctx));
+  memset(ctx, 0, sizeof *ctx);
   station->runner_context = ctx;
   station->stop_requested = false;
   

@@ -302,7 +302,7 @@ struct iohdlc_station_peer {
                               Blocks app when i_pending_count >= 2*ks or pool is LOW_WATER.
                               Broadcast when space becomes available (ACK received or pool normal).
                               Used with state_mutex for wait/signal operations. */
-  iohdlc_binary_semaphore_t i_recept_sem;  /* RX data available semaphore.
+  iohdlc_sem_t i_recept_sem;  /* RX data available counting semaphore (one count per frame).
                                               Signaled when I-frame arrives in i_recept_q.
                                               Used by Read to block until data available. */
   iohdlc_mutex_t state_mutex;  /* Mutex protecting protocol state variables:

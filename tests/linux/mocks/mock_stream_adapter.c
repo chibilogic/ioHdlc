@@ -48,7 +48,7 @@ mock_stream_adapter_t* mock_stream_adapter_create(mock_stream_t *stream) {
     return NULL;
   }
 
-  mock_stream_adapter_t *adapter = calloc(1, sizeof(*adapter));
+  mock_stream_adapter_t *adapter = calloc(1, sizeof *adapter);
   if (!adapter) {
     return NULL;
   }

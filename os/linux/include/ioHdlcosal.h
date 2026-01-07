@@ -307,6 +307,13 @@ static inline void iohdlc_sem_signal_i(iohdlc_sem_t *sp) {
   sem_post(&sp->sem);
 }
 
+/**
+ * @brief   Signal semaphore (non-ISR context).
+ */
+static inline void iohdlc_sem_signal(iohdlc_sem_t *sp) {
+  sem_post(&sp->sem);
+}
+
 /*===========================================================================*/
 /* Memory Pool                                                               */
 /*===========================================================================*/
@@ -387,6 +394,13 @@ static inline void iohdlc_dma_free(void* ptr) {
  * @brief   Get current system time in milliseconds.
  */
 iohdlc_systime_t iohdlc_get_systime(void);
+
+/**
+ * @brief   Get current time in milliseconds (alias for compatibility).
+ */
+static inline uint32_t iohdlc_time_now_ms(void) {
+  return (uint32_t)iohdlc_get_systime();
+}
 
 /*===========================================================================*/
 /* System Lock/Unlock (No-op for POSIX userspace)                           */

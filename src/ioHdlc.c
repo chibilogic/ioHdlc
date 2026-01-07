@@ -93,6 +93,10 @@ extern const ioHdlcRunnerOps *s_runner_ops;
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
+/*===========================================================================*/
+/* Module exported functions.                                                */
+/*===========================================================================*/
+
 /**
  * @brief   Initialize HDLC station with configuration.
  * @details Initializes a station descriptor with the provided configuration:
@@ -171,10 +175,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   /* Configure optional functions */
   if (ioHdlcsconfp->optfuncs != NULL) {
     /* User provided custom optional functions */
-    memcpy(ioHdlcsp->optfuncs, ioHdlcsconfp->optfuncs, sizeof(ioHdlcsp->optfuncs));
+    memcpy(ioHdlcsp->optfuncs, ioHdlcsconfp->optfuncs, sizeof ioHdlcsp->optfuncs);
   } else {
     /* Use default optional functions: REJ, SST, FFF enabled */
-    memset(ioHdlcsp->optfuncs, 0, sizeof(ioHdlcsp->optfuncs));
+    memset(ioHdlcsp->optfuncs, 0, sizeof ioHdlcsp->optfuncs);
     ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] |= IOHDLC_OPT_REJ;
     ioHdlcsp->optfuncs[IOHDLC_OPT_SST_OCT] |= IOHDLC_OPT_SST;
     ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] |= IOHDLC_OPT_FFF;
@@ -341,7 +345,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
                   (s->frame_pool->framesize - overhead) : 64;  /* Fallback to 64 */
 
   /* Initialize the peer structure */
-  memset(peer, 0, sizeof(*peer));
+  memset(peer, 0, sizeof *peer);
   peer->addr = addr;
   peer->stationp = s;
   peer->kr = peer->ks = s->modmask;
@@ -355,7 +359,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   
   /* Initialize flow control condvar, semaphore and mutex */
   iohdlc_condvar_init(&peer->tx_cv);            /* TX flow control (used with state_mutex) */
-  iohdlc_bsem_init(&peer->i_recept_sem, true);  /* Initially taken (no data) */
+  iohdlc_sem_init(&peer->i_recept_sem, 0);      /* Counting semaphore - number of frames available */
   iohdlc_mutex_init(&peer->state_mutex);        /* Priority-inheriting mutex for state */
   
   /* Initialize virtual timers (reply and I-frame reply) */
@@ -379,10 +383,6 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   
   return 0;
 }
-
-/*===========================================================================*/
-/* Module exported functions.                                                */
-/*===========================================================================*/
 
 /**
  * @brief   Establish data link connection with a peer (extended version).
@@ -750,27 +750,37 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
   size_t total_bytes_read = 0;
   uint8_t *dest = (uint8_t *)buf;
   
+  /* Calculate absolute timeout for total operation (handle infinite timeout) */
+  uint32_t start_time_ms = iohdlc_time_now_ms();
+  uint32_t deadline_ms = (timeout_ms == IOHDLC_WAIT_FOREVER) ? 
+                         IOHDLC_WAIT_FOREVER : (start_time_ms + timeout_ms);
+  
   ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
-  /* Greedy consumption loop: read frames until count exhausted or queue empty.
-     This improves efficiency by draining the queue in a single syscall
-     instead of requiring multiple calls when multiple frames are available. */
+  /* Greedy consumption loop: read frames until count satisfied, timeout, or queue empty.
+     POSIX semantics: returns bytes read even on timeout (only -1 if no bytes read yet). */
   while (total_bytes_read < count) {
 
     /* Check if we have a partial frame from previous read */
     if (peer->partial_read_frame != NULL) {
       fp = peer->partial_read_frame;
     } else {
-      /* Try to get next frame from queue.
-         On first iteration: wait with timeout on semaphore.
-         On subsequent iterations: check queue directly (semaphore is binary,
-         only signaled once even if multiple frames available). */
-      if (total_bytes_read == 0) {
-        /* First frame: wait with timeout */
-        msg_t result = iohdlc_bsem_wait_timeout_ms(&peer->i_recept_sem, timeout_ms);
-        if (result != MSG_OK) {
-          s->errorno = ETIMEDOUT;
-          return -1;
+      /* Calculate remaining timeout (infinite if deadline is infinite) */
+      uint32_t remaining_ms;
+      if (deadline_ms == IOHDLC_WAIT_FOREVER) {
+        remaining_ms = IOHDLC_WAIT_FOREVER;
+      } else {
+        uint32_t now_ms = iohdlc_time_now_ms();
+        remaining_ms = (now_ms < deadline_ms) ? (deadline_ms - now_ms) : 0;
+      }
+      
+      /* Wait for next frame with remaining timeout (counting semaphore) */
+      if (!iohdlc_sem_wait_ok(&peer->i_recept_sem, (iohdlc_timeout_t)remaining_ms)) {
+        /* Timeout: return bytes read so far, or -1 if nothing read yet */
+        if (total_bytes_read > 0) {
+          break;  /* POSIX: return partial read on timeout */
         }
+        s->errorno = ETIMEDOUT;
+        return -1;
       }
       
       /* Remove frame from queue (protect with mutex) */
@@ -781,8 +791,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       iohdlc_mutex_unlock(&peer->state_mutex);
       
       if (fp == NULL) {
-        /* Queue empty: on first iteration shouldn't happen after semaphore wait.
-           On subsequent iterations, this is expected when queue is drained. */
+        /* Semaphore signaled but queue empty: shouldn't happen, but handle gracefully */
         if (total_bytes_read > 0)
           break;  /* Return what we've read so far */
         s->errorno = EAGAIN;

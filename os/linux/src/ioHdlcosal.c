@@ -298,7 +298,7 @@ void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp) {
   struct sigevent sev;
   pthread_mutexattr_t attr;
   
-  memset(vtp, 0, sizeof(*vtp));
+  memset(vtp, 0, sizeof *vtp);
   
   /* Initialize recursive mutex to allow callback to call vt_set/reset */
   pthread_mutexattr_init(&attr);
@@ -307,7 +307,7 @@ void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp) {
   pthread_mutexattr_destroy(&attr);
   
   /* Create POSIX timer */
-  memset(&sev, 0, sizeof(sev));
+  memset(&sev, 0, sizeof sev);
   sev.sigev_notify = SIGEV_THREAD;
   sev.sigev_notify_function = timer_signal_handler;
   sev.sigev_value.sival_ptr = vtp;
@@ -329,7 +329,7 @@ void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp, uint32_t delay_ms,
   
   /* Cancel any existing timer */
   if (vtp->armed) {
-    memset(&its, 0, sizeof(its));
+    memset(&its, 0, sizeof its);
     timer_settime(vtp->timer_id, 0, &its, NULL);
   }
   
@@ -339,7 +339,7 @@ void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp, uint32_t delay_ms,
   vtp->armed = true;
   vtp->expired = false;
   
-  memset(&its, 0, sizeof(its));
+  memset(&its, 0, sizeof its);
   its.it_value.tv_sec = delay_ms / 1000;
   its.it_value.tv_nsec = (delay_ms % 1000) * 1000000L;
   
@@ -354,7 +354,7 @@ void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp) {
   pthread_mutex_lock(&vtp->lock);
   
   if (vtp->armed) {
-    memset(&its, 0, sizeof(its));
+    memset(&its, 0, sizeof its);
     timer_settime(vtp->timer_id, 0, &its, NULL);
     vtp->armed = false;
   }
@@ -376,7 +376,7 @@ bool iohdlc_vt_is_armed(iohdlc_virtual_timer_t *vtp) {
 /*===========================================================================*/
 
 void iohdlc_evt_init(iohdlc_event_source_t *esp) {
-  memset(esp, 0, sizeof(*esp));
+  memset(esp, 0, sizeof *esp);
   pthread_mutex_init(&esp->lock, NULL);
   esp->listeners = NULL;
 }
@@ -416,7 +416,7 @@ void iohdlc_evt_register(iohdlc_event_source_t *esp,
                          iohdlc_event_listener_t *elp,
                          eventmask_t events,
                          eventflags_t wflags) {
-  memset(elp, 0, sizeof(*elp));
+  memset(elp, 0, sizeof *elp);
   elp->thread = pthread_self();
   elp->thread_events = get_thread_events();
   elp->events = events;

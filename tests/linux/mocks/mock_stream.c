@@ -17,7 +17,7 @@
 /*===========================================================================*/
 
 static void buffer_init(mock_buffer_t *buf) {
-  memset(buf->data, 0, sizeof(buf->data));
+  memset(buf->data, 0, sizeof buf->data);
   buf->head = 0;
   buf->tail = 0;
   buf->count = 0;
