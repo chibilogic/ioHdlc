@@ -523,6 +523,7 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
     /* Mark checkpoint as actioned with first frame N(S).
        Used to detect overlap with subsequent REJ (5.6.2.2). */
     p->chkpt_actioned = first_ns + 1;
+    p->vs = first_ns;  /* Reset V(S) to first retransmit frame N(S) */
     
     return true;
   }
@@ -1128,13 +1129,10 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Move frame to retransmission queue. */
     ioHdlc_frameq_insert(&p->i_retrans_q, fp);
 
-    /* If the frame came from i_trans_q, set N(S) and then advance V(S) - use
+    /* Set N(S) and then advance V(S) - use
        modmask for modular arithmetic on full numbering space. */
-    if (!(fp->flags & IOHDLC_FRM_NS_PRESERVE)) {
-      fp->flags |= IOHDLC_FRM_NS_PRESERVE;
-      IOHDLC_FRAME_SET_NS(s, fp, p->vs);
-      p->vs = (p->vs + 1) & s->modmask;
-    }
+    IOHDLC_FRAME_SET_NS(s, fp, p->vs);
+    p->vs = (p->vs + 1) & s->modmask;
 
     /* Update checkpoint reference and ACK P/F BEFORE sending (atomic with state) */
     if (set_pf) {

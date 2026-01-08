@@ -666,8 +666,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     
     /* Build frame outside mutex (no shared state accessed) */
     
-    /* Set flags and address field */
-    fp->flags = 0;
+    /* Set address field */
     IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
     
     /* Set control field: I-frame ID */

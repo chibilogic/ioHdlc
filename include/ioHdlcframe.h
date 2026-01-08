@@ -45,8 +45,6 @@
 /* Module constants.                                         */
 /*===========================================================================*/
 
-#define IOHDLC_FRM_NS_PRESERVE  0x01  /**< Preserve N(S) in frame. */
-
 /*===========================================================================*/
 /* Module data structures and types.                                         */
 /*===========================================================================*/
@@ -71,7 +69,6 @@ struct iohdlc_frame {
   iohdlc_frame_t *next;
   iohdlc_frame_t *prev;
 
-  uint8_t  flags;                 /* Frame flags (e.g., control bits) */
   uint16_t elen;                  /* Effective length of the frame, excluding
                                      FLAG and FCS. */
   uint8_t  refs;                  /* Number of references to this frame. */
