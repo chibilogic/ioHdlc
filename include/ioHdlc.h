@@ -262,7 +262,7 @@ struct iohdlc_station_peer {
   /* state variables. */
   uint32_t  vs;                 /* Send state variable V(S). */
   uint32_t  vr;                 /* Receive state variable V(R). */
-  uint32_t  nr;                 /* Last N(R) received and accepted.
+  uint32_t  nr;                 /* Last N(R) received and accepted + 1.
                                    Invariant: (vs-nr) & modmask = len(i_retrans_q), must be ≤ ks. */
   uint32_t  rej_actioned;       /* a value x != 0 of this field indicates that a
                                    REJ exception with N(R) = x-1 is in action. The receipt

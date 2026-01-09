@@ -1129,11 +1129,6 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Move frame to retransmission queue. */
     ioHdlc_frameq_insert(&p->i_retrans_q, fp);
 
-    /* Set N(S) and then advance V(S) - use
-       modmask for modular arithmetic on full numbering space. */
-    IOHDLC_FRAME_SET_NS(s, fp, p->vs);
-    p->vs = (p->vs + 1) & s->modmask;
-
     /* Update checkpoint reference and ACK P/F BEFORE sending (atomic with state) */
     if (set_pf) {
       p->vs_atlast_pf = p->vs;
@@ -1144,6 +1139,11 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       }
     }
     
+    /* Set N(S) and then advance V(S) - use
+       modmask for modular arithmetic on full numbering space. */
+    IOHDLC_FRAME_SET_NS(s, fp, p->vs);
+    p->vs = (p->vs + 1) & s->modmask;
+
     /* Update N(R) and P/F in frame (can be done under lock, operates on frame buffer) */
     IOHDLC_FRAME_SET_NR(s, fp, nr_value);
     IOHDLC_FRAME_SET_PF(s, fp, set_pf);
