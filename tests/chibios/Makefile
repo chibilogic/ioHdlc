@@ -156,7 +156,8 @@ TEST_ADAPTER_SRCS =
 # OS-agnostic test scenarios (shared with Linux)
 COMMON_TEST_SCENARIOS = \
 	$(COMMON_SCENARIOS_DIR)/test_frame_pool.c \
-	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c
+	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c \
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c
 
 # Test main (combines all tests)
 TEST_MAIN_SRC = main_tests.c \

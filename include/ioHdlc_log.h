@@ -155,6 +155,14 @@ void iohdlc_log_sframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
 void iohdlc_log_uframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
                         iohdlc_log_ufun_t fun, bool pf);
 
+/**
+ * @brief   Log a msg.
+ *
+ * @param[in] dir       Direction (TX or RX)
+ * @param[in] msg       Message to log
+ */
+void iohdlc_log_msg(iohdlc_log_dir_t dir, uint8_t saddr, const char *msg, ...);
+
 /*===========================================================================*/
 /* Logging macros (compile-time conditional)                                 */
 /*===========================================================================*/
@@ -168,12 +176,17 @@ void iohdlc_log_uframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
 #define IOHDLC_LOG_UFRAME(dir, saddr, addr, fun, pf) \
   iohdlc_log_uframe(dir, saddr, addr, fun, pf)
 
+#define IOHDLC_LOG_WARN(dir, saddr, msg, ...) \
+  iohdlc_log_msg(dir, saddr, msg, ##__VA_ARGS__)
+
 #else /* IOHDLC_LOG_LEVEL == OFF */
 
 /* No-op macros when logging disabled (zero overhead) */
 #define IOHDLC_LOG_IFRAME(...) ((void)0)
 #define IOHDLC_LOG_SFRAME(...) ((void)0)
 #define IOHDLC_LOG_UFRAME(...) ((void)0)
+#define IOHDLC_LOG_MSG(...) ((void)0)
+#define IOHDLC_LOG_WARN(...) ((void)0)
 
 #endif /* IOHDLC_LOG_LEVEL > OFF */
 

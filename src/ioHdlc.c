@@ -41,6 +41,7 @@
 #include "ioHdlcosal.h"
 #include "ioHdlcqueue.h"
 #include "ioHdlclist.h"
+#include "ioHdlc_log.h"
 #include <string.h>
 #include <errno.h>
 
@@ -122,7 +123,6 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   uint32_t mod2 = 0;
   uint8_t mode = ioHdlcsconfp->mode;
 
-  /* Validate mode */
   if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM) &&
       (mode != IOHDLC_OM_NRM) && (mode != IOHDLC_OM_ARM) &&
       (mode != IOHDLC_OM_ABM)) {

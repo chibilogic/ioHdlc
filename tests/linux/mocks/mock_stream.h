@@ -23,6 +23,18 @@
 #define MOCK_STREAM_BUFFER_SIZE 4096
 
 /**
+ * @brief   Error filter callback type.
+ * @details Called for each write to decide whether to corrupt this frame.
+ * @param   write_count  Sequential write counter (starts at 0)
+ * @param   data         Pointer to data being written
+ * @param   size         Size of data being written
+ * @param   userdata     User-provided context pointer
+ * @return  true to corrupt this write, false to pass it through unchanged
+ */
+typedef bool (*mock_stream_error_filter_t)(uint32_t write_count, const uint8_t *data, 
+                                           size_t size, void *userdata);
+
+/**
  * @brief   Mock stream configuration.
  */
 typedef struct {
@@ -30,6 +42,8 @@ typedef struct {
   bool inject_errors;     /**< Randomly corrupt data */
   uint32_t error_rate;    /**< Error probability (0-1000 = 0-100%) */
   uint32_t delay_us;      /**< Simulated transmission delay */
+  mock_stream_error_filter_t error_filter;  /**< Optional: callback to selectively corrupt frames */
+  void *error_userdata;   /**< Optional: userdata passed to error_filter */
 } mock_stream_config_t;
 
 /**
@@ -54,6 +68,7 @@ typedef struct mock_stream {
   mock_stream_config_t config;
   struct mock_stream *peer;  /**< Connected peer stream */
   bool closed;
+  uint32_t write_count;      /**< Sequential write counter for error_filter */
   pthread_mutex_t state_lock;
 } mock_stream_t;
 

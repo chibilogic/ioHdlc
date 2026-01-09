@@ -203,6 +203,8 @@
 #define IOHDLC_ACK_P(s)       ((s)->pf_state &= ~IOHDLC_P_RCVED)
 #define IOHDLC_ACK_F(s)       ((s)->pf_state &= ~IOHDLC_F_RCVED)
 #define IOHDLC_HAS_FFF(s)     ((s)->flags_critical & IOHDLC_CFLG_FFF)
+#define IOHDLC_USE_REJ(s)     ((s)->flags_critical & IOHDLC_CFLG_REJ)
+#define IOHDLC_USE_STB(s)     ((s)->flags_critical & IOHDLC_CFLG_STB)
 #define IOHDLC_USE_TWA(s)     ((s)->flags & IOHDLC_FLG_TWA)
 #define IOHDLC_ST_IDLE(s)     ((s)->flags & IOHDLC_FLG_IDL)
 #define IOHDLC_ST_BUSY(s)     ((s)->flags & IOHDLC_FLG_BUSY)

@@ -146,10 +146,13 @@ void mock_stream_init(mock_stream_t *stream, const mock_stream_config_t *config)
     stream->config.inject_errors = false;
     stream->config.error_rate = 0;
     stream->config.delay_us = 0;
+    stream->config.error_filter = NULL;
+    stream->config.error_userdata = NULL;
   }
   
   stream->peer = NULL;
   stream->closed = false;
+  stream->write_count = 0;
 }
 
 void mock_stream_deinit(mock_stream_t *stream) {
@@ -213,29 +216,65 @@ size_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size,
     }
   }
   
-  /* Handle loopback or peer connection */
   chMtxLock(&stream->state_lock);
+  
+  /* Get current write count and increment for next call */
+  uint32_t current_write = stream->write_count++;
+  
+  /* Apply error injection if configured */
+  const uint8_t *data_to_send = buf;
+  uint8_t corrupted_data[size];
+  bool should_corrupt = false;
+  
+  if (stream->config.inject_errors && stream->config.error_rate > 0) {
+    /* If error_filter is provided, use it to decide whether to corrupt */
+    if (stream->config.error_filter) {
+      should_corrupt = stream->config.error_filter(current_write, buf, size, 
+                                                    stream->config.error_userdata);
+    } else {
+      /* No filter: use random corruption (not implemented) */
+      should_corrupt = false;
+    }
+    
+    if (should_corrupt) {
+      memcpy(corrupted_data, buf, size);
+      
+      /* Corrupt only the FCS (last 2 bytes before closing flag) to guarantee FCS failure.
+       * HDLC frame: 0x7E | Address | Control | Data | FCS_L | FCS_H | 0x7E
+       * For frame of size N:
+       *   data[size-1] = closing flag (0x7E)
+       *   data[size-2] = FCS high byte
+       *   data[size-3] = FCS low byte
+       */
+      if (size >= 4) {
+        corrupted_data[size - 3] ^= 0xFF;  /* Flip all bits in FCS low byte */
+        corrupted_data[size - 2] ^= 0xFF;  /* Flip all bits in FCS high byte */
+      }
+      
+      data_to_send = corrupted_data;
+    }
+  }
   
   size_t written;
   
   if (stream->config.loopback) {
     /* Loopback: write to own TX buffer, then copy to own RX */
     chMtxUnlock(&stream->state_lock);
-    written = buffer_write(&stream->tx_buf, buf, size, TIME_MS2I(timeout_ms));
+    written = buffer_write(&stream->tx_buf, data_to_send, size, TIME_MS2I(timeout_ms));
     if (written > 0) {
       chMtxLock(&stream->state_lock);
-      buffer_write(&stream->rx_buf, buf, written, TIME_IMMEDIATE);
+      buffer_write(&stream->rx_buf, data_to_send, written, TIME_IMMEDIATE);
       chMtxUnlock(&stream->state_lock);
     }
   } else if (stream->peer != NULL) {
     /* Peer connection: write directly to peer's RX (skip own TX buffer) */
     mock_stream_t *peer = stream->peer;
     chMtxUnlock(&stream->state_lock);
-    written = buffer_write(&peer->rx_buf, buf, size, TIME_MS2I(timeout_ms));
+    written = buffer_write(&peer->rx_buf, data_to_send, size, TIME_MS2I(timeout_ms));
   } else {
     /* No loopback, no peer: write to own TX buffer only */
     chMtxUnlock(&stream->state_lock);
-    written = buffer_write(&stream->tx_buf, buf, size, TIME_MS2I(timeout_ms));
+    written = buffer_write(&stream->tx_buf, data_to_send, size, TIME_MS2I(timeout_ms));
   }
   
   return written;

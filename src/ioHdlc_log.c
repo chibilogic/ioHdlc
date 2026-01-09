@@ -34,6 +34,7 @@
 #if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
 
 #include <stdio.h>
+#include <stdarg.h>
 #include "ioHdlcosal.h"
 
 /*===========================================================================*/
@@ -188,6 +189,25 @@ void iohdlc_log_uframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
              addr,
              ufun_to_str(fun),
              pf ? (is_final ? 'F' : 'P') : '-');
+}
+
+void iohdlc_log_msg(iohdlc_log_dir_t dir, uint8_t saddr, const char *msg, ...) {
+  if (!iohdlc_log_enabled)
+    return;
+  
+  double ts = get_timestamp_ms();
+  
+  IOHDLC_OSAL_PRINTF("[%07.3f] %c%u ",
+    ts,
+    dir == IOHDLC_LOG_TX ? 'S' : 'R',
+    saddr);
+  
+  va_list args;
+  va_start(args, msg);
+  IOHDLC_OSAL_VPRINTF(msg, args);
+  va_end(args);
+  
+  IOHDLC_OSAL_PRINTF("\n"); 
 }
 
 #endif /* IOHDLC_LOG_LEVEL > OFF */

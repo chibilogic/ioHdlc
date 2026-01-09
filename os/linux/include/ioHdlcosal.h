@@ -486,6 +486,12 @@ double iohdlc_osal_get_time_ms(void);
  */
 #define IOHDLC_OSAL_PRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 
+/**
+ * @brief   vprintf-like output for logging.
+ * @note    Linux: outputs to stderr.
+ */
+#define IOHDLC_OSAL_VPRINTF(fmt, args) vfprintf(stderr, fmt, args)
+
 #endif /* IOHDLCOSAL_H */
 
 /** @} */

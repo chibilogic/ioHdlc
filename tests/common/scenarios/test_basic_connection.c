@@ -470,7 +470,7 @@ rep:
   
   /* Primary receives echo */
   memset(echo_buf, 0, sizeof echo_buf);
-  received = ioHdlcReadTmo(&peer_at_primary, echo_buf, sizeof echo_buf - 1, 2000);
+  received = ioHdlcReadTmo(&peer_at_primary, echo_buf, 40 /*sizeof echo_buf - 1*/, 2000);
   TEST_ASSERT_GOTO(received == (ssize_t)msg_len, "Primary echo read failed");
   TEST_ASSERT_GOTO(memcmp(echo_buf, test_msg, msg_len) == 0, "Echo data mismatch");
   test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);

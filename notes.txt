@@ -1,4 +1,4 @@
-┌─────────────────────────────────────────────────┐
+b┌─────────────────────────────────────────────────┐
 │         Station (ioHdlc.c)                      │ ← Livello applicazione
 │         Usa: ioHdlcDriver interface             │
 └────────────────┬────────────────────────────────┘
@@ -78,3 +78,41 @@ typedef struct ioHdclStreamDriver {
 
 Ruolo: Driver HDLC completo, implementa protocollo (FCS, transparency).
 
+
+Test Scenarios - Checkpoint Retransmission (TWS Mode)
+Scenario A: Checkpoint Recovery (TWS without REJ)
+A.1 - Frame Loss + Window Full
+
+✅ A.1.1: Frame #1 lost, window fills to 7/7, checkpoint triggers retransmission
+✅ A.1.2: Baseline - no loss, all frames delivered in order
+A.2 - Multiple Frame Loss
+
+A.2.1: Frames #1 and #3 lost, checkpoint retransmits all
+A.2.2: First and last frame lost (N(S)=0 and N(S)=7)
+A.3 - Checkpoint Response Loss
+
+A.3.1: Frame #1 lost, checkpoint RR P sent, but RR F response lost
+A.3.2: Multiple checkpoint retries until response received
+A.4 - Partial Window
+
+A.4.1: Frame #2 lost with only 4 frames in window
+A.4.2: Loss detected before window full
+
+Scenario B: P-bit Timing (TWS Mode)
+B.1 - P-bit on Every Frame
+
+B.1.1: Every I-frame has P=1 in TWS mode
+B.1.2: Verify immediate F responses from secondary
+B.2 - Checkpoint After Sequence
+
+B.2.1: Send burst without P, then final checkpoint with P
+B.2.2: Verify checkpoint timing and retransmission
+Scenario C: Edge Cases
+C.1 - Window Wraparound
+
+C.1.1: N(S) wraps from 7 to 0 with frame loss
+C.1.2: Checkpoint retransmission across sequence wraparound
+C.2 - Zero Data Frames
+
+C.2.1: Send only RR P=1 as checkpoint (no I-frames)
+C.2.2: Verify Secondary responds with current N(R)

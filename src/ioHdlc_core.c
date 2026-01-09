@@ -586,7 +586,7 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
       s->pf_state |= IOHDLC_F_RCVED;
       p->poll_retry_count = 0;
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
-      if (!ioHdlc_frameq_isempty(&p->i_trans_q))
+      if (p->i_pending_count)
         ioHdlcBroadcastFlags(s, IOHDLC_EVT_ISNDREQ);
       
     } else {
@@ -643,9 +643,13 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     
     /* Send REJ to request retransmission.
        ISO 13239 5.6.2.1 case a): only one REJ at a time.
-       If REJ already actioned, first REJ will retransmit all needed frames. */
+       If REJ already actioned, first REJ will retransmit all needed frames.
+       REJ is only sent if the option is negotiated (IOHDLC_USE_REJ).
+       Without REJ, recovery relies on checkpoint timeout (slower but standard-compliant). */
+    IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "N(S) %u, exp %u",
+                  ns, expected_ns);
     bool should_broadcast = false;
-    if (!IOHDLC_USE_TWA(s) && p->rej_actioned == 0) {
+    if (!IOHDLC_USE_TWA(s) && IOHDLC_USE_REJ(s) && p->rej_actioned == 0) {
       p->ss_fun = IOHDLC_S_REJ;
       p->rej_actioned = p->vr + 1;  /* Mark REJ as actioned (value = N(R) + 1) */
       should_broadcast = true;

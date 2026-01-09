@@ -146,10 +146,13 @@ mock_stream_t* mock_stream_create(const mock_stream_config_t *config) {
     stream->config.inject_errors = false;
     stream->config.error_rate = 0;
     stream->config.delay_us = 0;
+    stream->config.error_filter = NULL;
+    stream->config.error_userdata = NULL;
   }
 
   stream->peer = NULL;
   stream->closed = false;
+  stream->write_count = 0;
 
   return stream;
 }
@@ -220,22 +223,41 @@ ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size
 
   pthread_mutex_lock(&stream->state_lock);
 
+  /* Get current write count and increment for next call */
+  uint32_t current_write = stream->write_count++;
+
   /* Apply error injection if configured */
   uint8_t *data_to_send = (uint8_t *)buf;
   uint8_t corrupted_data[size];
+  bool should_corrupt = false;
   
   if (stream->config.inject_errors && stream->config.error_rate > 0) {
-    memcpy(corrupted_data, buf, size);
-    for (size_t i = 0; i < size; i++) {
-      /* Generate random number 0-999 */
-      uint32_t rnd = (uint32_t)rand() % 1000;
-      if (rnd < stream->config.error_rate) {
-        /* Flip a random bit in this byte */
-        uint8_t bit = rand() % 8;
-        corrupted_data[i] ^= (1 << bit);
-      }
+    /* If error_filter is provided, use it to decide whether to corrupt */
+    if (stream->config.error_filter) {
+      should_corrupt = stream->config.error_filter(current_write, buf, size, 
+                                                    stream->config.error_userdata);
+    } else {
+      /* No filter: use random corruption (original behavior) */
+      should_corrupt = true;
     }
-    data_to_send = corrupted_data;
+    
+    if (should_corrupt) {
+      memcpy(corrupted_data, buf, size);
+      
+      /* Corrupt only the FCS (last 2 bytes before closing flag) to guarantee FCS failure.
+       * HDLC frame: 0x7E | Address | Control | Data | FCS_L | FCS_H | 0x7E
+       * For frame of size N:
+       *   data[size-1] = closing flag (0x7E)
+       *   data[size-2] = FCS high byte
+       *   data[size-3] = FCS low byte
+       */
+      if (size >= 4) {
+        corrupted_data[size - 3] ^= 0xFF;  /* Flip all bits in FCS low byte */
+        corrupted_data[size - 2] ^= 0xFF;  /* Flip all bits in FCS high byte */
+      }
+      
+      data_to_send = corrupted_data;
+    }
   }
 
   ssize_t written;
