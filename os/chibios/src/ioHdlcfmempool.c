@@ -25,6 +25,7 @@
  */
 
 #include "ch.h"
+#include "ioHdlcosal.h"
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
@@ -76,18 +77,44 @@ static void _chSysRestoreStatusX(syssts_t sts) {
  */
 
 static iohdlc_frame_t * take(void *ip) {
+  ioHdlcFrameMemPool *fmpp = (ioHdlcFrameMemPool *)ip;
   syssts_t sts = _chSysGetStatusAndLockX();
-  iohdlc_frame_t *fp = chPoolAllocI(&((ioHdlcFrameMemPool *)ip)->mp);
-  fp->refs = 1;
+  iohdlc_frame_t *fp = chPoolAllocI(&fmpp->mp);
+  if (fp != NULL) {
+    fp->refs = 1;
+    fmpp->allocated++;
+    
+    /* Check low watermark with hysteresis */
+    uint32_t free = fmpp->total - fmpp->allocated;
+    if (fmpp->state == IOHDLC_POOL_NORMAL && free <= fmpp->low_threshold) {
+      fmpp->state = IOHDLC_POOL_LOW_WATER;
+      _chSysRestoreStatusX(sts);
+      if (fmpp->on_low != NULL)
+        fmpp->on_low(fmpp->cb_arg);
+      return fp;
+    }
+  }
   _chSysRestoreStatusX(sts);
   return fp;
 }
 
 static void release(void *ip, iohdlc_frame_t *fp) {
+  ioHdlcFrameMemPool *fmpp = (ioHdlcFrameMemPool *)ip;
   syssts_t sts = _chSysGetStatusAndLockX();
   chDbgAssert(fp->refs > 0, "frame ref count mismatch");
   if (--fp->refs == 0) {
-    chPoolFreeI(&((ioHdlcFrameMemPool *)ip)->mp, fp);
+    chPoolFreeI(&fmpp->mp, fp);
+    fmpp->allocated--;
+    
+    /* Check high watermark with hysteresis */
+    uint32_t free = fmpp->total - fmpp->allocated;
+    if (fmpp->state == IOHDLC_POOL_LOW_WATER && free > fmpp->high_threshold) {
+      fmpp->state = IOHDLC_POOL_NORMAL;
+      _chSysRestoreStatusX(sts);
+      if (fmpp->on_normal != NULL)
+        fmpp->on_normal(fmpp->cb_arg);
+      return;
+    }
   }
   _chSysRestoreStatusX(sts);
 }
@@ -127,4 +154,45 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
 
   fmpp->vmt = &vmt;
   ((ioHdlcFramePool *)fmpp)->framesize = framesize;
+  ((ioHdlcFramePool *)fmpp)->total = n;
+  ((ioHdlcFramePool *)fmpp)->allocated = 0;
+  
+  /* Initialize watermark with sensible defaults */
+  ((ioHdlcFramePool *)fmpp)->low_pct = 20;   /* Enter LOW_WATER at 20% free */
+  ((ioHdlcFramePool *)fmpp)->high_pct = 60;  /* Exit LOW_WATER at 60% free */
+  ((ioHdlcFramePool *)fmpp)->low_threshold = (n * 20) / 100;
+  ((ioHdlcFramePool *)fmpp)->high_threshold = (n * 60) / 100;
+  ((ioHdlcFramePool *)fmpp)->state = IOHDLC_POOL_NORMAL;
+  ((ioHdlcFramePool *)fmpp)->on_low = NULL;     /* No callback by default */
+  ((ioHdlcFramePool *)fmpp)->on_normal = NULL;
+  ((ioHdlcFramePool *)fmpp)->cb_arg = NULL;
+}
+
+void hdlcPoolConfigWatermark(ioHdlcFramePool *fpp, uint8_t low_pct, 
+                             uint8_t high_pct, void (*on_low)(void *),
+                             void (*on_normal)(void *), void *cb_arg) {
+  chDbgAssert(fpp != NULL, "pool is NULL");
+  chDbgAssert(low_pct <= 100 && high_pct <= 100, "invalid percentage");
+  chDbgAssert(low_pct < high_pct, "low must be < high for hysteresis");
+  
+  /* Update configuration */
+  fpp->low_pct = low_pct;
+  fpp->high_pct = high_pct;
+  fpp->on_low = on_low;
+  fpp->on_normal = on_normal;
+  fpp->cb_arg = cb_arg;
+  
+  /* Recalculate absolute thresholds */
+  fpp->low_threshold = (fpp->total * low_pct) / 100;
+  fpp->high_threshold = (fpp->total * high_pct) / 100;
+  
+  /* Re-evaluate state based on current free count */
+  uint32_t free = fpp->total - fpp->allocated;
+  if (free <= fpp->low_threshold) {
+    fpp->state = IOHDLC_POOL_LOW_WATER;
+    if (on_low != NULL)
+      on_low(cb_arg);
+  } else {
+    fpp->state = IOHDLC_POOL_NORMAL;
+  }
 }

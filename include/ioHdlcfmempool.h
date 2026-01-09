@@ -26,7 +26,7 @@
 
 /**
  * @file    include/ioHdlcfmempool.h
- * @brief   HDLC frame pool implementation using ChibiOS mempools.
+ * @brief   HDLC frame pool factory abstraction
  * @details
  *
  * @addtogroup hdlc_types
@@ -44,7 +44,7 @@
 
 #define _iohdlc_fmempool_data       \
   _iohdlc_framepool_data            \
-  memory_pool_t mp;                 \
+  iohdlc_memory_pool_t mp;          \
 
 
 /**

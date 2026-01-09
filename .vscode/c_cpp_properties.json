@@ -1,0 +1,35 @@
+{
+    "configurations": [
+        {
+            "name": "ChibiOS ARM",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/os/chibios/include",
+                "${workspaceFolder}/tests/chibios/conf",
+                "/opt/gbc/sama5d2x/ChibiOS/os/license",
+                "/opt/gbc/sama5d2x/ChibiOS/os/common/startup/ARMCAx-TZ/devices/SAMA5D2",
+                "/opt/gbc/sama5d2x/ChibiOS/os/common/ext/ARM/CMSIS/Core_A/Include",
+                "/opt/gbc/sama5d2x/ChibiOS/os/hal/include",
+                "/opt/gbc/sama5d2x/ChibiOS/os/hal/ports/SAMA/SAMA5D2x",
+                "/opt/gbc/sama5d2x/ChibiOS/os/hal/ports/SAMA/LLD/USARTv1",
+                "/opt/gbc/sama5d2x/ChibiOS/os/hal/boards/BV1000GTV",
+                "/opt/gbc/sama5d2x/ChibiOS/os/hal/osal/rt",
+                "/opt/gbc/sama5d2x/ChibiOS/os/rt/include",
+                "/opt/gbc/sama5d2x/ChibiOS/os/common/ports/ARMCAx-TZ/compilers/GCC",
+                "/opt/gbc/sama5d2x/ChibiOS/os/tssi/include",
+                "/opt/gbc/sama5d2x/ChibiOS/os/hal/lib/streams"
+            ],
+            "defines": [
+                "IOHDLC_USE_CHIBIOS",
+                "BOARD_BV1000GTV",
+                "__ARM_ARCH_7A__"
+            ],
+            "compilerPath": "${env:HOME}/ARM/bin/arm-none-eabi-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-arm"
+        }
+    ],
+    "version": 4
+}
