@@ -58,7 +58,9 @@ COMMON_SRCS = \
 COMMON_TEST_SRCS = \
 	$(COMMON_SCENARIOS_DIR)/test_frame_pool.c \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c \
-	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c
+	$(COMMON_SCENARIOS_DIR)/test_basic_connection_twa.c \
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c \
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c
 
 # Linux-specific test scenarios
 LINUX_TEST_SRCS = \
@@ -69,8 +71,10 @@ LINUX_TEST_SRCS = \
 # Test scenarios
 TEST_MOCK_STREAM = test_mock_stream
 TEST_BASIC_CONNECTION = test_basic_connection
+TEST_BASIC_CONNECTION_TWA = test_basic_connection_twa
 TEST_FRAME_POOL = test_frame_pool
 TEST_CHECKPOINT_TWS = test_checkpoint_tws
+TEST_CHECKPOINT_TWA = test_checkpoint_twa
 TEST_OSAL_BSEM = test_osal_bsem
 TEST_OSAL_EVENTS = test_osal_events
 
@@ -85,8 +89,10 @@ ALL_OBJS = $(CORE_OBJS) $(OSAL_OBJS) $(MOCK_OBJS) $(COMMON_OBJS)
 # Test binaries
 TEST_BINS = $(BIN_DIR)/$(TEST_MOCK_STREAM)
 TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION)
+TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA)
 TEST_BINS += $(BIN_DIR)/$(TEST_FRAME_POOL)
 TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWS)
+TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWA)
 TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
 TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
 
@@ -137,11 +143,19 @@ $(BIN_DIR)/$(TEST_BASIC_CONNECTION): $(OBJ_DIR)/test_basic_connection.o $(ALL_OB
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
+$(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA): $(OBJ_DIR)/test_basic_connection_twa.o $(ALL_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+
 $(BIN_DIR)/$(TEST_FRAME_POOL): $(OBJ_DIR)/test_frame_pool.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
 $(BIN_DIR)/$(TEST_CHECKPOINT_TWS): $(OBJ_DIR)/test_checkpoint_tws.o $(ALL_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+	
+$(BIN_DIR)/$(TEST_CHECKPOINT_TWA): $(OBJ_DIR)/test_checkpoint_twa.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
