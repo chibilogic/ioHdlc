@@ -52,7 +52,8 @@ MOCK_SRCS = \
 	$(MOCKS_DIR)/mock_stream_adapter.c
 
 COMMON_SRCS = \
-	$(COMMON_DIR)/test_helpers.c
+	$(COMMON_DIR)/test_helpers.c \
+	$(COMMON_DIR)/test_arenas.c
 
 # OS-agnostic test scenarios (shared across all platforms)
 COMMON_TEST_SRCS = \

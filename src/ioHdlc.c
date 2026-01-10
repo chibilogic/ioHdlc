@@ -254,10 +254,6 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     ioHdlcsp->fcs_size = 2;
   }
 
-  /* Set F received on primary station. */
-  if (IOHDLC_IS_PRI(ioHdlcsp))
-    ioHdlcsp->pf_state |= IOHDLC_F_RCVED;
-
   /* Start driver if physical device provided */
   if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
     ioHdlcsp->driver->vmt->start(ioHdlcsp->driver, 

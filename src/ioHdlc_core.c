@@ -177,7 +177,8 @@ static bool abmSendOpportunity(iohdlc_station_t *s) {
  * @param[in] s   Station descriptor
  * @return  true if station can transmit
  */
-static bool sendOpportunity(iohdlc_station_t *s) {
+static bool sendOpportunity(iohdlc_station_t *s, uint32_t *flags) {
+  *flags &= ~IOHDLC_EVT_LINIDLE;
   return IOHDLC_IS_NRM(s) ? nrmSendOpportunity(s) : abmSendOpportunity(s);
 }
 
@@ -189,7 +190,7 @@ static bool sendOpportunity(iohdlc_station_t *s) {
  * @brief   Peer round-robin helper.
  * @details Advances @p s->c_peer to the next peer in the circular list.
  *          If the list is empty returns NULL and leaves @p c_peer unchanged.
- * @param[in,out] s   Station descriptor
+ * @param[in] s   Station descriptor
  * @return  Next distinct peer, or NULL if there is no next
  */
 iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
@@ -200,7 +201,9 @@ iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
     return NULL;
 
   /* Compute next with wrap to list head. */
-  s->c_peer = s->c_peer ? s->c_peer->next : head->next;
+  s->c_peer = s->c_peer->next;
+  if (s->c_peer == head)
+    s->c_peer = head->next;
 
   return s->c_peer;
 }
@@ -239,12 +242,14 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     }
   }
   
+  iohdlc_mutex_lock(&p->state_mutex);
   if (is_command) {
     /* U-frame command received (we are Secondary or Combined in ABM).
        Per 6.11.4.1.3: if already UM_RCVED in progress, ignore additional
        commands until response sent. */
     if (p->um_state & IOHDLC_UM_RCVED) {
       hdlcReleaseFrame(s->frame_pool, fp);
+      iohdlc_mutex_unlock(&p->state_mutex);
       return;
     }
     
@@ -295,6 +300,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     if (!(p->um_state & IOHDLC_UM_SENT)) {
       /* Unsolicited response → discard. */
       hdlcReleaseFrame(s->frame_pool, fp);
+      iohdlc_mutex_unlock(&p->state_mutex);
       return;
     }
     
@@ -302,6 +308,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     if (!has_pf) {
       /* Missing F bit → protocol error, discard. */
       hdlcReleaseFrame(s->frame_pool, fp);
+      iohdlc_mutex_unlock(&p->state_mutex);
       return;
     }
     
@@ -363,6 +370,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     p->um_state &= ~IOHDLC_UM_SENT;
   }
   
+  iohdlc_mutex_unlock(&p->state_mutex);
   hdlcReleaseFrame(s->frame_pool, fp);
 }
 
@@ -1255,13 +1263,15 @@ void ioHdlcTxEntry(void *stationp) {
     p = s->c_peer;
     if (NULL == p) { cm_flags = 0; continue; }
 
+    iohdlc_mutex_lock(&p->state_mutex);
+
     /* U response */
     if (p->um_state & IOHDLC_UM_RCVED) {
       /* If an unnumbered command has been received, the um_rsp field contains
          the response to send, valued by the receiver on the received
          UM command basis.*/
       cm_flags &= ~IOHDLC_EVT_UMRECVD;        /* serve the event, if any.*/
-      if (sendOpportunity(s)) {
+      if (sendOpportunity(s, &cm_flags)) {
         p->um_state &= ~IOHDLC_UM_RCVED;  /* ack UM */
         IOHDLC_ACK_P(s);                  /* ack P  */
         
@@ -1290,8 +1300,10 @@ void ioHdlcTxEntry(void *stationp) {
             resetPeerVars(p);
           }
         }
-      } else
+      } else {
+        iohdlc_mutex_unlock(&p->state_mutex);
         continue;
+      }
     }
 
     /* U command */
@@ -1299,6 +1311,10 @@ void ioHdlcTxEntry(void *stationp) {
         ((p->um_state & IOHDLC_UM_SENT) &&
             (r = ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_REPLY)))) {
 
+      if ((cm_flags & IOHDLC_EVT_CONNSTR) && IOHDLC_IS_PRI(s)) {
+        /* Set F received on primary station. */
+        s->pf_state |= IOHDLC_F_RCVED;
+      }              
       cm_flags &= ~(IOHDLC_EVT_CONNSTR |
                     IOHDLC_EVT_C_RPLYTMO);  /* serve all the possible events.*/
       
@@ -1306,7 +1322,10 @@ void ioHdlcTxEntry(void *stationp) {
       if (r) {
         if (!handleTimeoutRetry(s, p)) {
           /* Link down: max retries exceeded, switch to next peer. */
+          resetPeerUm(p);
+          resetPeerVars(p);
           ioHdlcNextPeer(s);
+          iohdlc_mutex_unlock(&p->state_mutex);
           continue;
         }
         /* Retry: will retransmit below. */
@@ -1314,7 +1333,7 @@ void ioHdlcTxEntry(void *stationp) {
 
       /* A link management has been requested.*/
       p->um_state |= IOHDLC_UM_SENDING;
-      if (sendOpportunity(s)) {
+      if (sendOpportunity(s, &cm_flags)) {
         /* Build and send UM command. */
         iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
         if (fp != NULL) {
@@ -1341,8 +1360,11 @@ void ioHdlcTxEntry(void *stationp) {
         IOHDLC_ACK_F(s);                  /* ack F  */
       }
     }
-    if (IOHDLC_UM_INPROG(p))
+    iohdlc_mutex_unlock(&p->state_mutex);
+    if (IOHDLC_UM_INPROG(p) || IOHDLC_PEER_DISC(p)) {
+      cm_flags &= ~(IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ|IOHDLC_EVT_PFHONOR);
       continue;
+    }
 
     if (s->tx_fn)
       cm_flags = s->tx_fn(s, p, cm_flags);

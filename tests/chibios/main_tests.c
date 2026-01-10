@@ -38,10 +38,17 @@ extern int test_station_creation(void);
 extern int test_peer_creation(void);
 extern bool test_snrm_handshake(void);
 extern int test_connection_timeout(void);
-/* Checkpoint retransmission tests */
+/* TWA mode basic tests */
+extern int test_data_exchange_twa(void);
+/* Checkpoint retransmission tests - TWS */
 extern bool test_A1_1_frame_loss_window_full(void);
 extern bool test_A2_1_multiple_frame_loss(void);
 extern bool test_A2_2_first_and_last_frame_loss(void);
+
+/* Checkpoint retransmission tests - TWA mode */
+extern bool test_A1_1_frame_loss_window_full_twa(void);
+extern bool test_A2_1_multiple_frame_loss_twa(void);
+extern bool test_A2_2_first_and_last_frame_loss_twa(void);
 /*
  * Serial configuration for test output console.
  */
@@ -99,6 +106,19 @@ static THD_FUNCTION(TestRunner, arg) {
   RUN_TEST(test_peer_creation);
   RUN_TEST(test_snrm_handshake);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+
+  /* Basic Connection Tests - TWA Mode */
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "  Basic Connection Tests (TWA)\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+
+  RUN_TEST(test_data_exchange_twa);
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+
   /* Checkpoint Retransmission Tests */
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "═══════════════════════════════════════════════\r\n");
@@ -111,6 +131,21 @@ static THD_FUNCTION(TestRunner, arg) {
   RUN_TEST(test_A2_1_multiple_frame_loss);
   RUN_TEST(test_A2_2_first_and_last_frame_loss);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+
+  /* Checkpoint Retransmission Tests - TWA */
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "  Checkpoint Retransmission Tests (TWA)\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
+           "═══════════════════════════════════════════════\r\n");
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+
+  RUN_TEST(test_A1_1_frame_loss_window_full_twa);
+  RUN_TEST(test_A2_1_multiple_frame_loss_twa);
+  RUN_TEST(test_A2_2_first_and_last_frame_loss_twa);
+  chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
+
   /* Final summary */
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 

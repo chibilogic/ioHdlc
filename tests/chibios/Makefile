@@ -9,7 +9,7 @@
 
 # Compiler options
 ifeq ($(USE_OPT),)
-  USE_OPT = -O0 -ggdb -fomit-frame-pointer -falign-functions=16
+  USE_OPT = -Og -ggdb -fomit-frame-pointer -falign-functions=16
 endif
 
 # C specific options
@@ -148,7 +148,8 @@ IOHDLC_CORE_SRCS = \
 
 # Common test infrastructure
 COMMON_TEST_SRCS = \
-	$(COMMON_DIR)/test_helpers.c
+	$(COMMON_DIR)/test_helpers.c \
+	$(COMMON_DIR)/test_arenas.c
 
 # Test adapter sources (conditionally set later based on USE_UART_ADAPTER)
 TEST_ADAPTER_SRCS =
@@ -157,7 +158,9 @@ TEST_ADAPTER_SRCS =
 COMMON_TEST_SCENARIOS = \
 	$(COMMON_SCENARIOS_DIR)/test_frame_pool.c \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c \
-	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c
+	$(COMMON_SCENARIOS_DIR)/test_basic_connection_twa.c \
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c \
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c
 
 # Test main (combines all tests)
 TEST_MAIN_SRC = main_tests.c \

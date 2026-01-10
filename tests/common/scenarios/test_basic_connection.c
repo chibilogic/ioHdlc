@@ -25,6 +25,7 @@
  */
 
 #include "../../common/test_helpers.h"
+#include "../../common/test_arenas.h"
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
 #include "ioHdlcqueue.h"
@@ -212,11 +213,9 @@ bool test_snrm_handshake(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools with arena */
-  static uint8_t arena_primary[8192];
-  static uint8_t arena_secondary[8192];
-  fmpInit(&pool_primary, arena_primary, sizeof arena_primary, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, arena_secondary, sizeof arena_secondary, FRAME_SIZE, 8);
+  /* Initialize frame pools with shared arena */
+  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
+  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
   
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;
@@ -363,11 +362,9 @@ static int test_data_exchange(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools */
-  static uint8_t arena_primary[8192];
-  static uint8_t arena_secondary[8192];
-  fmpInit(&pool_primary, arena_primary, sizeof arena_primary, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, arena_secondary, sizeof arena_secondary, FRAME_SIZE, 8);
+  /* Initialize frame pools with shared arena */
+  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
+  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
   
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;

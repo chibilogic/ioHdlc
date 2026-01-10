@@ -18,10 +18,10 @@
 #include "ioHdlcframepool.h"
 #include "ioHdlcfmempool.h"
 #include "test_helpers.h"
+#include "test_arenas.h"
 #include <string.h>
 #define ARENA_SIZE 4096
 #define FRAME_SIZE 128
-static uint8_t arena[ARENA_SIZE];
 static ioHdlcFrameMemPool frame_pool;
 static int low_water_called = 0;
 static int normal_called = 0;
@@ -37,7 +37,7 @@ static void on_normal_water(void *arg) {
 /* Test functions                                                            */
 /*===========================================================================*/
 int test_pool_init(void) {
-    fmpInit(&frame_pool, arena, ARENA_SIZE, FRAME_SIZE, 8);
+    fmpInit(&frame_pool, shared_arena_single, ARENA_SIZE, FRAME_SIZE, 8);
     TEST_ASSERT(frame_pool.total > 0, "Pool should have frames");
     TEST_ASSERT(frame_pool.allocated == 0, "Pool should start empty");
     TEST_ASSERT(frame_pool.state == IOHDLC_POOL_NORMAL, "Pool should start in NORMAL state");

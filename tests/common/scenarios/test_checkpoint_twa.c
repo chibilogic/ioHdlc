@@ -28,6 +28,7 @@
  */
 
 #include "../../common/test_helpers.h"
+#include "../../common/test_arenas.h"
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
 #include "ioHdlcqueue.h"
@@ -207,7 +208,7 @@ static bool wait_for_condition(bool (*condition)(void *), void *arg, uint32_t ti
  * @note    This test validates checkpoint retransmission (ISO 13239 5.6.2.1).
  * @return  0 on success, 1 on failure
  */
-bool test_A1_1_frame_loss_window_full(void) {
+bool test_A1_1_frame_loss_window_full_twa(void) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -252,11 +253,9 @@ bool test_A1_1_frame_loss_window_full(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools with arena */
-  static uint8_t arena_primary[8192];
-  static uint8_t arena_secondary[8192];
-  fmpInit(&pool_primary, arena_primary, sizeof arena_primary, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, arena_secondary, sizeof arena_secondary, FRAME_SIZE, 8);
+  /* Initialize frame pools with shared arena */
+  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
+  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
   
   /* Configure optional functions: disable REJ, enable others */
   static const uint8_t optfuncs_norej[5] = {
@@ -452,7 +451,7 @@ bool test_A1_1_frame_loss_window_full(void) {
  * @brief   Test A.2.1: Multiple frame loss (N(S)=1 and N(S)=3).
  * @details Same as A.1.1 but with two non-consecutive frames lost.
  */
-bool test_A2_1_multiple_frame_loss(void) {
+bool test_A2_1_multiple_frame_loss_twa(void) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -497,11 +496,9 @@ bool test_A2_1_multiple_frame_loss(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools with arena */
-  static uint8_t arena_primary[8192];
-  static uint8_t arena_secondary[8192];
-  fmpInit(&pool_primary, arena_primary, sizeof arena_primary, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, arena_secondary, sizeof arena_secondary, FRAME_SIZE, 8);
+  /* Initialize frame pools with shared arena */
+  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
+  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
   
   /* Configure optional functions: disable REJ, enable others */
   static const uint8_t optfuncs_norej[5] = {
@@ -697,7 +694,7 @@ bool test_A2_1_multiple_frame_loss(void) {
  * @brief   Test A.2.2: First and last frame loss (N(S)=0 and N(S)=7).
  * @details Same as A.1.1 but first and last frames are lost.
  */
-bool test_A2_2_first_and_last_frame_loss(void) {
+bool test_A2_2_first_and_last_frame_loss_twa(void) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -742,11 +739,9 @@ bool test_A2_2_first_and_last_frame_loss(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools with arena */
-  static uint8_t arena_primary[8192];
-  static uint8_t arena_secondary[8192];
-  fmpInit(&pool_primary, arena_primary, sizeof arena_primary, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, arena_secondary, sizeof arena_secondary, FRAME_SIZE, 8);
+  /* Initialize frame pools with shared arena */
+  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
+  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
   
   /* Configure optional functions: disable REJ, enable others */
   static const uint8_t optfuncs_norej[5] = {
@@ -952,9 +947,9 @@ int main(void) {
   test_printf("╚════════════════════════════════════════════════════════════╝\r\n");
 
   /* Run tests */
-  if (test_A1_1_frame_loss_window_full()) failures++;
-  if (test_A2_1_multiple_frame_loss()) failures++;
-  if (test_A2_2_first_and_last_frame_loss()) failures++;
+  if (test_A1_1_frame_loss_window_full_twa()) failures++;
+  if (test_A2_1_multiple_frame_loss_twa()) failures++;
+  if (test_A2_2_first_and_last_frame_loss_twa()) failures++;
 
   /* Print summary */
   test_printf("\r\n");
