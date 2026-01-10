@@ -1,3 +1,18 @@
+/*
+ * ioHdlc
+ * Copyright (C) 2024 Isidoro Orabona
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ *
+ * This software is dual-licensed:
+ *  - GNU Lesser General Public License v3.0 (or later)
+ *  - Commercial license (available from Chibilogic s.r.l.)
+ *
+ * For commercial licensing inquiries:
+ *   info@chibilogic.com
+ *
+ * See the LICENSE file for details.
+ */
 /**
  * @file    board_config.h
  * @brief   Board-specific UART configuration for test suite.
@@ -8,8 +23,7 @@
 #define BOARD_CONFIG_H
 
 /* Include board-specific configuration */
-#if defined(BOARD_BV1000GTV) || !defined(BOARD_NAME)
-  /* Default to SAMA5D2x/BV1000GTV configuration */
+#if !defined(BOARD_NAME)
   #include "board_sama5d2x.h"
 #else
   #error "Board configuration not available for this target"

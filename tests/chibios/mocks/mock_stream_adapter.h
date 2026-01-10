@@ -1,15 +1,23 @@
-/**
- * @file    mock_stream_adapter.h
- * @brief   Adapter to connect mock_stream to ioHdlcstream interface.
+/*
+ * ioHdlc
+ * Copyright (C) 2024 Isidoro Orabona
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ *
+ * This software is dual-licensed:
+ *  - GNU Lesser General Public License v3.0 (or later)
+ *  - Commercial license (available from Chibilogic s.r.l.)
+ *
+ * For commercial licensing inquiries:
+ *   info@chibilogic.com
+ *
+ * See the LICENSE file for details.
  */
-
 #ifndef MOCK_STREAM_ADAPTER_H
 #define MOCK_STREAM_ADAPTER_H
-
 #include "mock_stream_chibios.h"
 #include "../../../include/ioHdlcstreamport.h"
 #include "ch.h"
-
 /**
  * @brief   Mock stream adapter structure.
  */

@@ -1,6 +1,25 @@
 /*
- * ChibiOS UART adapter header for HDLC stream port.
+ * ioHdlc
+ * Copyright (C) 2024 Isidoro Orabona
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ *
+ * This software is dual-licensed:
+ *  - GNU Lesser General Public License v3.0 (or later)
+ *  - Commercial license (available from Chibilogic s.r.l.)
+ *
+ * For commercial licensing inquiries:
+ *   info@chibilogic.com
+ *
+ * See the LICENSE file for details.
  */
+/**
+ * @file    ioHdlcstream_uart.h
+ * @brief   ChibiOS UART adapter for HDLC stream port.
+ *
+ * @details Provides integration between ChibiOS UART driver and ioHdlc stream interface.
+ */
+
 #ifndef IOHDLCSTREAM_UART_H
 #define IOHDLCSTREAM_UART_H
 

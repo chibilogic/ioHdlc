@@ -1,6 +1,6 @@
 # ioHdlc Test Suite - ChibiOS/ARM
 
-Complete test suite for ARM Cortex-A5 (SAMA5D2x) target with ChibiOS RTOS.
+Complete test suite with ChibiOS RTOS.
 
 ## Prerequisites
 
@@ -9,9 +9,7 @@ Complete test suite for ARM Cortex-A5 (SAMA5D2x) target with ChibiOS RTOS.
    - Makefile uses absolute path (no PATH dependency)
 
 2. **ChibiOS**:
-   - Location: `/opt/gbc/sama5d2x/ChibiOS`
-   - Board: BV1000GTV
-   - MCU: SAMA5D2x (ARM Cortex-A5)
+   - Location: `../..`
 
 ## Build
 
@@ -103,34 +101,6 @@ Output via UART0 (115200,n,8,1):
 
 ## Deployment
 
-### Flash to Target
-
-```bash
-# Using OpenOCD, J-Link or other debugger
-openocd -f board/atmel_sama5d2_xplained.cfg \
-        -c "program build/iohdlc_tests.elf verify reset exit"
-```
-
-### Debug
-
-```bash
-# Terminal 1: Start OpenOCD
-openocd -f board/atmel_sama5d2_xplained.cfg
-
-# Terminal 2: GDB
-~/ARM/bin/arm-none-eabi-gdb build/iohdlc_tests.elf
-(gdb) target remote localhost:3333
-(gdb) load
-(gdb) continue
-```
-
-### Serial Monitor
-
-```bash
-# minicom, screen or other terminal
-minicom -D /dev/ttyUSB0 -b 115200
-```
-
 ## Linux/ChibiOS Compatibility
 
 Tests in `common/scenarios/` are **100% portable**:
@@ -142,22 +112,6 @@ Tests in `common/scenarios/` are **100% portable**:
 - `IOHDLC_USE_CHIBIOS` defined in ChibiOS Makefile
 
 - Same tests, same behavior, different platforms
-
-## Technical Notes
-
-### Memory Layout
-
-- System Stack: 1KB
-- IRQ Stack: 1KB  
-- Test Thread Stack: 4KB
-- Frame Pool Arena: 4KB (configurable)
-
-### RTOS Configuration
-
-From `conf/chconf.h`:
-- Time quantum: 20ms
-- System tick: 1000Hz
-- Thread priorities: NORMALPRIO ± N
 
 ### Limitations
 
@@ -172,7 +126,7 @@ From `conf/chconf.h`:
 - Verify `~/ARM/bin/arm-none-eabi-gcc` exists
 
 **Error: "No rule to make target ChibiOS..."**
-- Verify `/opt/gbc/sama5d2x/ChibiOS` exists
+- Verify `../..` exists
 - Modify `CHIBIOS :=` in Makefile if needed
 
 **Link errors with ChibiOS symbols**

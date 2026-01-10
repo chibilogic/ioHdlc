@@ -1,6 +1,25 @@
 /*
- * OS Abstraction Layer for ChibiOS.
+ * ioHdlc
+ * Copyright (C) 2024 Isidoro Orabona
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ *
+ * This software is dual-licensed:
+ *  - GNU Lesser General Public License v3.0 (or later)
+ *  - Commercial license (available from Chibilogic s.r.l.)
+ *
+ * For commercial licensing inquiries:
+ *   info@chibilogic.com
+ *
+ * See the LICENSE file for details.
  */
+/**
+ * @file    ioHdlcosal.h
+ * @brief   OS Abstraction Layer for ChibiOS.
+ *
+ * @details Provides OSAL types and macros mapping to ChibiOS primitives.
+ */
+
 #ifndef IOHDLCOSAL_H_
 #define IOHDLCOSAL_H_
 

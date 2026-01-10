@@ -1,7 +1,25 @@
 /*
- * ChibiOS runner for HDLC station core.
- * Creates TX/RX threads and maps OS events/timers to core entry points.
+ * ioHdlc
+ * Copyright (C) 2024 Isidoro Orabona
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ *
+ * This software is dual-licensed:
+ *  - GNU Lesser General Public License v3.0 (or later)
+ *  - Commercial license (available from Chibilogic s.r.l.)
+ *
+ * For commercial licensing inquiries:
+ *   info@chibilogic.com
+ *
+ * See the LICENSE file for details.
  */
+/**
+ * @file    ioHdlc_runner.h
+ * @brief   ChibiOS runner for HDLC station core.
+ *
+ * @details Creates TX/RX threads and maps OS events/timers to core entry points.
+ */
+
 #ifndef IOHDLC_RUNNER_H_
 #define IOHDLC_RUNNER_H_
 

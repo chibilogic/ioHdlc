@@ -1,7 +1,26 @@
 /*
- * OS-agnostic HDLC station core interface (Option B scaffolding).
- * Preserves original src/ioHdlc.c for reference.
+ * ioHdlc
+ * Copyright (C) 2024 Isidoro Orabona
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ *
+ * This software is dual-licensed:
+ *  - GNU Lesser General Public License v3.0 (or later)
+ *  - Commercial license (available from Chibilogic s.r.l.)
+ *
+ * For commercial licensing inquiries:
+ *   info@chibilogic.com
+ *
+ * See the LICENSE file for details.
  */
+/**
+ * @file    ioHdlc_core.h
+ * @brief   OS-agnostic HDLC station core interface.
+ *
+ * @details Provides entry points for runner implementations and core protocol logic.
+ *          Option B scaffolding that preserves original src/ioHdlc.c for reference.
+ */
+
 #ifndef IOHDLC_CORE_H_
 #define IOHDLC_CORE_H_
 

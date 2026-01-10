@@ -1,6 +1,25 @@
 /*
- * ChibiOS runner for HDLC station core.
+ * ioHdlc
+ * Copyright (C) 2024 Isidoro Orabona
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ *
+ * This software is dual-licensed:
+ *  - GNU Lesser General Public License v3.0 (or later)
+ *  - Commercial license (available from Chibilogic s.r.l.)
+ *
+ * For commercial licensing inquiries:
+ *   info@chibilogic.com
+ *
+ * See the LICENSE file for details.
  */
+/**
+ * @file    ioHdlc_runner.c
+ * @brief   ChibiOS runner for HDLC station core.
+ *
+ * @details Manages TX/RX threads and integrates ChibiOS timers/events with core.
+ */
+
 #include "ch.h"
 #include "hal.h"
 

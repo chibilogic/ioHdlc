@@ -1,29 +1,18 @@
 /*
-    ioHdlc - Copyright (C) 2024 Isidoro Orabona
-
-    GNU General Public License Usage
-
-    ioHdlc software is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Lesser General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    ioHdlc software is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Lesser General Public License for more details.
-
-    You should have received a copy of the GNU Lesser General Public License
-    along with ioHdlc software.  If not, see <http://www.gnu.org/licenses/>.
-
-    Commercial License Usage
-
-    Licensees holding valid commercial ioHdlc licenses may use this file in
-    accordance with the commercial license agreement provided in accordance with
-    the terms contained in a written agreement between you and Isidoro Orabona.
-    For further information contact via email on github account.
+ * ioHdlc
+ * Copyright (C) 2024 Isidoro Orabona
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ *
+ * This software is dual-licensed:
+ *  - GNU Lesser General Public License v3.0 (or later)
+ *  - Commercial license (available from Chibilogic s.r.l.)
+ *
+ * For commercial licensing inquiries:
+ *   info@chibilogic.com
+ *
+ * See the LICENSE file for details.
  */
-
 /**
  * @file    src/ioHdlc.c
  * @brief   HDLC Application Interface Implementation.
@@ -288,6 +277,8 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
  * @param[in] s         Station descriptor
  * @param[in] peer_addr Peer address to search for
  * @return              Pointer to peer descriptor, or NULL if not found
+ * 
+ * @api
  */
 iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
   iohdlc_station_peer_t *p;
@@ -416,6 +407,8 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
  * @note This function blocks until connection completes or fails.
  * @note Uses protocol-level retry (no application timeout parameter).
  * @note Uses app_es event source to avoid conflicts with core events.
+ * 
+ * @api
  */
 int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr, 
                               uint8_t mode, eventmask_t evt_mask) {
@@ -523,6 +516,8 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
  * @note This function blocks until disconnection completes or fails.
  * @note Peer state is reset (queues cleared, variables reset) on success.
  * @note Uses app_es event source to avoid conflicts with core events.
+ * 
+ * @api
  */
 int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
                                 eventmask_t evt_mask) {
@@ -604,6 +599,8 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
  * @note Blocks if i_pending_count >= 2*ks OR pool is LOW_WATER.
  * @note Sets address, N(S), frame ID; N(R) and P/F set during TX.
  * @note Automatically fragments data if count > mifls.
+ * 
+ * @api
  */
 ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf, 
                         size_t count, uint32_t timeout_ms) {
@@ -724,6 +721,8 @@ void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags);
  * @note Blocks until frame available or timeout.
  * @note Releases frame back to pool when fully consumed (may trigger watermark).
  * @note Supports partial reads: call multiple times to consume large frames.
+ * 
+ * @api
  */
 ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf, 
                       size_t count, uint32_t timeout_ms) {
