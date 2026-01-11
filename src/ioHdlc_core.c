@@ -507,11 +507,11 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
     
     /* This frame was sent before checkpoint: mark for retransmission. */
     if (first_fp == NULL) {
-      first_fp = fp;    // Mark first frame
-      first_ns = frame_ns;  // Save its N(S)
+      first_fp = fp;        /* Mark first frame */
+      first_ns = frame_ns;  /* Save its N(S) */
     }
-    last_fp = fp;     // Update last frame
-    fp = fp->next;    // Continue scanning
+    last_fp = fp;     /* Update last frame */
+    fp = fp->next;    /* Continue scanning */
   }
   
   /* If we found frames to retransmit, move them to i_trans_q. */
@@ -529,7 +529,7 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
   return false;
 }
 
-static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                                    iohdlc_frame_t *fp) {
   /* Common processing for both I-frames and S-frames:
      1. Process N(R) to acknowledge our sent frames
@@ -549,8 +549,10 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
     /* Protocol error: invalid N(R) received.
        TODO: Send FRMR with Y bit set (invalid N(R)).
        For now: discard frame. */
-    hdlcReleaseFrame(s->frame_pool, fp);
-    return;
+    IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "Invalid N(R) %u, V(S)=%u, N(R)=%u",
+                  nr, p->vs, p->nr);
+    //hdlcReleaseFrame(s->frame_pool, fp);
+    return false;
   }
   
   /* Lock for entire checkpoint sequence to ensure atomicity */
@@ -620,6 +622,7 @@ static void handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
   if (checkpoint_moved_frames) {
     ioHdlcBroadcastFlags(s, IOHDLC_EVT_ISNDREQ);
   }
+  return true;
 }
 
 static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
@@ -812,7 +815,11 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   }
   
   /* Common checkpoint and acknowledgment processing for all I/S frames. */
-  handleCheckpointAndAck(s, p, fp);
+  if (!handleCheckpointAndAck(s, p, fp)) {
+    /* Protocol error occurred during checkpoint/ack processing. */
+    hdlcReleaseFrame(s->frame_pool, fp);
+    return;
+  }
   
   /* Branch by frame type for specific handling. */
   if (IOHDLC_IS_I_FRM(ctrl)) {
