@@ -466,7 +466,6 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
   /* Move frames from i_retrans_q back to i_trans_q for checkpoint retransmission.
      Per ISO 13239 5.6.2.1: Both Primary and Secondary do this.
-     
      ISO 13239 5.6.2.1 case a): An actioned REJ with P/F=0 inhibits checkpoint
      retransmission if it would retransmit the same I-frame.
      
@@ -479,10 +478,8 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
     return false;  /* Nothing to retransmit */
   
   /* Find the first frame that needs checkpoint retransmission. */
-  iohdlc_frame_t *first_fp = NULL;
-  iohdlc_frame_t *last_fp = NULL;
   iohdlc_frame_t *fp = p->i_retrans_q.next;
-  uint32_t first_ns = 0;  /* N(S) of first frame to retransmit */
+  uint32_t first_ns = 0;  /* N(S) + 1 of first frame to retransmit, 0 if none */
   
   /* Scan the retransmission queue to find frames with N(S) < vs_atlast_pf.
      Since i_retrans_q is FIFO and contiguous, we scan until we find 
@@ -506,22 +503,21 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
     }
     
     /* This frame was sent before checkpoint: mark for retransmission. */
-    if (first_fp == NULL) {
-      first_fp = fp;        /* Mark first frame */
-      first_ns = frame_ns;  /* Save its N(S) */
+    if (first_ns == 0) {
+      first_ns = frame_ns + 1;  /* Save its N(S) + 1 */
     }
-    last_fp = fp;     /* Update last frame */
     fp = fp->next;    /* Continue scanning */
   }
   
   /* If we found frames to retransmit, move them to i_trans_q. */
-  if (first_fp != NULL) {
-    ioHdlc_frameq_move(&p->i_trans_q, first_fp, last_fp);
+  if (first_ns != 0) {
+    ioHdlc_frameq_move(&p->i_trans_q, p->i_retrans_q.next,
+      p->i_retrans_q.prev);
     
     /* Mark checkpoint as actioned with first frame N(S).
        Used to detect overlap with subsequent REJ (5.6.2.2). */
-    p->chkpt_actioned = first_ns + 1;
-    p->vs = first_ns;  /* Reset V(S) to first retransmit frame N(S) */
+    p->chkpt_actioned = first_ns;
+    p->vs = first_ns - 1;  /* Reset V(S) to first retransmit frame N(S) */
     
     return true;
   }
