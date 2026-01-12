@@ -176,3 +176,184 @@ C.2.2: Verify Secondary responds with current N(R)
 [228768.108] S1 A2 RR0 P
 [228768.555] S2 A2 RR2 F
 [228768.650] R1 Invalid N(R) 2, V(S)=1, N(R)=0
+
+Analizzo la sequenza critica:
+
+[1959180.370] S1 A2 I6,7 P len=40 w=10/7
+[1959180.642] S1 A2 I7,7 - len=40 w=10/7
+[1959180.999] S1 A2 I0,7 - len=40 w=10/7
+[1959181.210] S2 A2 RR0 F
+[1959181.255] S1 A2 I1,7 - len=40 w=10/7
+[1959181.489] S1 A2 I2,7 - len=40 w=10/7
+[1959181.767] S1 A2 I3,7 P len=40 w=8/7
+[1959182.026] S1 A2 I4,7 - len=40 w=8/7
+[1959182.399] S2 A2 RR4 F
+[1959182.488] S1 A2 I5,7 - len=40 w=8/7
+[1959183.013] S1 A2 I6,7 P len=40 w=4/7
+[1959183.194] R2 N(S) 6, exp 5
+[1959183.500] S1 A2 I7,7 - len=40 w=4/7
+[1959183.746] S2 A2 RR5 F
+[1959183.812] R2 N(S) 7, exp 5
+[1959190.922] S1 A2 I5,7 P len=40 w=3/7
+[1959191.151] S1 A2 I6,7 - len=40 w=3/7
+[1959193.121] S2 A2 RR7 F
+[1959193.502] S1 A2 RR7 P
+[1959194.907] S2 A2 RR7 F
+[1959195.584] S1 A2 RR7 P
+[1959196.091] S2 A2 RR7 F
+
+## Situazione fino a timestamp 1959183.746
+
+```
+I(6,7)P → vs_atlast_pf = 7
+I(7,7)   → vs = 8, ma modulo 8 → vs = 0
+I(0,7)   → vs = 1
+RR(0,F)  → ACK frame fino a N(S)=7 (tutti tranne 0)
+I(1,7)
+I(2,7)
+I(3,7)P  → vs_atlast_pf = 4
+I(4,7)
+RR(4,F)  → ACK frame 0,1,2,3
+I(5,7)
+I(6,7)P  → vs_atlast_pf = 7, ma aspetta...
+```
+
+**PROBLEMA IDENTIFICATO al timestamp 1959183.013:**
+
+- Secondary V(R) = 5 (aspetta frame 5)
+- Primary invia I(6,7)P 
+- **Secondary riceve frame con N(S)=6, ma aspetta N(S)=5!**
+- Log: "R2 N(S) 6, exp 5" → **Frame 5 NON è mai arrivato al secondary!**
+
+Questo significa che **frame 5 si è perso sulla linea** o non è mai stato trasmesso!
+
+## Analisi post-checkpoint (timestamp 1959190.922):
+
+```
+Checkpoint retransmit con vs_atlast_pf=7:
+  - Ritrasmette frame con N(S) < 7
+  - Dovrebbe ritrasmettere: 5, 6
+  - Ma cosa succede al frame 7 che era già in i_retrans_q?
+```
+
+**Dopo checkpoint:**
+```
+I(5,7)P  → ritrasmissione
+I(6,7)   → ritrasmissione  
+RR(7,F)  → ACK fino a 6 incluso, secondary aspetta frame 7
+```
+
+**MA FRAME 7 NON VIENE RITRASMESSO!**
+
+## Loop infinito RR(7):
+```
+S1 A2 RR7 P  → Primary dice "ho ricevuto fino a 6" (ma aspetta, in NRM primary non riceve!)
+S2 A2 RR7 F  → Secondary dice "ho ricevuto fino a 6, aspetto 7"
+```
+
+## PROBLEMA: Frame 7 bloccato!
+
+**Ipotesi:** Frame 7 è rimasto in `i_retrans_q` ma:
+1. Non è incluso nel checkpoint (vs_atlast_pf = 7, frame con N(S)=7 NON < 7)
+2. Finestra piena: outstanding = (vs - nr) = (0 - 7) mod 8 = 1, ma aspetta...
+
+Con modulo 8:
+- `p->nr = 7` (dopo RR(7))
+- `p->vs = ?` 
+
+Se `p->vs` è stato resettato dal checkpoint a 5, poi incrementato:
+- Ritrasmette I(5) → vs = 6
+- Ritrasmette I(6) → vs = 7
+- **vs = 7, nr = 7 → outstanding = 0**
+
+Ma frame 7 dovrebbe avere `i_pending_count > 0`, quindi dovrebbe essere in `i_retrans_q`!
+
+**Il problema è che TX vede finestra non piena, ma `i_trans_q` è vuota e non ci sono nuovi frame da app!**
+
+Dovrebbe esserci un meccanismo per ritrasmettere frame rimasti in `i_retrans_q` quando `p->vs == p->nr` ma `i_pending_count > 0`.
+
+**Questo è un DEADLOCK!**
+
+
+-----
+
+Analizziamo le condizioni necessarie per questo deadlock:
+
+## Condizioni per il Deadlock
+
+**1. Frame perso in posizione critica:**
+- Frame N si perde sulla linea
+- Frame N+1, N+2, ..., N+k vengono trasmessi con successo
+- Uno di questi (es. N+2) ha P=1 → checkpoint a N+3
+
+**2. Sequenza checkpoint critica:**
+```
+vs_atlast_pf = N+3
+i_retrans_q: [N, N+1, N+2, N+3, N+4, ...]
+
+Arriva RR(N, F):
+  processNR(N) → rimuove nulla (nr già N)
+  checkpointRetransmit() con vs_atlast_pf = N+3:
+    - Frame N: N < N+3 → SPOSTA
+    - Frame N+1: N+1 < N+3 → SPOSTA  
+    - Frame N+2: N+2 < N+3 → SPOSTA
+    - Frame N+3: N+3 < N+3? NO → STOP
+    
+  Risultato:
+    i_trans_q: [N, N+1, N+2]
+    i_retrans_q: [N+3, N+4, ...] ← RIMANGONO QUI!
+    vs = N (reset)
+```
+
+**3. Ritrasmissione parziale:**
+```
+TX ritrasmette:
+  I(N) → vs = N+1, i_retrans_q: [N+3, N+4, N]
+  I(N+1) → vs = N+2, i_retrans_q: [N+3, N+4, N, N+1]
+  I(N+2) → vs = N+3, i_retrans_q: [N+3, N+4, N, N+1, N+2]
+```
+
+**ASPETTA!** Qui vedo il problema dell'ordinamento che avevi menzionato!
+
+`i_retrans_q` diventa: [N+3(vecchio), N+4(vecchio), N(nuovo), N+1(nuovo), N+2(nuovo)]
+
+**Ordine N(S): [N+3, N+4, N, N+1, N+2]** ❌
+
+Con modulo 8, se N=5:
+- Ordine: [0, 1, 5, 6, 7] (con N+3=0 mod 8)
+
+**4. ACK arriva per frame ritrasmessi:**
+```
+Arriva RR(N+3, F):
+  processNR(N+3):
+    - Cerca frame da rimuovere con N(S) < N+3
+    - MA l'ordine è rotto! 
+    - Trova frame N+3 in testa → STOP (perché N+3 == N+3, non <)
+    - Non rimuove N, N+1, N+2 che sono DOPO nella coda!
+```
+
+**QUESTO È IL BUG!** `processNR()` assume che `i_retrans_q` sia ordinata per N(S) crescente!
+
+```c
+while (p->nr != nr && !ioHdlc_frameq_isempty(&p->i_retrans_q)) {
+    iohdlc_frame_t *acked_fp = ioHdlc_frameq_remove(&p->i_retrans_q);
+    uint32_t acked_ns = extractNS(s, acked_fp);
+    // TODO: maybe we should check acked_ns vs p->nr
+    ...
+    p->nr = (p->nr + 1) & s->modmask;
+}
+```
+
+**Non controlla se `acked_ns == p->nr`!** Rimuove ciecamente in ordine di coda!
+
+## Frequenza Bassa
+
+Il deadlock richiede:
+1. ✓ Perdita frame (raro senza iniezione errori)
+2. ✓ Checkpoint esattamente dopo alcuni frame post-perdita
+3. ✓ Nessun ACK intermedio che svuoti completamente i_retrans_q prima del checkpoint
+4. ✓ Nessun nuovo frame dall'app che "forzi" una ritrasmissione completa
+
+**Con mock senza errori:** perdita frame è rarissima (race condition, buffer overflow?), quindi il bug si manifesta molto raramente.
+
+**La soluzione:** `i_retrans_q` DEVE essere sempre ordinata per N(S), oppure `processNR()` deve gestire l'ordine non sequenziale.

@@ -530,15 +530,17 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
 }
 
 static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p,
-                                   iohdlc_frame_t *fp) {
+                                   iohdlc_frame_t *fp,
+                                   bool *should_signal_tx_out,
+                                   bool *checkpoint_moved_out,
+                                   uint32_t *broadcast_flags_out) {
   /* Common processing for both I-frames and S-frames:
      1. Process N(R) to acknowledge our sent frames
      2. Handle P/F bit for checkpointing (both Primary and Secondary)
      3. Manage reply timer based on role and P/F bit
      
-     THREAD SAFETY: The sequence processNR() → checkpoint/REJ handling must be
-     atomic relative to TX. The mutex is held across the entire sequence to
-     prevent TX from observing intermediate state.
+     THREAD SAFETY: Caller must hold state_mutex.
+     Returns flags via output parameters for deferred signaling.
   */
   
   uint32_t nr = extractNR(s, fp);
@@ -551,18 +553,14 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
        For now: discard frame. */
     IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "Invalid N(R) %u, V(S)=%u, N(R)=%u",
                   nr, p->vs, p->nr);
-    //hdlcReleaseFrame(s->frame_pool, fp);
     return false;
   }
   
-  /* Lock for entire checkpoint sequence to ensure atomicity */
-  iohdlc_mutex_lock(&p->state_mutex);
-  
   /* Process N(R) to acknowledge our sent frames. */
-  bool should_signal_tx = processNR(s, p, nr);
+  *should_signal_tx_out = processNR(s, p, nr);
   
   /* Handle P/F bit for checkpointing (independent of frame type). */
-  bool checkpoint_moved_frames = false;
+  *checkpoint_moved_out = false;
   if (pf) {
     /* Both Primary and Secondary do checkpoint operations. */
     
@@ -577,23 +575,24 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
        
        checkpointRetransmit() internally checks ISO 13239 5.6.2.1 case a):
        inhibits if REJ is active and would retransmit the same I-frame. */
-    checkpoint_moved_frames = checkpointRetransmit(s, p);
+    *checkpoint_moved_out = checkpointRetransmit(s, p);
     
     /* Role-specific P/F handling. */
     if (IOHDLC_IS_PRI(s)) {
-      /* Primary received F=1: acknowledge poll and stop timer.
-         Signal TX for I-frame, if any. */
+      /* Primary received F=1: acknowledge poll and stop timer. */
       s->pf_state |= IOHDLC_F_RCVED;
       p->poll_retry_count = 0;
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
+      
+      /* If there are pending I-frames, signal TX to send them. */
       if (p->i_pending_count)
-        ioHdlcBroadcastFlags(s, IOHDLC_EVT_ISNDREQ);
+        *broadcast_flags_out |= IOHDLC_EVT_ISNDREQ;
       
     } else {
       /* Secondary received P=1: must respond with F=1.
          Signal TX for I-frame tx and honor the P/F bit. */
       s->pf_state |= IOHDLC_P_RCVED;
-      ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
+      *broadcast_flags_out |= IOHDLC_EVT_PFHONOR;
     }
     
   } else {
@@ -609,35 +608,27 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
     }
   }
   
-  iohdlc_mutex_unlock(&p->state_mutex);
-  
-  /* Broadcast TX condition variable if space became available (outside lock).
-     Wakes ALL waiting write threads so they can re-check condition.
-     This is efficient with burst ACKs: 3 ACKs -> 3 writes can proceed. */
-  if (should_signal_tx) {
-    iohdlc_condvar_broadcast(&p->tx_cv);
-  }
-  
-  /* Broadcast event if checkpoint moved frames (outside lock) */
-  if (checkpoint_moved_frames) {
-    ioHdlcBroadcastFlags(s, IOHDLC_EVT_ISNDREQ);
-  }
   return true;
 }
 
-static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
-                         iohdlc_frame_t *fp) {
+static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
+                         iohdlc_frame_t *fp,
+                         bool *should_signal_sem_out,
+                         uint32_t *broadcast_flags_out) {
   /* Handle I-frame specific logic:
      - Validate sequence number N(S)
      - Enqueue frame for application if valid
      - Generate REJ if out-of-sequence
+     
+     THREAD SAFETY: Caller must hold state_mutex.
+     Returns flags via output parameters for deferred signaling.
+     Returns false if frame should be discarded (out-of-sequence).
   */
   
   uint32_t ns = extractNS(s, fp);
-  
-  /* Validate N(S) against V(R). Need lock to read vr. */
-  iohdlc_mutex_lock(&p->state_mutex);
   uint32_t expected_ns = p->vr;
+  
+  *should_signal_sem_out = false;
   
   if (ns != expected_ns) {
     /* Out-of-sequence error detected. */
@@ -649,28 +640,21 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        Without REJ, recovery relies on checkpoint timeout (slower but standard-compliant). */
     IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "N(S) %u, exp %u",
                   ns, expected_ns);
-    bool should_broadcast = false;
     if (!IOHDLC_USE_TWA(s) && IOHDLC_USE_REJ(s) && p->rej_actioned == 0) {
       p->ss_fun = IOHDLC_S_REJ;
       p->rej_actioned = p->vr + 1;  /* Mark REJ as actioned (value = N(R) + 1) */
-      should_broadcast = true;
+      *broadcast_flags_out |= IOHDLC_EVT_SSNDREQ;  /* REJ needs S-frame transmission */
     }
     
-    iohdlc_mutex_unlock(&p->state_mutex);
-    
-    hdlcReleaseFrame(s->frame_pool, fp);
-    
-    if (should_broadcast) {
-      ioHdlcBroadcastFlags(s, IOHDLC_EVT_SSNDREQ);
-    }
-    
-    return;
+    return false;  /* Discard frame */
   }
   
   /* Frame is in sequence: enqueue for application. */
   p->ss_state |= IOHDLC_SS_IF_RCVD;
-  ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
   ioHdlc_frameq_insert(&p->i_recept_q, fp);
+  
+  /* Always signal PFHONOR for valid I-frames */
+  *broadcast_flags_out |= IOHDLC_EVT_PFHONOR;
   
   /* Clear REJ exception if this is the frame that completes recovery.
      rej_actioned = x means waiting for frame with N(S) = x-1. */
@@ -680,35 +664,31 @@ static void handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   
   /* Check frame pool watermark and set local busy if LOW_WATER.
      This triggers RNR transmission to apply flow control. */
-  bool should_broadcast_rnr = false;
   if (hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_LOW_WATER) {
     if (!IOHDLC_ST_BUSY(s)) {
       s->flags |= IOHDLC_FLG_BUSY;
       p->ss_fun = IOHDLC_S_RNR;
-      should_broadcast_rnr = true;
+      *broadcast_flags_out |= IOHDLC_EVT_SSNDREQ;  /* RNR needs S-frame transmission */
     }
   }
   
   /* Increment V(R) - frame accepted (use modmask for modular increment). */
   p->vr = (p->vr + 1) & s->modmask;
   
-  iohdlc_mutex_unlock(&p->state_mutex);
-  
-  /* Signal the counting semaphore to unblock ioHdlcReadTmo() if waiting (increment count) */
-  iohdlc_sem_signal(&p->i_recept_sem);
-  
-  /* Broadcast RNR event if needed (outside lock) */
-  if (should_broadcast_rnr) {
-    ioHdlcBroadcastFlags(s, IOHDLC_EVT_SSNDREQ);
-  }
+  *should_signal_sem_out = true;
+  return true;  /* Frame accepted */
 }
 
 static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
-                         iohdlc_frame_t *fp) {
+                         iohdlc_frame_t *fp,
+                         uint32_t *broadcast_flags_out) {
   /* Handle S-frame specific logic:
      - Update peer busy state (RR/RNR)
      - Process REJ for retransmission
      - Ignore SREJ (not implemented)
+     
+     THREAD SAFETY: Caller must hold state_mutex.
+     Returns flags via output parameters for deferred signaling.
   */
   
   uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
@@ -718,16 +698,12 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   switch (s_fun) {
     case IOHDLC_S_RR:
       /* Peer ready to receive: clear busy flag. */
-      iohdlc_mutex_lock(&p->state_mutex);
       p->ss_state &= ~IOHDLC_SS_BUSY;
-      iohdlc_mutex_unlock(&p->state_mutex);
       break;
       
     case IOHDLC_S_RNR:
       /* Peer not ready: set busy flag. */
-      iohdlc_mutex_lock(&p->state_mutex);
       p->ss_state |= IOHDLC_SS_BUSY;
-      iohdlc_mutex_unlock(&p->state_mutex);
       break;
       
     case IOHDLC_S_REJ:
@@ -743,9 +719,6 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
          particular I frame (same N(S)), REJ shall be inhibited. */
       if (!IOHDLC_USE_TWA(s)) {
         uint32_t nr = extractNR(s, fp);
-        bool should_broadcast = false;
-        
-        iohdlc_mutex_lock(&p->state_mutex);
         
         /* Check if checkpoint is active and starting with same particular I frame.
            "same particular I frame" = same N(S) value. */
@@ -761,20 +734,13 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
             iohdlc_frame_t *first = p->i_retrans_q.next;
             iohdlc_frame_t *last = p->i_retrans_q.prev;
             ioHdlc_frameq_move(&p->i_trans_q, first, last);
-            should_broadcast = true;
+            *broadcast_flags_out |= IOHDLC_EVT_ISNDREQ;  /* REJ moved frames to transmission queue */
           }
           
           /* Mark REJ as actioned (value = N(R) + 1 to distinguish from 0 = not actioned).
              Clear checkpoint state since REJ is now handling retransmission. */
           p->rej_actioned = nr + 1;
           p->chkpt_actioned = 0;
-        }
-        
-        iohdlc_mutex_unlock(&p->state_mutex);
-        
-        /* Broadcast event outside lock */
-        if (should_broadcast) {
-          ioHdlcBroadcastFlags(s, IOHDLC_EVT_ISNDREQ);
         }
       }
       break;
@@ -783,12 +749,16 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       /* Selective reject: not implemented. Ignore. */
       break;
   }
-  
-  hdlcReleaseFrame(s->frame_pool, fp);
 }
 
 void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
-  /* Handle I-frames and S-frames specific to NRM mode. */
+  /* Handle I-frames and S-frames specific to NRM mode.
+     
+     THREAD SAFETY: Extended lock strategy to prevent race conditions.
+     The entire sequence (checkpoint + ACK + frame-specific processing) is atomic.
+     All signaling is deferred until after the lock is released to ensure TX
+     observes a fully consistent state.
+  */
   
   iohdlc_station_peer_t *p;
   uint32_t addr;
@@ -814,19 +784,63 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     }
   }
   
+  /* Flags for deferred signaling (after lock release). */
+  bool should_signal_tx = false;
+  bool checkpoint_moved = false;
+  bool should_signal_sem = false;
+  uint32_t broadcast_flags = 0;  /* Consolidated event flags for single broadcast */
+  bool frame_accepted = true;
+  
+  /* ATOMIC SECTION: Single lock for entire processing sequence.
+     This prevents TX from observing intermediate state where checkpoint/ACK
+     is complete but I-frame validation/state update is not yet done. */
+  iohdlc_mutex_lock(&p->state_mutex);
+  
   /* Common checkpoint and acknowledgment processing for all I/S frames. */
-  if (!handleCheckpointAndAck(s, p, fp)) {
+  if (!handleCheckpointAndAck(s, p, fp, &should_signal_tx, &checkpoint_moved, &broadcast_flags)) {
     /* Protocol error occurred during checkpoint/ack processing. */
+    iohdlc_mutex_unlock(&p->state_mutex);
     hdlcReleaseFrame(s->frame_pool, fp);
     return;
   }
   
   /* Branch by frame type for specific handling. */
   if (IOHDLC_IS_I_FRM(ctrl)) {
-    handleIFrame(s, p, fp);
+    frame_accepted = handleIFrame(s, p, fp, &should_signal_sem, &broadcast_flags);
   } else if (IOHDLC_IS_S_FRM(ctrl)) {
-    handleSFrame(s, p, fp);
-  } else {
+    handleSFrame(s, p, fp, &broadcast_flags);
+  }
+  
+  /* Add checkpoint/ACK related events to broadcast flags */
+  if (checkpoint_moved) {
+    broadcast_flags |= IOHDLC_EVT_ISNDREQ;
+  }
+  
+  iohdlc_mutex_unlock(&p->state_mutex);
+  /* END ATOMIC SECTION */
+  
+  /* All signaling happens AFTER lock release with fully consistent state.
+     TX will observe complete checkpoint + I-frame processing atomically. */
+  
+  if (should_signal_tx) {
+    iohdlc_condvar_broadcast(&p->tx_cv);
+  }
+  
+  /* Single consolidated broadcast for all event flags */
+  if (broadcast_flags) {
+    ioHdlcBroadcastFlags(s, broadcast_flags);
+  }
+  
+  if (should_signal_sem) {
+    iohdlc_sem_signal(&p->i_recept_sem);
+  }
+  
+  /* Release or keep frame based on acceptance. */
+  if (IOHDLC_IS_I_FRM(ctrl) && !frame_accepted) {
+    hdlcReleaseFrame(s->frame_pool, fp);
+  } else if (IOHDLC_IS_S_FRM(ctrl)) {
+    hdlcReleaseFrame(s->frame_pool, fp);
+  } else if (!IOHDLC_IS_I_FRM(ctrl) && !IOHDLC_IS_S_FRM(ctrl)) {
     /* Unexpected frame type (U-frames already handled upstream). */
     hdlcReleaseFrame(s->frame_pool, fp);
   }

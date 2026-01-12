@@ -442,7 +442,7 @@ static int test_data_exchange(void) {
 rep:
   test_printf("Primary sending %zu bytes...\n", msg_len*10);
   for (i = 0; i < 10; ++i) {
-    sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 2000);
+    sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 500);
     if (sent != (ssize_t)msg_len) {
       test_printf("❌ Primary write returned %zd (expected %zu), errno=%d\n", 
                   sent, msg_len, station_primary.errorno);
@@ -456,7 +456,7 @@ rep:
   memset(recv_buf, 0, sizeof recv_buf);
   ssize_t received;
   for (i = 0; i < 10; ++i) {
-    received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, msg_len, 2000);
+    received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, msg_len, 500);
     test_printf("Secondary read returned %zd bytes (expected %zu), errno=%d\n",
                 received, msg_len, station_secondary.errorno);
     if (received > 0 && received <= (ssize_t)sizeof recv_buf) {
@@ -476,13 +476,13 @@ rep:
   test_printf("Secondary received %zd bytes: \"%s\"\n", received, recv_buf);
   
   /* Secondary echoes message back to primary */
-  sent = ioHdlcWriteTmo(&peer_at_secondary, recv_buf, received, 2000);
+  sent = ioHdlcWriteTmo(&peer_at_secondary, recv_buf, received, 500);
   TEST_ASSERT_GOTO(sent == received, "Secondary echo write failed");
   test_printf("Secondary echoed %zd bytes\n", sent);
   
   /* Primary receives echo */
   memset(echo_buf, 0, sizeof echo_buf);
-  received = ioHdlcReadTmo(&peer_at_primary, echo_buf, 40 /*sizeof echo_buf - 1*/, 2000);
+  received = ioHdlcReadTmo(&peer_at_primary, echo_buf, 40 /*sizeof echo_buf - 1*/, 500);
   TEST_ASSERT_GOTO(received == (ssize_t)msg_len, "Primary echo read failed");
   TEST_ASSERT_GOTO(memcmp(echo_buf, test_msg, msg_len) == 0, "Echo data mismatch");
   test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);
