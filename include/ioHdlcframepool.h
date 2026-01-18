@@ -26,6 +26,11 @@
 #define IOHDLCFRAMEPOOL_H_
 
 #include <stddef.h>  /* for size_t */
+#include <stdint.h>  /* for uint32_t, uint8_t */
+#include <stdbool.h> /* for bool */
+
+/* Forward declaration - iohdlc_frame_t is defined in ioHdlcframe.h */
+typedef struct iohdlc_frame iohdlc_frame_t;
 
 /**
  * @brief   Frame pool watermark state.

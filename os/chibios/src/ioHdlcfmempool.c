@@ -19,6 +19,7 @@
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
 #include "ioHdlcfmempool.h"
+#include "ioHdlcpool_common.h"
 /**
  * HDLC frame pool implementation using ChibiOS mempools.
  */
@@ -72,15 +73,17 @@ static iohdlc_frame_t * take(void *ip) {
     fp->refs = 1;
     fmpp->allocated++;
     
-    /* Check low watermark with hysteresis */
-    uint32_t free = fmpp->total - fmpp->allocated;
-    if (fmpp->state == IOHDLC_POOL_NORMAL && free <= fmpp->low_threshold) {
-      fmpp->state = IOHDLC_POOL_LOW_WATER;
-      _chSysRestoreStatusX(sts);
-      if (fmpp->on_low != NULL)
-        fmpp->on_low(fmpp->cb_arg);
-      return fp;
-    }
+    /* Check low watermark with hysteresis (common logic) */
+    bool notify;
+    void *cb_arg;
+    void (*cb)(void *) = hdlc_pool_check_low_watermark((ioHdlcFramePool *)fmpp, &notify, &cb_arg);
+    
+    _chSysRestoreStatusX(sts);
+    
+    if (notify && cb != NULL)
+      cb(cb_arg);
+      
+    return fp;
   }
   _chSysRestoreStatusX(sts);
   return fp;
@@ -94,15 +97,17 @@ static void release(void *ip, iohdlc_frame_t *fp) {
     chPoolFreeI(&fmpp->mp, fp);
     fmpp->allocated--;
     
-    /* Check high watermark with hysteresis */
-    uint32_t free = fmpp->total - fmpp->allocated;
-    if (fmpp->state == IOHDLC_POOL_LOW_WATER && free > fmpp->high_threshold) {
-      fmpp->state = IOHDLC_POOL_NORMAL;
-      _chSysRestoreStatusX(sts);
-      if (fmpp->on_normal != NULL)
-        fmpp->on_normal(fmpp->cb_arg);
-      return;
-    }
+    /* Check high watermark with hysteresis (common logic) */
+    bool notify;
+    void *cb_arg;
+    void (*cb)(void *) = hdlc_pool_check_high_watermark((ioHdlcFramePool *)fmpp, &notify, &cb_arg);
+    
+    _chSysRestoreStatusX(sts);
+    
+    if (notify && cb != NULL)
+      cb(cb_arg);
+      
+    return;
   }
   _chSysRestoreStatusX(sts);
 }
@@ -145,15 +150,8 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
   ((ioHdlcFramePool *)fmpp)->total = n;
   ((ioHdlcFramePool *)fmpp)->allocated = 0;
   
-  /* Initialize watermark with sensible defaults */
-  ((ioHdlcFramePool *)fmpp)->low_pct = 20;   /* Enter LOW_WATER at 20% free */
-  ((ioHdlcFramePool *)fmpp)->high_pct = 60;  /* Exit LOW_WATER at 60% free */
-  ((ioHdlcFramePool *)fmpp)->low_threshold = (n * 20) / 100;
-  ((ioHdlcFramePool *)fmpp)->high_threshold = (n * 60) / 100;
-  ((ioHdlcFramePool *)fmpp)->state = IOHDLC_POOL_NORMAL;
-  ((ioHdlcFramePool *)fmpp)->on_low = NULL;     /* No callback by default */
-  ((ioHdlcFramePool *)fmpp)->on_normal = NULL;
-  ((ioHdlcFramePool *)fmpp)->cb_arg = NULL;
+  /* Initialize watermark with sensible defaults (common logic) */
+  hdlc_pool_init_watermark((ioHdlcFramePool *)fmpp, n);
 }
 
 void hdlcPoolConfigWatermark(ioHdlcFramePool *fpp, uint8_t low_pct, 

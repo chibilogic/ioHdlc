@@ -12,3 +12,7 @@ IOHDLCBINDSRC := $(IOHDLCBINDDIR)/src/ioHdlcosal.c     \
 # Shared variables
 ALLCSRC += $(IOHDLCBINDSRC) 
 ALLINC  += $(IOHDLCBINDINC)
+
+# Note: ioHdlcpool_common.c is in the core src/ directory, 
+# not in os-specific directories. It should be included by 
+# projects via IOHDLC_CORE_SRCS in their main Makefile.

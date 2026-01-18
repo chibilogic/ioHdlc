@@ -83,6 +83,12 @@ extern const ioHdlcRunnerOps *s_runner_ops;
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
+static void ioHdlc_framepool_on_normal(void *stationp) {
+  iohdlc_station_t *s = (iohdlc_station_t *)stationp;
+  if (s && s->c_peer)
+    iohdlc_condvar_broadcast(&s->c_peer->tx_cv);
+}
+
 /*===========================================================================*/
 /* Module exported functions.                                                */
 /*===========================================================================*/
@@ -136,6 +142,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   /* Frame pool and driver */
   ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;
   ioHdlcsp->driver = ioHdlcsconfp->driver;
+
+  /* Frame pool notify callback */
+  ioHdlcsp->frame_pool->on_normal = ioHdlc_framepool_on_normal;
+  ioHdlcsp->frame_pool->cb_arg = (void *)ioHdlcsp;
 
   /* Initialize peer list */
   ioHdlc_peerl_init(&ioHdlcsp->peers);
@@ -638,7 +648,8 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
       if (result == MSG_TIMEOUT) {
         iohdlc_mutex_unlock(&peer->state_mutex);
         s->errorno = ETIMEDOUT;
-        return -1;
+        ssize_t t = count -remaining;
+        return t != 0 ? t : -1;  /* Return bytes written so far */
       }
     }
     
@@ -650,9 +661,9 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     fp = hdlcTakeFrame(s->frame_pool);
     iohdlc_mutex_unlock(&peer->state_mutex);
     if (fp == NULL) {
-      /* Pool exhausted - shouldn't happen given watermark check above */
-      s->errorno = ENOMEM;
-      return -1;
+      /* Pool exhausted - this could still happen due to low-level driver
+         read activity */
+      continue;
     }
     
     /* Build frame outside mutex (no shared state accessed) */

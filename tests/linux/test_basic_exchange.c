@@ -39,7 +39,7 @@
 #define FRAME_SIZE      128
 #define MAX_PACKET_SIZE 120  /* Limited by TYPE0 FFF (max 127 bytes frame) */
 
-static volatile bool test_running = true;
+static volatile bool test_running_global = true;
 
 /*===========================================================================*/
 /* Signal Handler                                                            */
@@ -47,7 +47,7 @@ static volatile bool test_running = true;
 
 static void sigint_handler(int sig) {
   (void)sig;
-  test_running = false;
+  test_running_global = false;
   printf("\n\nTest interrupted. Stopping...\n");
 }
 
@@ -74,7 +74,8 @@ static void *writer_thread(void *arg) {
   uint32_t packets_sent = 0;
   uint32_t iterations = 0;
   uint32_t start_time = iohdlc_time_now_ms();
-  
+  volatile bool test_running = true;
+
   if (!ctx->enabled) {
     return NULL;  /* Thread not needed for this direction */
   }
@@ -99,14 +100,18 @@ static void *writer_thread(void *arg) {
                                                 buffer, sizeof buffer);
       
       ssize_t sent = ioHdlcWriteTmo(ctx->peer, buffer, packet_size, 20000);
-      if (sent > 0) {
+      if (sent >= (ssize_t)packet_size) {
         pthread_mutex_lock(ctx->stats_mutex);
         ctx->stats->packets_sent++;
         ctx->stats->total_bytes_sent += sent;
         pthread_mutex_unlock(ctx->stats_mutex);
         packets_sent++;
       } else {
-        fprintf(stderr, "Writer timeout!\n");
+        if (ctx->station->errorno == ETIMEDOUT)
+          fprintf(stderr, "Writer %u timeout!\n", ctx->station->addr);
+        else
+          fprintf(stderr, "Writer %u Error %d!\n", ctx->station->addr,
+            ctx->station->errorno);
         break;
       }
     }
@@ -118,7 +123,9 @@ static void *writer_thread(void *arg) {
     
     usleep(1);  /* Small yield */
   }
-  usleep(5000000);  /* Wait for any pending receptions */
+  fprintf(stderr, "Writer %u END (iters %d)!\n", ctx->station->addr, iterations);
+  usleep(1000000);  /* Wait for any pending receptions */
+  test_running_global = false;
 
   fprintf(stderr, "Writer Link down\n");
   ioHdlcStationLinkDown(ctx->station, ctx->peer->addr);
@@ -132,7 +139,8 @@ static void *writer_thread(void *arg) {
 static void *reader_thread(void *arg) {
   thread_context_t *ctx = (thread_context_t *)arg;
   uint8_t buffer[MAX_PACKET_SIZE + TEST_PACKET_HEADER_SIZE];
-  
+  volatile bool test_running = true;
+
   if (!ctx->enabled) {
     return NULL;  /* Thread not needed for this direction */
   }
@@ -162,7 +170,9 @@ static void *reader_thread(void *arg) {
       break;
     }
   }
-  usleep(3000000);  /* Wait for any pending receptions */
+
+  usleep(1000000);  /* Wait for any pending receptions */
+  test_running_global = false;
   fprintf(stderr, "Reader Link down\n");
   ioHdlcStationLinkDown(ctx->station, ctx->peer->addr);
     
@@ -343,7 +353,7 @@ int main(int argc, char **argv) {
   ctx_pri_reader.stats = &stats_primary;
   ctx_pri_reader.stats_mutex = &stats_mutex_primary;
   ctx_pri_reader.config = &config;
-  ctx_pri_reader.seq = 0;  /* Not used by reader */
+  ctx_pri_reader.seq = 0;
   ctx_pri_reader.enabled = (config.traffic_direction == TRAFFIC_SEC_TO_PRI ||
                             config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
   
@@ -363,7 +373,7 @@ int main(int argc, char **argv) {
   ctx_sec_reader.stats = &stats_secondary;
   ctx_sec_reader.stats_mutex = &stats_mutex_secondary;
   ctx_sec_reader.config = &config;
-  ctx_sec_reader.seq = 0;  /* Not used by reader */
+  ctx_sec_reader.seq = 0;
   ctx_sec_reader.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
                             config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
   
@@ -379,13 +389,13 @@ int main(int argc, char **argv) {
   pthread_create(&thread_sec_reader, NULL, reader_thread, &ctx_sec_reader);
   
   /* Monitor progress */
-  while (test_running) {
+  while (test_running_global) {
     usleep(100000);
     elapsed_time = (iohdlc_time_now_ms() - start_time) / 1000;
     
     if (config.duration_type == TEST_BY_TIME) {
       if (elapsed_time >= config.duration_value) {
-        test_running = false;
+        test_running_global = false;
       }
       printf("Elapsed: %u/%u seconds | PRI: %u sent, %u rcv | SEC: %u sent, %u rcv\n",
              elapsed_time, config.duration_value,
