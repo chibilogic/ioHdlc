@@ -208,7 +208,7 @@ static void* adapter_rx_thread(void *arg) {
       pthread_mutex_unlock(&adapter->rx_lock);
       
       /* Read remaining bytes into the buffer */
-      ssize_t result = mock_stream_read(adapter->stream, target, remaining, 100);
+      ssize_t result = mock_stream_read(adapter->stream, target, remaining, 200);
       
       if (result >= 1) {
         /* Bytes received, update position */

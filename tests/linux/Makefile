@@ -53,7 +53,9 @@ MOCK_SRCS = \
 
 COMMON_SRCS = \
 	$(COMMON_DIR)/test_helpers.c \
-	$(COMMON_DIR)/test_arenas.c
+	$(COMMON_DIR)/test_arenas.c \
+	$(COMMON_DIR)/test_framework.c \
+	$(COMMON_DIR)/test_config_linux.c
 
 # OS-agnostic test scenarios (shared across all platforms)
 COMMON_TEST_SRCS = \
@@ -67,12 +69,14 @@ COMMON_TEST_SRCS = \
 LINUX_TEST_SRCS = \
 	$(SCENARIOS_DIR)/test_mock_stream.c \
 	$(SCENARIOS_DIR)/test_osal_bsem.c \
-	$(SCENARIOS_DIR)/test_osal_events.c
+	$(SCENARIOS_DIR)/test_osal_events.c \
+	$(LINUX_DIR)/test_basic_exchange.c
 
 # Test scenarios
 TEST_MOCK_STREAM = test_mock_stream
 TEST_BASIC_CONNECTION = test_basic_connection
 TEST_BASIC_CONNECTION_TWA = test_basic_connection_twa
+TEST_BASIC_EXCHANGE = test_basic_exchange
 TEST_FRAME_POOL = test_frame_pool
 TEST_CHECKPOINT_TWS = test_checkpoint_tws
 TEST_CHECKPOINT_TWA = test_checkpoint_twa
@@ -85,17 +89,26 @@ OSAL_OBJS = $(patsubst $(OS_LINUX_DIR)/src/%.c,$(OBJ_DIR)/osal_%.o,$(OSAL_SRCS))
 MOCK_OBJS = $(patsubst $(MOCKS_DIR)/%.c,$(OBJ_DIR)/mock_%.o,$(MOCK_SRCS))
 COMMON_OBJS = $(patsubst $(COMMON_DIR)/%.c,$(OBJ_DIR)/common_%.o,$(COMMON_SRCS))
 
+# Minimal OSAL for tests that only need time functions (test_framework dependency)
+OSAL_MINIMAL = $(OBJ_DIR)/osal_ioHdlcosal.o
+
 ALL_OBJS = $(CORE_OBJS) $(OSAL_OBJS) $(MOCK_OBJS) $(COMMON_OBJS)
 
 # Test binaries
-TEST_BINS = $(BIN_DIR)/$(TEST_MOCK_STREAM)
-TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION)
-TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA)
-TEST_BINS += $(BIN_DIR)/$(TEST_FRAME_POOL)
-TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWS)
-TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWA)
-TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
-TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
+AUTO_TEST_BINS = $(BIN_DIR)/$(TEST_MOCK_STREAM)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_FRAME_POOL)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWS)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWA)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
+
+# Manual test tools (require command-line parameters)
+MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_BASIC_EXCHANGE)
+
+# All test binaries
+TEST_BINS = $(AUTO_TEST_BINS) $(MANUAL_TEST_BINS)
 
 # Targets
 .PHONY: all clean test test-osal dirs
@@ -135,8 +148,13 @@ $(OBJ_DIR)/test_%.o: $(SCENARIOS_DIR)/test_%.c
 	@echo "CC $< (linux)"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
+# Compile Linux test programs (in current directory)
+$(OBJ_DIR)/test_%.o: $(LINUX_DIR)/test_%.c
+	@echo "CC $< (linux)"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
 # Link test binaries
-$(BIN_DIR)/$(TEST_MOCK_STREAM): $(OBJ_DIR)/test_mock_stream.o $(MOCK_OBJS) $(COMMON_OBJS)
+$(BIN_DIR)/$(TEST_MOCK_STREAM): $(OBJ_DIR)/test_mock_stream.o $(MOCK_OBJS) $(COMMON_OBJS) $(OSAL_MINIMAL)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
@@ -145,6 +163,10 @@ $(BIN_DIR)/$(TEST_BASIC_CONNECTION): $(OBJ_DIR)/test_basic_connection.o $(ALL_OB
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
 $(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA): $(OBJ_DIR)/test_basic_connection_twa.o $(ALL_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/$(TEST_BASIC_EXCHANGE): $(OBJ_DIR)/test_basic_exchange.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
@@ -160,11 +182,11 @@ $(BIN_DIR)/$(TEST_CHECKPOINT_TWA): $(OBJ_DIR)/test_checkpoint_twa.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_OSAL_BSEM): $(OBJ_DIR)/test_osal_bsem.o $(OBJ_DIR)/osal_ioHdlcosal.o $(COMMON_OBJS)
+$(BIN_DIR)/$(TEST_OSAL_BSEM): $(OBJ_DIR)/test_osal_bsem.o $(OSAL_MINIMAL) $(COMMON_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_OSAL_EVENTS): $(OBJ_DIR)/test_osal_events.o $(OBJ_DIR)/osal_ioHdlcosal.o $(COMMON_OBJS)
+$(BIN_DIR)/$(TEST_OSAL_EVENTS): $(OBJ_DIR)/test_osal_events.o $(OSAL_MINIMAL) $(COMMON_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
@@ -175,13 +197,18 @@ test: all
 	@echo "  Running Test Suite"
 	@echo "════════════════════════════════════════════════════════"
 	@echo ""
-	@for test in $(TEST_BINS); do \
+	@for test in $(AUTO_TEST_BINS); do \
 		$$test || exit 1; \
 	done
 	@echo ""
 	@echo "════════════════════════════════════════════════════════"
 	@echo "  All Tests Completed Successfully"
 	@echo "════════════════════════════════════════════════════════"
+	@echo ""
+	@echo "Manual test tools (require parameters):"
+	@for test in $(MANUAL_TEST_BINS); do \
+		echo "  $$test --help"; \
+	done
 	@echo ""
 
 # Run OSAL tests only
@@ -210,7 +237,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  all       - Build all test binaries"
-	@echo "  test      - Build and run all tests"
+	@echo "  test      - Build and run all automated tests"
 	@echo "  test-osal - Build and run OSAL tests only"
 	@echo "  clean     - Remove build artifacts"
 	@echo "  help      - Show this message"
@@ -220,6 +247,9 @@ help:
 	@echo "  make test-osal                               # Run OSAL tests only"
 	@echo "  make clean && make                           # Rebuild from scratch"
 	@echo "  make CFLAGS_EXTRA=\"-DIOHDLC_LOG_LEVEL=1\"     # Enable frame logging"
+	@echo ""
+	@echo "Manual test tools (require command-line parameters):"
+	@echo "  build/bin/test_basic_exchange --help         # Parametrized HDLC testing"
 	@echo ""
 	@echo "Logging levels (IOHDLC_LOG_LEVEL):"
 	@echo "  0 - OFF (default, zero overhead)"
