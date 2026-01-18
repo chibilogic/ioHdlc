@@ -242,6 +242,21 @@ static inline void iohdlc_sys_lock(void) { chSysLock(); }
 static inline void iohdlc_sys_unlock(void) { chSysUnlock(); }
 static inline void iohdlc_thread_yield(void) { chThdYield(); }
 
+/*===========================================================================*/
+/* Raw Reception Queue Mutex (SwDriver specific)                            */
+/*===========================================================================*/
+
+/**
+ * @brief   Raw queue mutex - ChibiOS uses scheduler lock instead.
+ * @note    Mutex field is not declared (zero footprint), locks map to chSys*.
+ */
+#define IOHDLC_RAWQ_MUTEX_DECLARE(name)   /* nothing */
+#define IOHDLC_RAWQ_MUTEX_INIT(m)         (void)0
+#define IOHDLC_RAWQ_LOCK(m)               chSysLock()
+#define IOHDLC_RAWQ_UNLOCK(m)             chSysUnlock()
+#define IOHDLC_RAWQ_LOCK_ISR(m)           chSysLockFromISR()
+#define IOHDLC_RAWQ_UNLOCK_ISR(m)         chSysUnlockFromISR()
+
 /*
  * OS-agnostic assertion hook for ioHdlc core modules.
  * Maps to ChibiOS debug assert; in release builds this compiles away.

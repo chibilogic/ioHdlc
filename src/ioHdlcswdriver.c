@@ -91,6 +91,7 @@ void ioHdlcSwDriverInit(ioHdlcSwDriver *drv) {
   
   ioHdlc_frameq_init(&drv->raw_recept_q);
   iohdlc_sem_init(&drv->raw_recept_sem, 0);
+  IOHDLC_RAWQ_MUTEX_INIT(drv->raw_recept_mtx);
 }
 
 /*===========================================================================*/
@@ -194,10 +195,10 @@ static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo) {
     /* Wait for RX frame or timeout */
     fp = NULL;
     if (iohdlc_sem_wait_ok(&drv->raw_recept_sem, tmo)) {
-      iohdlc_sys_lock();
+      IOHDLC_RAWQ_LOCK(drv->raw_recept_mtx);
       if (!ioHdlc_frameq_isempty(&drv->raw_recept_q))
         fp = ioHdlc_frameq_remove(&drv->raw_recept_q);
-      iohdlc_sys_unlock();
+      IOHDLC_RAWQ_UNLOCK(drv->raw_recept_mtx);
     }
     if (fp == NULL)
       return NULL; /* Timeout or idle */
@@ -325,9 +326,9 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
       goto newframe;
     }
     /* Inter-frame timeout - signal IDLE */
-    iohdlc_sys_lock_isr();
+    IOHDLC_RAWQ_LOCK_ISR(drv->raw_recept_mtx);
     iohdlc_sem_signal_i(&drv->raw_recept_sem);
-    iohdlc_sys_unlock_isr();
+    IOHDLC_RAWQ_UNLOCK_ISR(drv->raw_recept_mtx);
     return;
   }
   
@@ -354,10 +355,10 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
       }
 
       /* Deliver frame to upper layer */
+      IOHDLC_RAWQ_LOCK_ISR(drv->raw_recept_mtx);
       ioHdlc_frameq_insert(&drv->raw_recept_q, drv->rx_in_frame);
-      iohdlc_sys_lock_isr();
       iohdlc_sem_signal_i(&drv->raw_recept_sem);
-      iohdlc_sys_unlock_isr();
+      IOHDLC_RAWQ_UNLOCK_ISR(drv->raw_recept_mtx);
       
       drv->rx_in_frame = NULL;
       *drv->rx_stagep = HDLC_FLAG;  /* FLAG separator is also opening FLAG */

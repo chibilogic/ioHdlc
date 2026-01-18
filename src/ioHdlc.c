@@ -614,7 +614,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
   }
   
   /* Check if connected */
-  if (!(peer->ss_state & IOHDLC_SS_ST_CONN)) {
+  if (IOHDLC_PEER_DISC(peer)) {
     s->errorno = ENOTCONN;
     return -1;
   }
@@ -646,11 +646,9 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
        Calculate chunk size for this frame (max mifls). */
     chunk_size = (remaining < peer->mifls) ? remaining : peer->mifls;
     
-    /* Release mutex temporarily to allocate frame (pool has internal lock) */
-    iohdlc_mutex_unlock(&peer->state_mutex);
-    
     /* Allocate frame from pool */
     fp = hdlcTakeFrame(s->frame_pool);
+    iohdlc_mutex_unlock(&peer->state_mutex);
     if (fp == NULL) {
       /* Pool exhausted - shouldn't happen given watermark check above */
       s->errorno = ENOMEM;
@@ -673,7 +671,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     uint8_t *end = info_ptr + chunk_size;
     fp->elen = (uint16_t)(end - fp->frame);
     
-    /* FFF will be valorized by driver (driver knows FCS size) */
+    /* FFF will be valorized by driver */
     
     /* Re-acquire mutex to enqueue frame and update state */
     iohdlc_mutex_lock(&peer->state_mutex);
@@ -704,6 +702,7 @@ void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags);
  * @details Blocks until I-frame available in reception queue, copies to buffer.
  *          Handles partial frame reads: if buffer smaller than frame, saves
  *          frame state for next read. Returns as many bytes as possible.
+ *          Gracefully handle reads that occur while the peer is disconnecting.
  *          
  * @param[in] peer       Peer descriptor
  * @param[out] buf       Buffer to receive data
@@ -736,12 +735,12 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
   }
   
   /* Check if connected */
-  if (!(peer->ss_state & IOHDLC_SS_ST_CONN)) {
+  if (IOHDLC_PEER_DISC(peer) && ioHdlc_frameq_isempty(&peer->i_recept_q)) {
     s->errorno = ENOTCONN;
     return -1;
   }
   
-  size_t total_bytes_read = 0;
+  ssize_t total_bytes_read = 0;
   uint8_t *dest = (uint8_t *)buf;
   
   /* Calculate absolute timeout for total operation (handle infinite timeout) */
@@ -750,14 +749,21 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
                          IOHDLC_WAIT_FOREVER : (start_time_ms + timeout_ms);
   
   ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
+  iohdlc_mutex_lock(&peer->state_mutex);
+  peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
+  iohdlc_mutex_unlock(&peer->state_mutex);
+  
   /* Greedy consumption loop: read frames until count satisfied, timeout, or queue empty.
      POSIX semantics: returns bytes read even on timeout (only -1 if no bytes read yet). */
-  while (total_bytes_read < count) {
+  while (total_bytes_read < (ssize_t)count) {
 
     /* Check if we have a partial frame from previous read */
     if (peer->partial_read_frame != NULL) {
       fp = peer->partial_read_frame;
     } else {
+      if (IOHDLC_PEER_DISC(peer) && ioHdlc_frameq_isempty(&peer->i_recept_q))
+        break;
+
       /* Calculate remaining timeout (infinite if deadline is infinite) */
       uint32_t remaining_ms;
       if (deadline_ms == IOHDLC_WAIT_FOREVER) {
@@ -774,7 +780,8 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
           break;  /* POSIX: return partial read on timeout */
         }
         s->errorno = ETIMEDOUT;
-        return -1;
+        total_bytes_read = -1;
+        break;
       }
       
       /* Remove frame from queue (protect with mutex) */
@@ -785,11 +792,15 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       iohdlc_mutex_unlock(&peer->state_mutex);
       
       if (fp == NULL) {
-        /* Semaphore signaled but queue empty: shouldn't happen, but handle gracefully */
+        /* Semaphore signaled but queue empty: peer disconnected.
+           If no, handle gracefully */
+        if (IOHDLC_PEER_DISC(peer))
+          break;
         if (total_bytes_read > 0)
           break;  /* Return what we've read so far */
         s->errorno = EAGAIN;
-        return -1;
+        total_bytes_read = -1;
+        break;
       }
       
       /* Start reading from beginning of this frame */
@@ -821,11 +832,15 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
     }
     /* Frame fully read: release back to pool */
     hdlcReleaseFrame(s->frame_pool, fp);
+
     peer->partial_read_frame = NULL;
     peer->partial_read_offset = 0;
   }
+  iohdlc_mutex_lock(&peer->state_mutex);
+  peer->ss_state &= ~IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
+  iohdlc_mutex_unlock(&peer->state_mutex);
   
-  return (ssize_t)total_bytes_read;
+  return total_bytes_read;
 }
 
 /** @} */

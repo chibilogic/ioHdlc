@@ -125,6 +125,13 @@ static void resetPeerVars(iohdlc_station_peer_t *p) {
   clearFrameQ(p, &p->i_retrans_q);
   clearFrameQ(p, &p->i_recept_q);
   clearFrameQ(p, &p->i_trans_q);
+  iohdlc_sem_init(&p->i_recept_sem, 0);
+}
+
+/* Check if u_cmd is a connection U command */
+static bool isConnectionUCommand(uint8_t u_cmd) {
+  return (u_cmd == IOHDLC_U_SNRM) || (u_cmd == IOHDLC_U_SARM) ||
+         (u_cmd == IOHDLC_U_SABM);
 }
 
 /* Set tx_fn and rx_fn based on mode, or reset to NULL if disconnected. */
@@ -293,7 +300,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     ioHdlcBroadcastFlags(s, IOHDLC_EVT_UMRECVD);
     
   } else {
-    /* U-frame response received (we are Primary or Combined in ABM).
+    /* U-frame response received (we are Primary).
        Per 6.11.4.1.1/1.2: responses must have F bit set. */
     
     /* Verify we have an outstanding UM command (UM_SENT). */
@@ -456,11 +463,8 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   /* Update last acknowledged N(R). */
   p->nr = nr;
   
-  /* Return true if should signal semaphore.
-     Caller will signal outside the lock. */
-  return released_frames &&
-         (p->i_pending_count < (2 * p->ks)) &&
-         (hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_NORMAL);
+  /* Returns true if the stakeholders should be notified.*/
+  return released_frames;
 }
 
 static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
@@ -580,9 +584,15 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
       p->poll_retry_count = 0;
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
       
-      /* If there are pending I-frames, signal TX to send them. */
+      /* If there are pending I-frames, signal TX to send them if
+         peer is ready to receive. 
+         Also, if the station is in the process of reading I-frames
+         from the peer, signal TX to honor the received F.*/
       if (p->i_pending_count)
         *broadcast_flags_out |= IOHDLC_EVT_ISNDREQ;
+      else if (p->ss_state & IOHDLC_SS_RECVING)
+        *broadcast_flags_out |= IOHDLC_EVT_PFHONOR;
+        
       
     } else {
       /* Secondary received P=1: must respond with F=1.
@@ -661,11 +671,8 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   /* Check frame pool watermark and set local busy if LOW_WATER.
      This triggers RNR transmission to apply flow control. */
   if (hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_LOW_WATER) {
-    if (!IOHDLC_ST_BUSY(s)) {
-      s->flags |= IOHDLC_FLG_BUSY;
-      p->ss_fun = IOHDLC_S_RNR;
-      *broadcast_flags_out |= IOHDLC_EVT_SSNDREQ;  /* RNR needs S-frame transmission */
-    }
+    p->ss_fun = IOHDLC_S_RNR;
+    *broadcast_flags_out |= IOHDLC_EVT_SSNDREQ;  /* RNR needs S-frame transmission */
   }
   
   /* Increment V(R) - frame accepted (use modmask for modular increment). */
@@ -787,7 +794,7 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   uint32_t broadcast_flags = 0;  /* Consolidated event flags for single broadcast */
   bool frame_accepted = true;
   
-  /* ATOMIC SECTION: Single lock for entire processing sequence.
+  /* Single lock for entire processing sequence.
      This prevents TX from observing intermediate state where checkpoint/ACK
      is complete but I-frame validation/state update is not yet done. */
   iohdlc_mutex_lock(&p->state_mutex);
@@ -812,15 +819,14 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     broadcast_flags |= IOHDLC_EVT_ISNDREQ;
   }
   
-  iohdlc_mutex_unlock(&p->state_mutex);
-  /* END ATOMIC SECTION */
-  
-  /* All signaling happens AFTER lock release with fully consistent state.
-     TX will observe complete checkpoint + I-frame processing atomically. */
-  
   if (should_signal_tx) {
     iohdlc_condvar_broadcast(&p->tx_cv);
   }
+  
+  iohdlc_mutex_unlock(&p->state_mutex);
+  
+  /* All signaling happens AFTER lock release with fully consistent state.
+     TX will observe complete checkpoint + I-frame processing atomically. */
   
   /* Single consolidated broadcast for all event flags */
   if (broadcast_flags) {
@@ -991,7 +997,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       const bool no_i_frame = ioHdlc_frameq_isempty(&p->i_trans_q) || window_full;
       bool set_pf = IOHDLC_IS_PRI(s) ?
         (IOHDLC_USE_TWA(s) ? IOHDLC_F_ISRCVED(s) && no_i_frame : IOHDLC_F_ISRCVED(s)) :
-        (IOHDLC_P_ISRCVED(s) && no_i_frame);
+        (IOHDLC_P_ISRCVED(s) && (no_i_frame || IOHDLC_PEER_BUSY(p)));
       
       /* Read values under lock before building frame (including ss_fun snapshot) */
       const uint32_t nr = p->vr;
@@ -1033,16 +1039,14 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
           ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
         }
         
-        IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
-                          log_fun, nr, set_pf, log_flags);
+        IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun,
+                          nr, set_pf, p->i_pending_count, log_flags);
         
         p->ss_state &= ~IOHDLC_SS_SENDING;
-        iohdlc_mutex_unlock(&p->state_mutex);
       } else {
         /* Frame allocation failed */
         iohdlc_mutex_lock(&p->state_mutex);
         p->ss_state &= ~IOHDLC_SS_SENDING;
-        iohdlc_mutex_unlock(&p->state_mutex);
       }
     } else {
       iohdlc_mutex_unlock(&p->state_mutex);
@@ -1057,16 +1061,21 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   if (cm_flags & IOHDLC_EVT_C_RPLYTMO) {
     /* Poll/reply timeout occurred: handle retry logic. */
     cm_flags &= ~IOHDLC_EVT_C_RPLYTMO;
-    
-    if (!handleTimeoutRetry(s, p)) {
-      /* Link down: max retries exceeded, cannot send I-frames. */
-      return cm_flags;
+
+    if (ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_REPLY)) {
+      IOHDLC_LOG_WARN(IOHDLC_LOG_TX, s->addr, "TE");
+      if (!handleTimeoutRetry(s, p)) {
+        /* Link down: max retries exceeded, cannot send I-frames. */
+        iohdlc_mutex_unlock(&p->state_mutex);
+        return cm_flags;
+      }
+      
+      /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
+      s->pf_state |= IOHDLC_F_RCVED;
+      p->ss_state |= IOHDLC_SS_IF_RCVD;
     }
-    
-    /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
-    s->pf_state |= IOHDLC_F_RCVED;
-    p->ss_state |= IOHDLC_SS_IF_RCVD;
   }
+  iohdlc_mutex_unlock(&p->state_mutex);
 
   cm_flags &= ~(IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ|IOHDLC_EVT_PFHONOR);
 
@@ -1096,10 +1105,10 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     }
   
     /* Poll for new events before sending each I-frame.
-       This allows interrupting the burst if critical events occur. */
+       This allows interrupting the burst if urgent events occur. */
     cm_flags |= s_runner_ops->get_events_flags(s);
     
-    /* Check for critical events requiring immediate attention:
+    /* Check for urgent events requiring immediate attention:
        - IOHDLC_EVT_UMRECVD: U-frame received (disconnect/mode change)
        - IOHDLC_EVT_LINKDOWN: Link failure detected
        - IOHDLC_EVT_SSNDREQ: Urgent S-frame requested (local busy condition)
@@ -1112,7 +1121,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     
     if ((cm_flags & (IOHDLC_EVT_UMRECVD | IOHDLC_EVT_SSNDREQ)) ||
         IOHDLC_PEER_BUSY(p)) {
-      /* Critical event detected: exit I-frame loop immediately. */
+      /* Urgent event detected: exit I-frame loop immediately. */
       iohdlc_mutex_unlock(&p->state_mutex);
       break;
     }
@@ -1179,17 +1188,17 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Send frame under lock to ensure state consistency */
     (void)hdlcSendFrame(s->driver, fp);
     
-    /* Start timer if needed (still under lock for atomicity) */
+    /* Start timer if needed */
     if (set_pf && IOHDLC_IS_PRI(s)) {
       ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
     }
-    
-    iohdlc_mutex_unlock(&p->state_mutex);
     
     /* Log I-frame transmission */
     IOHDLC_LOG_IFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
                       log_ns, log_nr, set_pf, info_len,
                       p->i_pending_count, p->ks, fflags);
+    
+    iohdlc_mutex_unlock(&p->state_mutex);
 
     /* Mark that we sent at least one I-frame. */
     i_frame_sent = true;
@@ -1207,8 +1216,9 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        we should send an S-frame to acknowledge and cede the link.
        In TWS, we may also want to send periodic acknowledgments. */
     if (nrmSendOpportunity(s)) {
-      /* Determine S-frame function: RR or RNR based on reception queue state. */
-      p->ss_fun = IOHDLC_ST_BUSY(s) ? IOHDLC_S_RNR : IOHDLC_S_RR;
+      /* Determine S-frame function: RR or RNR based on frame pool state. */
+      p->ss_fun = hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_LOW_WATER ?
+        IOHDLC_S_RNR : IOHDLC_S_RR;
 
       /* Raise event to trigger S-frame transmission. */
       cm_flags |= IOHDLC_EVT_SSNDREQ;
@@ -1314,7 +1324,8 @@ void ioHdlcTxEntry(void *stationp) {
             /* DISC has been received: disconnect the link. */
             s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
             setModeFunctions(s, s->mode);  /* Reset to NULL */
-            resetPeerVars(p);
+            p->ss_state &= ~IOHDLC_SS_ST_CONN;  /* Do not reset the queues to allow */
+            iohdlc_sem_signal(&p->i_recept_sem);/* the reading of remaining frames*/
           }
         }
       } else {
@@ -1328,13 +1339,15 @@ void ioHdlcTxEntry(void *stationp) {
         ((p->um_state & IOHDLC_UM_SENT) &&
             (r = ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_REPLY)))) {
 
-      if ((cm_flags & IOHDLC_EVT_CONNSTR) && IOHDLC_IS_PRI(s)) {
-        /* Set F received on primary station. */
-        s->pf_state |= IOHDLC_F_RCVED;
-      }              
       cm_flags &= ~(IOHDLC_EVT_CONNSTR |
                     IOHDLC_EVT_C_RPLYTMO);  /* serve all the possible events.*/
       
+      if (!IOHDLC_IS_PRI(s)) {
+        /* A U command must originate from primary station */
+        iohdlc_mutex_unlock(&p->state_mutex);
+        continue;
+      }
+
       /* Evaluate timer expiry and manage retry counter. */
       if (r) {
         if (!handleTimeoutRetry(s, p)) {
@@ -1350,6 +1363,18 @@ void ioHdlcTxEntry(void *stationp) {
 
       /* A link management has been requested.*/
       p->um_state |= IOHDLC_UM_SENDING;
+      if (IOHDLC_PEER_DISC(p) &&
+            IOHDLC_USE_TWA(s) && isConnectionUCommand(p->um_cmd)) {
+        /* Set F received on primary station. */
+        s->pf_state |= IOHDLC_F_RCVED;
+      } else {
+        /* If the peer is connected and pending I-frames exist,
+           delay the required but unsent DISC. */
+        if (p->i_pending_count && (p->um_cmd == IOHDLC_U_DISC) &&
+            !IOHDLC_UM_ISSENT(p)) {
+          goto delay_um;
+        }
+      }
       if (sendOpportunity(s, &cm_flags)) {
         /* Build and send UM command. */
         iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
@@ -1377,8 +1402,10 @@ void ioHdlcTxEntry(void *stationp) {
         IOHDLC_ACK_F(s);                  /* ack F  */
       }
     }
+
+delay_um:
     iohdlc_mutex_unlock(&p->state_mutex);
-    if (IOHDLC_UM_INPROG(p) || IOHDLC_PEER_DISC(p)) {
+    if ((IOHDLC_UM_INPROG(p) && IOHDLC_PEER_DISC(p)) || IOHDLC_UM_ISSENT(p)) {
       cm_flags &= ~(IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ|IOHDLC_EVT_PFHONOR);
       continue;
     }
@@ -1412,6 +1439,7 @@ void ioHdlcRxEntry(void *stationp) {
         /* In TWA mode, line idle might be significant - broadcast event. */
         ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINIDLE);
       }
+      IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "--");
       continue;
     }
     s->flags &= ~IOHDLC_FLG_IDL;

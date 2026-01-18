@@ -61,6 +61,7 @@ typedef struct ioHdlcSwDriver {
   /* RX queue for blocking API */
   iohdlc_sem_t         raw_recept_sem;
   iohdlc_frame_q_t     raw_recept_q;
+  IOHDLC_RAWQ_MUTEX_DECLARE(raw_recept_mtx);  /* Mutex protection (Linux only) */
 
   bool     started;
 } ioHdlcSwDriver;

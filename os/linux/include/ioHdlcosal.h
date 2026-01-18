@@ -428,6 +428,21 @@ static inline void iohdlc_sys_unlock(void) { /* No-op */ }
 static inline void iohdlc_thread_yield(void) { sched_yield(); }
 
 /*===========================================================================*/
+/* Raw Reception Queue Mutex (SwDriver specific)                            */
+/*===========================================================================*/
+
+/**
+ * @brief   Raw queue mutex - Linux needs real mutex for thread safety.
+ * @note    Used by ioHdlcSwDriver to protect raw_recept_q access.
+ */
+#define IOHDLC_RAWQ_MUTEX_DECLARE(name)   iohdlc_mutex_t name
+#define IOHDLC_RAWQ_MUTEX_INIT(m)         iohdlc_mutex_init(&(m))
+#define IOHDLC_RAWQ_LOCK(m)               iohdlc_mutex_lock(&(m))
+#define IOHDLC_RAWQ_UNLOCK(m)             iohdlc_mutex_unlock(&(m))
+#define IOHDLC_RAWQ_LOCK_ISR(m)           iohdlc_mutex_lock(&(m))
+#define IOHDLC_RAWQ_UNLOCK_ISR(m)         iohdlc_mutex_unlock(&(m))
+
+/*===========================================================================*/
 /* Virtual Timer Operations                                                  */
 /*===========================================================================*/
 

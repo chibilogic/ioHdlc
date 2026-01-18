@@ -125,7 +125,8 @@ void iohdlc_log_iframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
  *          Example: [001.240] S2 A2 RR1 F
  */
 void iohdlc_log_sframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
-                        iohdlc_log_sfun_t fun, uint32_t nr, bool pf, uint8_t flags) {
+                        iohdlc_log_sfun_t fun, uint32_t nr, bool pf,
+                        uint32_t pending, uint8_t flags) {
   if (!iohdlc_log_enabled)
     return;
   
@@ -136,14 +137,15 @@ void iohdlc_log_sframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
      RX: saddr != addr → response (F), otherwise command (P) */
   bool is_final = (dir == IOHDLC_LOG_TX) ? (saddr == addr) : (saddr != addr);
   
-  IOHDLC_OSAL_PRINTF("[%07.3f] %c%u A%u %s%u %c",
-             ts,
-             dir == IOHDLC_LOG_TX ? 'S' : 'R',
-             saddr,
-             addr,
-             sfun_to_str(fun),
-             nr,
-             pf ? (is_final ? 'F' : 'P') : '-');
+  IOHDLC_OSAL_PRINTF("[%07.3f] %c%u A%u %s%u %c w=%u",
+            ts,
+            dir == IOHDLC_LOG_TX ? 'S' : 'R',
+            saddr,
+            addr,
+            sfun_to_str(fun),
+            nr,
+            pf ? (is_final ? 'F' : 'P') : '-',
+            pending);
   
   /* Append optional flags */
   if (flags & IOHDLC_LOG_FLAG_BUSY)

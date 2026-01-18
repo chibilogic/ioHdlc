@@ -127,10 +127,12 @@ void iohdlc_log_iframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
  * @param[in] fun       S-frame function (RR, RNR, REJ, SREJ)
  * @param[in] nr        N(R) sequence number
  * @param[in] pf        P/F bit value
+ * @param[in] pending   Pending frame count (for window tracking)
  * @param[in] flags     Optional flags (BUSY, etc.)
  */
 void iohdlc_log_sframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
-                        iohdlc_log_sfun_t fun, uint32_t nr, bool pf, uint8_t flags);
+                        iohdlc_log_sfun_t fun, uint32_t nr, bool pf,
+                        uint32_t pending, uint8_t flags);
 
 /**
  * @brief   Log a U-frame (Unnumbered frame).
@@ -159,8 +161,8 @@ void iohdlc_log_msg(iohdlc_log_dir_t dir, uint8_t saddr, const char *msg, ...);
 #define IOHDLC_LOG_IFRAME(dir, saddr, addr, ns, nr, pf, len, pending, window, flags) \
   iohdlc_log_iframe(dir, saddr, addr, ns, nr, pf, len, pending, window, flags)
 
-#define IOHDLC_LOG_SFRAME(dir, saddr, addr, fun, nr, pf, flags) \
-  iohdlc_log_sframe(dir, saddr, addr, fun, nr, pf, flags)
+#define IOHDLC_LOG_SFRAME(dir, saddr, addr, fun, nr, pf, pending, flags) \
+  iohdlc_log_sframe(dir, saddr, addr, fun, nr, pf, pending, flags)
 
 #define IOHDLC_LOG_UFRAME(dir, saddr, addr, fun, pf) \
   iohdlc_log_uframe(dir, saddr, addr, fun, pf)

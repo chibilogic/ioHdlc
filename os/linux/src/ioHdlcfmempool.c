@@ -125,7 +125,7 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
 
   assert((framealign & (framealign-1)) == 0 && "framealign must be a power of 2");
 
-  framesize = framesize * 2 + sizeof(iohdlc_frame_t);
+  framesize = framesize * 2 + sizeof(iohdlc_frame_t);  /* Account for worst-case transparency */
   
   /* Align the arena and adjust its size */
   p = (uint8_t *)(((uintptr_t)arena + framealign - 1) & ~(uintptr_t)(framealign - 1));
