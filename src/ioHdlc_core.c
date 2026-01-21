@@ -56,6 +56,17 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
+static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p) {
+  p->ss_state &= ~IOHDLC_SS_ST_CONN;
+  iohdlc_condvar_broadcast(&p->tx_cv);  
+}
+
+static void ioHdlcSetConnected(iohdlc_station_peer_t *p) {
+  p->ss_state |= IOHDLC_SS_ST_CONN;
+  iohdlc_condvar_broadcast(&p->tx_cv);  
+}
+
+
 /* Broadcast event flags to station event source. */
 void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags) {
   if (s_runner_ops && s_runner_ops->broadcast_flags)
@@ -100,7 +111,7 @@ static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
     p->um_state &= ~(IOHDLC_UM_SENDING | IOHDLC_UM_SENT);
     
     /* Mark peer disconnected (blocks further transmissions). */
-    p->ss_state &= ~IOHDLC_SS_ST_CONN;
+    ioHdlcSetDisconnected(p);
     
     return false;  /* Link down, do not retry. */
   }
@@ -275,7 +286,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       s->mode = om;
       setModeFunctions(s, om);
       resetPeerVars(p);
-      p->ss_state |= IOHDLC_SS_ST_CONN;
+      ioHdlcSetConnected(p);
       p->um_rsp = IOHDLC_U_UA;
       
     } else if (u_cmd == IOHDLC_U_DISC) {
@@ -334,12 +345,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
         /* DISC accepted: enter disconnected mode. */
         s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
         setModeFunctions(s, s->mode);  /* Reset to NULL */
-        p->ss_state &= ~IOHDLC_SS_ST_CONN;
+        ioHdlcSetDisconnected(p);
       } else {
         /* Connection command accepted (SNRM/SARM/SABM).
            Mode was already set by linkup() before sending command. */
         setModeFunctions(s, s->mode);
-        p->ss_state |= IOHDLC_SS_ST_CONN;
+        ioHdlcSetConnected(p);
       }
       
       uint8_t cmd = p->um_cmd;  /* Save command for app notification */
@@ -355,7 +366,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       
     } else if (u_cmd == IOHDLC_U_DM) {
       /* DM received: peer disconnected or refused connection. */
-      p->ss_state &= ~IOHDLC_SS_ST_CONN;
+      ioHdlcSetDisconnected(p);
       p->ss_state |= IOHDLC_SS_ST_DISM;
       resetPeerUm(p);
       
@@ -429,7 +440,6 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      
      Also clear checkpoint/REJ state if their tracked frames are ACKed.
      
-     NOTE: Caller must hold state_mutex when calling this function.
      Returns true if semaphore should be signaled (space became available).
   */
   
@@ -439,7 +449,12 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     iohdlc_frame_t *acked_fp = ioHdlc_frameq_remove(&p->i_retrans_q);
     uint32_t acked_ns = extractNS(s, acked_fp);
 
-    /* TODO: maybe we should check acked_ns vs p->nr */
+    if (acked_ns != p->nr) {
+      /* This should never happen if queues are consistent. */
+      IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr,
+                       "Inconsistent N(R) processing: expected N(S)=%u, got N(S)=%u",
+                       p->nr, acked_ns);
+    }
     
     /* Clear checkpoint state if this was the tracked frame */
     if (p->chkpt_actioned != 0 && (p->chkpt_actioned - 1) == acked_ns) {
@@ -456,12 +471,10 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     released_frames = true;
     /* Increment with modmask */
     p->nr = (p->nr + 1) & s->modmask;
-    if (acked_ns == p->vs_atlast_pf)
+    if (acked_ns == p->vs_atlast_pf) {
       p->vs_atlast_pf = (p->vs_atlast_pf + 1) & s->modmask;
+    }
   }
-  
-  /* Update last acknowledged N(R). */
-  p->nr = nr;
   
   /* Returns true if the stakeholders should be notified.*/
   return released_frames;
@@ -477,7 +490,7 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
      
      NOTE: Caller must hold state_mutex when calling this function.
   */
-  
+
   if (ioHdlc_frameq_isempty(&p->i_retrans_q))
     return false;  /* Nothing to retransmit */
   
@@ -522,7 +535,6 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
        Used to detect overlap with subsequent REJ (5.6.2.2). */
     p->chkpt_actioned = first_ns;
     p->vs = first_ns - 1;  /* Reset V(S) to first retransmit frame N(S) */
-    
     return true;
   }
   
@@ -644,8 +656,10 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        If REJ already actioned, first REJ will retransmit all needed frames.
        REJ is only sent if the option is negotiated (IOHDLC_USE_REJ).
        Without REJ, recovery relies on checkpoint timeout (slower but standard-compliant). */
+#if defined(IOHDLC_LOG_R)
     IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "N(S) %u, exp %u",
                   ns, expected_ns);
+#endif
     if (!IOHDLC_USE_TWA(s) && IOHDLC_USE_REJ(s) && p->rej_actioned == 0) {
       p->ss_fun = IOHDLC_S_REJ;
       p->rej_actioned = p->vr + 1;  /* Mark REJ as actioned (value = N(R) + 1) */
@@ -722,7 +736,7 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
          particular I frame (same N(S)), REJ shall be inhibited. */
       if (!IOHDLC_USE_TWA(s)) {
         uint32_t nr = extractNR(s, fp);
-        
+
         /* Check if checkpoint is active and starting with same particular I frame.
            "same particular I frame" = same N(S) value. */
         if (p->chkpt_actioned != 0 && (p->chkpt_actioned - 1) == nr) {
@@ -799,6 +813,33 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
      is complete but I-frame validation/state update is not yet done. */
   iohdlc_mutex_lock(&p->state_mutex);
   
+#if defined(IOHDLC_LOG_R) && IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
+    const uint8_t addr2 = IOHDLC_FRAME_ADDR(s, fp);
+    const bool pf = IOHDLC_FRAME_GET_PF(s, fp);
+    bool is_final = s->addr != addr2;
+    uint32_t nns, nnr, qns;
+
+    nns = extractNS(s, fp);
+    nnr = extractNR(s, fp);
+    qns = ioHdlc_frameq_isempty(&p->i_retrans_q) ? s->modmask+1 :
+      extractNS(s, p->i_retrans_q.next);
+
+    /* Log received frame based on type */
+    if (IOHDLC_IS_I_FRM(ctrl)) {
+      /* size_t info_len = fp->elen - (s->frame_offset + 1 + s->ctrl_size);*/
+      IOHDLC_LOG_MSG(IOHDLC_LOG_RX, s->addr, "A%u I%u,%u %c pnr=%u vfp=%u fr=%u",
+		   addr2, nns, nnr,
+		   pf ? (is_final ? 'F' : 'P') : '-',
+		   p->nr, p->vs_atlast_pf, qns);
+    } else if (IOHDLC_IS_S_FRM(ctrl)) {
+      iohdlc_log_sfun_t log_fun = (ctrl & IOHDLC_S_FUN_MASK) >> 2;
+      IOHDLC_LOG_MSG(IOHDLC_LOG_RX, s->addr, "A%u %s%u %c pnr=%u vfp=%u fr=%u",
+		     addr2, sfun_to_str(log_fun), nnr,
+		   pf ? (is_final ? 'F' : 'P') : '-',
+		   p->nr, p->vs_atlast_pf, qns);
+    }
+#endif
+
   /* Common checkpoint and acknowledgment processing for all I/S frames. */
   if (!handleCheckpointAndAck(s, p, fp, &should_signal_tx, &checkpoint_moved, &broadcast_flags)) {
     /* Protocol error occurred during checkpoint/ack processing. */
@@ -1031,6 +1072,9 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
           }
         }
         
+        IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun,
+                          nr, set_pf, p->i_pending_count, log_flags);
+        
         /* Send frame under lock to ensure state consistency */
         (void)sendFrame(s, fp);
         
@@ -1038,9 +1082,6 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         if (set_pf && IOHDLC_IS_PRI(s)) {
           ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
         }
-        
-        IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun,
-                          nr, set_pf, p->i_pending_count, log_flags);
         
         p->ss_state &= ~IOHDLC_SS_SENDING;
       } else {
@@ -1185,6 +1226,11 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     uint8_t fflags = 0;
 #endif
 
+    /* Log I-frame transmission */
+    IOHDLC_LOG_IFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
+                      log_ns, log_nr, set_pf, info_len,
+                      p->i_pending_count, p->ks, fflags);
+    
     /* Send frame under lock to ensure state consistency */
     (void)hdlcSendFrame(s->driver, fp);
     
@@ -1192,11 +1238,6 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     if (set_pf && IOHDLC_IS_PRI(s)) {
       ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
     }
-    
-    /* Log I-frame transmission */
-    IOHDLC_LOG_IFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
-                      log_ns, log_nr, set_pf, info_len,
-                      p->i_pending_count, p->ks, fflags);
     
     iohdlc_mutex_unlock(&p->state_mutex);
 
@@ -1324,7 +1365,7 @@ void ioHdlcTxEntry(void *stationp) {
             /* DISC has been received: disconnect the link. */
             s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
             setModeFunctions(s, s->mode);  /* Reset to NULL */
-            p->ss_state &= ~IOHDLC_SS_ST_CONN;  /* Do not reset the queues to allow */
+            ioHdlcSetDisconnected(p);  /* Do not reset the queues to allow */
             iohdlc_sem_signal(&p->i_recept_sem);/* the reading of remaining frames*/
           }
         }
@@ -1446,33 +1487,6 @@ void ioHdlcRxEntry(void *stationp) {
     
     /* Decode control octet to determine frame type. */
     const uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
-
-#if defined(IOHDLC_LOG_R)
-#if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
-    const uint8_t addr = IOHDLC_FRAME_ADDR(s, fp);
-    const bool pf = IOHDLC_FRAME_GET_PF(s, fp);
-#endif
-    /* Log received frame based on type */
-    if (IOHDLC_IS_I_FRM(ctrl)) {
-      size_t info_len = fp->elen - (s->frame_offset + 1 + s->ctrl_size);
-      IOHDLC_LOG_IFRAME(IOHDLC_LOG_RX, s->addr, addr,
-                        extractNS(s, fp), extractNR(s, fp), pf, info_len, 0, 0, 0);
-    } else if (IOHDLC_IS_S_FRM(ctrl)) {
-      iohdlc_log_sfun_t log_fun = (ctrl & IOHDLC_S_FUN_MASK) >> 2;
-      uint8_t log_flags = ((ctrl & IOHDLC_S_FUN_MASK) == IOHDLC_S_RNR) ? IOHDLC_LOG_FLAG_BUSY : 0;
-      IOHDLC_LOG_SFRAME(IOHDLC_LOG_RX, s->addr, addr, log_fun, extractNR(s, fp), pf, log_flags);
-    } else if (IOHDLC_IS_U_FRM(ctrl)) {
-      uint8_t u_cmd = ctrl & IOHDLC_U_FUN_MASK;
-      iohdlc_log_ufun_t log_fun = (u_cmd == IOHDLC_U_SNRM) ? IOHDLC_LOG_SNRM :
-                                   (u_cmd == IOHDLC_U_SARM) ? IOHDLC_LOG_SARM :
-                                   (u_cmd == IOHDLC_U_SABM) ? IOHDLC_LOG_SABM :
-                                   (u_cmd == IOHDLC_U_DISC) ? IOHDLC_LOG_DISC :
-                                   (u_cmd == IOHDLC_U_UA) ? IOHDLC_LOG_UA :
-                                   (u_cmd == IOHDLC_U_DM) ? IOHDLC_LOG_DM :
-                                   (u_cmd == IOHDLC_U_FRMR) ? IOHDLC_LOG_FRMR : 0;
-      IOHDLC_LOG_UFRAME(IOHDLC_LOG_RX, s->addr, addr, log_fun, pf);
-    }
-#endif
 
     /* Handle U-frames common to all modes. */
     if (IOHDLC_IS_U_FRM(ctrl)) {

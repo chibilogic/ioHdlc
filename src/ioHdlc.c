@@ -178,7 +178,6 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   } else {
     /* Use default optional functions: REJ, SST, FFF enabled */
     memset(ioHdlcsp->optfuncs, 0, sizeof ioHdlcsp->optfuncs);
-    ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] |= IOHDLC_OPT_REJ;
     ioHdlcsp->optfuncs[IOHDLC_OPT_SST_OCT] |= IOHDLC_OPT_SST;
     ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] |= IOHDLC_OPT_FFF;
     ioHdlcsp->optfuncs[IOHDLC_OPT_INH_OCT] |= IOHDLC_OPT_INH;
@@ -640,8 +639,9 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     /* Flow control: wait while exceeding pending frames exist OR pool low.
        Condition variable automatically releases mutex during wait
        and re-acquires it before returning. */
-    while (peer->i_pending_count >= (2 * peer->ks) ||
-           hdlcPoolGetState(s->frame_pool) != IOHDLC_POOL_NORMAL) {
+    while (!IOHDLC_PEER_DISC(peer) &&
+	   (peer->i_pending_count >= (2 * peer->ks) ||
+	    hdlcPoolGetState(s->frame_pool) != IOHDLC_POOL_NORMAL)) {
       msg_t result = iohdlc_condvar_wait_timeout(&peer->tx_cv,
                                                   &peer->state_mutex,
                                                   IOHDLC_TIME_MS2I(timeout_ms));
@@ -651,6 +651,11 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
         ssize_t t = count -remaining;
         return t != 0 ? t : -1;  /* Return bytes written so far */
       }
+    }
+
+    if (IOHDLC_PEER_DISC(peer)) {
+        iohdlc_mutex_unlock(&peer->state_mutex);
+        return count -remaining;  /* Return bytes written so far */
     }
     
     /* Condition satisfied: window has space AND pool is normal.

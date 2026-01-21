@@ -226,6 +226,11 @@ ssize_t mock_stream_read(mock_stream_t *stream, uint8_t *buf, size_t size, int t
   return buffer_read(&stream->rx_buf, buf, size, timeout_ms);
 }
 
+#include "ioHdlc_log.h"
+__attribute__((weak)) void iohdlc_log_msg(iohdlc_log_dir_t a,  uint8_t b,  const char * c, ...) {
+
+}
+
 ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size, int timeout_ms) {
   if (!stream || stream->closed) {
     return -1;
@@ -252,15 +257,17 @@ ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size
       should_corrupt = stream->config.error_filter(current_write, buf, size, 
                                                     stream->config.error_userdata);
     } else {
-      /* No filter: use random corruption (original behavior) */
-      should_corrupt = true;
+      /* No filter: use pseudo-random corruption based on error_rate percentage
+       * Uses write_count as entropy source for deterministic but varied behavior */
+      uint32_t pseudo_random = (current_write * 1103515245u + 12345u) % 100;
+      should_corrupt = pseudo_random < stream->config.error_rate;
     }
     
     if (should_corrupt) {
       memcpy(corrupted_data, buf, size);
+      IOHDLC_LOG_WARN(IOHDLC_LOG_RX, buf[2], "C=%02X", buf[3]);
       
       /* Corrupt only the FCS (last 2 bytes before closing flag) to guarantee FCS failure.
-       * HDLC frame: 0x7E | Address | Control | Data | FCS_L | FCS_H | 0x7E
        * For frame of size N:
        *   data[size-1] = closing flag (0x7E)
        *   data[size-2] = FCS high byte

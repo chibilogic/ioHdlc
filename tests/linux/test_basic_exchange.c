@@ -74,7 +74,7 @@ static void *writer_thread(void *arg) {
   uint32_t packets_sent = 0;
   uint32_t iterations = 0;
   uint32_t start_time = iohdlc_time_now_ms();
-  volatile bool test_running = true;
+  bool test_running = true;
 
   if (!ctx->enabled) {
     return NULL;  /* Thread not needed for this direction */
@@ -108,10 +108,11 @@ static void *writer_thread(void *arg) {
         packets_sent++;
       } else {
         if (ctx->station->errorno == ETIMEDOUT)
-          fprintf(stderr, "Writer %u timeout!\n", ctx->station->addr);
+          fprintf(stderr, "Writer %u Timeout!\n", ctx->station->addr);
         else
           fprintf(stderr, "Writer %u Error %d!\n", ctx->station->addr,
             ctx->station->errorno);
+        test_running = false;
         break;
       }
     }
@@ -123,13 +124,8 @@ static void *writer_thread(void *arg) {
     
     usleep(1);  /* Small yield */
   }
-  fprintf(stderr, "Writer %u END (iters %d)!\n", ctx->station->addr, iterations);
-  usleep(1000000);  /* Wait for any pending receptions */
+  fprintf(stderr, "Writer %u Data written (iters %d)!\n", ctx->station->addr, iterations);
   test_running_global = false;
-
-  fprintf(stderr, "Writer Link down\n");
-  ioHdlcStationLinkDown(ctx->station, ctx->peer->addr);
-
   return NULL;
 }
 
@@ -139,7 +135,7 @@ static void *writer_thread(void *arg) {
 static void *reader_thread(void *arg) {
   thread_context_t *ctx = (thread_context_t *)arg;
   uint8_t buffer[MAX_PACKET_SIZE + TEST_PACKET_HEADER_SIZE];
-  volatile bool test_running = true;
+  bool test_running = true;
 
   if (!ctx->enabled) {
     return NULL;  /* Thread not needed for this direction */
@@ -150,7 +146,7 @@ static void *reader_thread(void *arg) {
     ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange +
       TEST_PACKET_HEADER_SIZE, 20000);
     if (((ctx->seq+1) & 0xFF) == 0) {
-      usleep(100000);
+      usleep(20000);
     }
     if (received > 0 && (size_t)received >= TEST_PACKET_HEADER_SIZE) {
       pthread_mutex_lock(ctx->stats_mutex);
@@ -159,22 +155,22 @@ static void *reader_thread(void *arg) {
     } else if (received > 0) {
       fprintf(stderr, "Warning: received short packet (%zd bytes)\n", received);
     } else if (received == 0) {
+      fprintf(stderr, "Reader %u zero read!\n", ctx->station->addr);
       test_running = false;  /* No data received, assume test end */
     } else {
-      fprintf(stderr, "Reader timeout!\n");
+      fprintf(stderr, "Reader %u Timeout!\n", ctx->station->addr);
+      test_running = false;
     }
     if (ctx->stats->packets_received >=
         ctx->config->exchanges_per_iteration * ctx->config->duration_value &&
         ctx->config->duration_type == TEST_BY_COUNT) {
+      fprintf(stderr, "Reader %u All data read\n", ctx->station->addr);
       test_running = false;  /* All data received, assume test end */
       break;
     }
   }
 
-  usleep(1000000);  /* Wait for any pending receptions */
   test_running_global = false;
-  fprintf(stderr, "Reader Link down\n");
-  ioHdlcStationLinkDown(ctx->station, ctx->peer->addr);
     
   return NULL;
 }
@@ -233,8 +229,8 @@ int main(int argc, char **argv) {
   /* Create mock streams */
   mock_stream_config_t stream_config = {
     .loopback = false,
-    .inject_errors = false,
-    .error_rate = 0,
+    .inject_errors = true,
+    .error_rate = 1,
     .delay_us = 100
   };
   
@@ -420,6 +416,8 @@ int main(int argc, char **argv) {
   pthread_join(thread_sec_writer, NULL);
   pthread_join(thread_sec_reader, NULL);
   
+  ioHdlcStationLinkDown(&station_primary, station_primary.c_peer->addr);
+
   /* Print results */
   printf("\n");
   printf("========================================\n");

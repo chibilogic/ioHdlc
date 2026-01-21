@@ -50,7 +50,6 @@ typedef enum {
 
 /*
  * @brief   @p ioHdlcFramePool specific data.
- * @note    pure interface.
  */
 #define _iohdlc_framepool_data                      \
   size_t framesize;                                 \

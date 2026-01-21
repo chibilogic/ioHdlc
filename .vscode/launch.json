@@ -118,7 +118,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/tests/linux/build/bin/test_basic_exchange",
-            "args": ["--count=20", "--direction=sec2pri", "--exchanges=97"],
+            "args": ["--count=10", "--direction=both", "--exchanges=97"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/tests/linux",
             "environment": [],
