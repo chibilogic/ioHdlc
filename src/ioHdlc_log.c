@@ -50,7 +50,7 @@ static double get_timestamp_ms(void) {
 /**
  * @brief   Convert S-frame function to string.
  */
-static const char* sfun_to_str(iohdlc_log_sfun_t fun) {
+const char* sfun_to_str(iohdlc_log_sfun_t fun) {
   switch (fun) {
     case IOHDLC_LOG_RR:   return "RR";
     case IOHDLC_LOG_RNR:  return "RNR";

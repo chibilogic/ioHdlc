@@ -137,7 +137,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->pfoctet * 2);
 
   /* Default timeout */
-  ioHdlcsp->reply_timeout_ms = 100;
+  ioHdlcsp->reply_timeout_ms = 25;
 
   /* Frame pool and driver */
   ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;
@@ -179,6 +179,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     /* Use default optional functions: REJ, SST, FFF enabled */
     memset(ioHdlcsp->optfuncs, 0, sizeof ioHdlcsp->optfuncs);
     ioHdlcsp->optfuncs[IOHDLC_OPT_SST_OCT] |= IOHDLC_OPT_SST;
+    ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] |= IOHDLC_OPT_REJ;
     ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] |= IOHDLC_OPT_FFF;
     ioHdlcsp->optfuncs[IOHDLC_OPT_INH_OCT] |= IOHDLC_OPT_INH;
     

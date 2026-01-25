@@ -16,6 +16,10 @@
 #ifndef IOHDLC_EVENTS_H_
 #define IOHDLC_EVENTS_H_
 /* Event masks used for command management. */
+
+/**
+ * @brief     Event flags
+ */
 #define IOHDLC_EVT_C_RPLYTMO  0x0001  /* Command reply timer timeout. */
 #define IOHDLC_EVT_I_RPLYTMO  0x0002  /* I-frame reply timer timeout. */
 #define IOHDLC_EVT_UMRECVD    0x0004  /* Unnumbered command received. */

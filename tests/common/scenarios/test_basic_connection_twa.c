@@ -187,7 +187,7 @@ int test_data_exchange_twa(void) {
   /* Primary sends message to secondary */
   int i;
   ssize_t sent;
-rep:
+
   test_printf("Primary sending %zu bytes...\n", msg_len*10);
   for (i = 0; i < 10; ++i) {
     sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 2000);
@@ -244,7 +244,7 @@ rep:
 #else
   usleep(200000);
 #endif
-  goto rep;
+
   test_printf("✅ Data exchange completed successfully\n");
   
   /* Disconnect */

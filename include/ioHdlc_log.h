@@ -94,6 +94,8 @@ typedef enum {
 
 #if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
 
+const char* sfun_to_str(iohdlc_log_sfun_t fun);
+
 /**
  * @brief   Runtime enable/disable flag.
  * @note    Can be modified at runtime to control logging dynamically.

@@ -210,10 +210,6 @@
 #define IOHDLC_DFL_MODULUS      8
 /** @} */
 
-/**
- * @brief     Event flags
- */
-
 /*===========================================================================*/
 /* Module pre-compile time settings.                                         */
 /*===========================================================================*/
@@ -256,6 +252,8 @@ struct iohdlc_station_peer {
   uint32_t  vr;                 /* Receive state variable V(R). */
   uint32_t  nr;                 /* Last N(R) received and accepted + 1.
                                    Invariant: (vs-nr) & modmask = len(i_retrans_q), must be ≤ ks. */
+  uint32_t  vs_highest;         /* Highest value of state variable V(S) in the
+                                   same numbering cycle. */
   uint32_t  rej_actioned;       /* a value x != 0 of this field indicates that a
                                    REJ exception with N(R) = x-1 is in action. The receipt
                                    of a I-frame with N(S) = x-1 clears the exception. */
@@ -277,30 +275,26 @@ struct iohdlc_station_peer {
   /* data queues. */
   iohdlc_frame_q_t i_retrans_q; /* I-frame retransmission queue. No more than ks frames
                                    will be in this queue.*/
-  iohdlc_frame_q_t i_recept_q;  /* I-frame reception queue. Space shall be available for
-                                   at least kr+1 frames. A limit > kr will be set to send
-                                   a RNR S-frame. */
-                                /* Letta dalla read applicativa, scritta dal task di ricezione,
-                                   che dunque non si blocca sulla coda.
-                                   Usare semaforo? */
+  iohdlc_frame_q_t i_recept_q;  /* I-frame reception queue. */
   iohdlc_frame_q_t i_trans_q;   /* I-frame transmission queue.
-                                   The frames in this queue have address and N(S) defined, but
-                                   not N(R) nor P/F. The latter two will be set when the frame
-                                   will be picked for actual transmission.
-                                   No more than ks frames will be in this queue. */
-
+                                   The frames in this queue have address defined, but
+                                   not N(R), N(S) or P/F. The latter three will be set when
+                                   the frame will be picked for actual transmission.
+                                   A limit is imposed on the number of frames in this queue,
+                                   typically set to ks, to reduce frame consumption from
+                                   the pool. */
+                                   
   /* flow control. */
-  iohdlc_condvar_t tx_cv;  /* TX flow control condition variable.
-                              Blocks app when i_pending_count >= 2*ks or pool is LOW_WATER.
-                              Broadcast when space becomes available (ACK received or pool normal).
-                              Used with state_mutex for wait/signal operations. */
-  iohdlc_sem_t i_recept_sem;  /* RX data available counting semaphore (one count per frame).
-                                              Signaled when I-frame arrives in i_recept_q.
-                                              Used by Read to block until data available. */
-  iohdlc_mutex_t state_mutex;  /* Mutex protecting protocol state variables:
-                                  nr, vr, vs, i_pending_count, queues (i_retrans_q, i_trans_q),
-                                  chkpt_actioned, rej_actioned, ss_state.
-                                  Uses priority inheritance to prevent priority inversion. */
+  iohdlc_condvar_t tx_cv;       /* TX flow control condition variable.
+                                   Blocks app when i_pending_count >= 2*ks or pool is LOW_WATER.
+                                   Broadcast when space becomes available (ACK received or
+                                   pool normal). */
+  iohdlc_sem_t i_recept_sem;    /* RX data available counting semaphore (one count per frame).
+                                   Signaled when I-frame arrives in i_recept_q.
+                                   Used by Read to block until data available. */
+  iohdlc_mutex_t state_mutex;   /* Mutex protecting protocol state variables:
+                                   nr, vr, vs, i_pending_count, queues (i_retrans_q, i_trans_q),
+                                   chkpt_actioned, rej_actioned, ss_state. */
 
   /* partial read state. */
   iohdlc_frame_t *partial_read_frame;  /* Frame being read partially (NULL if none). */
@@ -313,12 +307,12 @@ struct iohdlc_station_peer {
                                          time-out timer. */
 
   /* retry counters. */
-  uint8_t   poll_retry_count;         /* Current number of retries for frames with P=1 
-                                         (poll bit). Incremented on reply_tmr expiry,
-                                         reset when F=1 response received. */
-  uint8_t   poll_retry_max;           /* Maximum number of retries allowed for poll frames.
-                                         When poll_retry_count >= poll_retry_max, the link
-                                         is considered down. */
+  uint8_t   poll_retry_count;   /* Current number of retries for frames with P=1 (poll bit).
+                                   Incremented on reply_tmr expiry, reset when F=1
+                                   response received. */
+  uint8_t   poll_retry_max;     /* Maximum number of retries allowed for poll frames.
+                                   When poll_retry_count >= poll_retry_max, the link
+                                   is considered down. */
 
 };
 
@@ -332,7 +326,8 @@ struct iohdlc_station {
   uint8_t   flags;              /* Station flags: TWA, PRIMARY, IDLE, BUSY. */
   uint8_t   pf_state;           /* P/F sent/received state. See definitions. */
   uint8_t   pfoctet;            /* P/F octet number. Calculated from modulus. (0, 1, 2, 4). */
-  uint32_t  modmask;            /* Modulus bit mask: 7 for mod 8, 127 for mod 128, 32767 for mod 32768, 2147483647 for mod 2^31. */
+  uint32_t  modmask;            /* Modulus bit mask: 7 for mod 8, 127 for mod 128, 32767 for
+                                   mod 32768, 2147483647 for mod 2^31. */
   uint8_t   ctrl_size;          /* Control field size in bytes (1, 2, 4, 8). Precalculated
                                    from modulus for fast frame field access. */
   uint8_t   frame_offset;       /* Precalculated FFF offset: 0 if no FFF, 1 or, 2 if FFF present.
@@ -381,8 +376,9 @@ struct iohdlc_station_config {
   uint32_t addr;          /**< @brief address of the station.                */
   ioHdlcDriver *driver;   /**< @brief the link driver interface implementor. */
   ioHdlcFramePool *fpp;   /**< @brief the frame pool used by the station.    */
-  const uint8_t *optfuncs; /**< @brief optional functions array (5 bytes), NULL for defaults */
-  void *phydriver;        /**< @brief the physical driver used by the implementor. */
+  const uint8_t *optfuncs;/**< @brief optional functions array (5 bytes),
+                                      NULL for defaults.                     */
+  void *phydriver;        /**< @brief the physical driver used by the station*/
   void *phydriver_config; /**< @brief the physical driver configuration.     */
 };
 
@@ -432,8 +428,10 @@ extern "C" {
     ioHdlcStationLinkDownEx(s, addr, IOHDLC_APP_EVT_MASK_DEFAULT)
 
   /* Data transfer with timeout. */
-  ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *ioHdlcpeerp, const void *buf, size_t count, uint32_t timeout_ms);
-  ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *ioHdlcpeerp, void *buf, size_t count, uint32_t timeout_ms);
+  ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *ioHdlcpeerp, const void *buf,
+      size_t count, uint32_t timeout_ms);
+  ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *ioHdlcpeerp, void *buf,
+      size_t count, uint32_t timeout_ms);
 
   /* Convenience macros for blocking operations (infinite timeout). */
   #define ioHdlcWrite(peer, buf, count) ioHdlcWriteTmo(peer, buf, count, IOHDLC_WAIT_FOREVER)
