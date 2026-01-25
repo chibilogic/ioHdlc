@@ -229,8 +229,8 @@ int main(int argc, char **argv) {
   /* Create mock streams */
   mock_stream_config_t stream_config = {
     .loopback = false,
-    .inject_errors = true,
-    .error_rate = 1,
+    .inject_errors = (config.error_rate > 0),
+    .error_rate = config.error_rate,
     .delay_us = 100
   };
   
@@ -272,6 +272,8 @@ int main(int argc, char **argv) {
   station_config.optfuncs = NULL;  /* Use defaults (TYPE0 FFF) */
   station_config.phydriver = &port_primary;
   station_config.phydriver_config = NULL;
+  station_config.reply_timeout_ms = config.reply_timeout_ms;
+  station_config.poll_retry_max = config.poll_retry_max;
   
   memset(&station_primary, 0, sizeof station_primary);
   result = ioHdlcStationInit(&station_primary, &station_config);
@@ -287,6 +289,8 @@ int main(int argc, char **argv) {
   station_config.driver = (ioHdlcDriver *)&driver_secondary;
   station_config.fpp = (ioHdlcFramePool *)&pool_secondary;
   station_config.phydriver = &port_secondary;
+  station_config.reply_timeout_ms = config.reply_timeout_ms;
+  station_config.poll_retry_max = config.poll_retry_max;
   
   memset(&station_secondary, 0, sizeof station_secondary);
   result = ioHdlcStationInit(&station_secondary, &station_config);
@@ -386,7 +390,7 @@ int main(int argc, char **argv) {
   
   /* Monitor progress */
   while (test_running_global) {
-    usleep(100000);
+    usleep(config.progress_interval_ms * 1000);
     elapsed_time = (iohdlc_time_now_ms() - start_time) / 1000;
     
     if (config.duration_type == TEST_BY_TIME) {
@@ -395,6 +399,28 @@ int main(int argc, char **argv) {
       }
       printf("Elapsed: %u/%u seconds | PRI: %u sent, %u rcv | SEC: %u sent, %u rcv\n",
              elapsed_time, config.duration_value,
+             stats_primary.packets_sent, stats_primary.packets_received,
+             stats_secondary.packets_sent, stats_secondary.packets_received);
+    } else if (config.duration_type == TEST_BY_COUNT) {
+      /* Calculate progress based on packets sent/received vs expected */
+      uint32_t expected_total = config.duration_value * config.exchanges_per_iteration;
+      uint32_t current_sent = 0;
+      uint32_t current_rcv = 0;
+      
+      if (config.traffic_direction == TRAFFIC_PRI_TO_SEC) {
+        current_sent = stats_primary.packets_sent;
+        current_rcv = stats_secondary.packets_received;
+      } else if (config.traffic_direction == TRAFFIC_SEC_TO_PRI) {
+        current_sent = stats_secondary.packets_sent;
+        current_rcv = stats_primary.packets_received;
+      } else {  /* BIDIRECTIONAL */
+        current_sent = stats_primary.packets_sent + stats_secondary.packets_sent;
+        current_rcv = stats_primary.packets_received + stats_secondary.packets_received;
+        expected_total *= 2;  /* Both directions */
+      }
+      
+      printf("Progress: %u/%u packets sent, %u rcv | PRI: %u/%u | SEC: %u/%u\n",
+             current_sent, expected_total, current_rcv,
              stats_primary.packets_sent, stats_primary.packets_received,
              stats_secondary.packets_sent, stats_secondary.packets_received);
     } else if (config.duration_type == TEST_INFINITE) {
@@ -430,6 +456,7 @@ int main(int argc, char **argv) {
   printf("Primary Station:\n");
   printf("  Packets sent:     %u\n", stats_primary.packets_sent);
   printf("  Packets received: %u\n", stats_primary.packets_received);
+  printf("  Seq errors:       %u\n", stats_primary.packets_reordered);
   printf("  Bytes sent:       %lu\n", stats_primary.total_bytes_sent);
   printf("  Bytes received:   %lu\n", stats_primary.total_bytes_received);
   printf("\n");
@@ -437,6 +464,7 @@ int main(int argc, char **argv) {
   printf("Secondary Station:\n");
   printf("  Packets sent:     %u\n", stats_secondary.packets_sent);
   printf("  Packets received: %u\n", stats_secondary.packets_received);
+  printf("  Seq errors:       %u\n", stats_secondary.packets_reordered);
   printf("  Bytes sent:       %lu\n", stats_secondary.total_bytes_sent);
   printf("  Bytes received:   %lu\n", stats_secondary.total_bytes_received);
   printf("\n");
@@ -455,8 +483,6 @@ int main(int argc, char **argv) {
            stats_primary.packets_sent, stats_primary.total_bytes_sent);
     printf("  Received:   %u packets (%lu bytes)\n",
            stats_secondary.packets_received, stats_secondary.total_bytes_received);
-    printf("  P seq err:  %u packets\n", stats_primary.packets_reordered);
-    printf("  S seq err:  %u packets\n", stats_secondary.packets_reordered);
     printf("  Lost:       %u packets (%.2f%%)\n", lost, loss_percent);
     printf("  Throughput: %.2f bytes/s (%.2f KB/s)\n", throughput, throughput / 1024.0f);
     printf("\n");
@@ -474,8 +500,6 @@ int main(int argc, char **argv) {
     printf("  Received:   %u packets (%lu bytes)\n",
            stats_primary.packets_received, stats_primary.total_bytes_received);
     printf("  Lost:       %u packets (%.2f%%)\n", lost, loss_percent);
-    printf("  P seq err:  %u packets\n", stats_primary.packets_reordered);
-    printf("  S seq err:  %u packets\n", stats_secondary.packets_reordered);
     printf("  Throughput: %.2f bytes/s (%.2f KB/s)\n", throughput, throughput / 1024.0f);
     printf("\n");
   } else if (config.traffic_direction == TRAFFIC_BIDIRECTIONAL) {
@@ -501,7 +525,6 @@ int main(int argc, char **argv) {
     printf("  Received:   %u packets (%lu bytes)\n",
            stats_secondary.packets_received, stats_secondary.total_bytes_received);
     printf("  Lost:       %u packets (%.2f%%)\n", lost_p2s, loss_percent_p2s);
-    printf("  Reordered:  %u packets\n", stats_secondary.packets_reordered);
     printf("  Throughput: %.2f bytes/s (%.2f KB/s)\n", throughput_p2s, throughput_p2s / 1024.0f);
     printf("\n");
     
@@ -511,7 +534,6 @@ int main(int argc, char **argv) {
     printf("  Received:   %u packets (%lu bytes)\n",
            stats_primary.packets_received, stats_primary.total_bytes_received);
     printf("  Lost:       %u packets (%.2f%%)\n", lost_s2p, loss_percent_s2p);
-    printf("  Reordered:  %u packets\n", stats_primary.packets_reordered);
     printf("  Throughput: %.2f bytes/s (%.2f KB/s)\n", throughput_s2p, throughput_s2p / 1024.0f);
     printf("\n");
   }

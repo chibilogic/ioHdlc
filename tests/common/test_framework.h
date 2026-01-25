@@ -57,6 +57,16 @@ typedef struct {
   /* Traffic direction */
   test_traffic_direction_t traffic_direction;
   
+  /* Error injection */
+  uint8_t error_rate;                   /**< Error rate 0-100% (0=disabled) */
+  
+  /* HDLC protocol parameters */
+  uint16_t reply_timeout_ms;            /**< Reply timeout in ms (0=default 100ms) */
+  uint8_t poll_retry_max;               /**< Max poll retries (0=default 5) */
+  
+  /* Progress reporting */
+  uint32_t progress_interval_ms;        /**< Progress update interval in ms (default: 1000) */
+  
   /* Test name (for reporting) */
   const char *test_name;
 } test_config_t;

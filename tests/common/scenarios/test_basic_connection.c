@@ -77,6 +77,7 @@ static int32_t init_test_station(iohdlc_station_t *station,
   memset(driver, 0, sizeof *driver);
 
   /* Configure station */
+  memset(&config, 0, sizeof config);
   config.mode = IOHDLC_OM_NRM;
   config.flags = IOHDLC_FLG_PRI;  /* Primary station */
   config.log2mod = 3;  /* Modulo 8 */
@@ -86,6 +87,7 @@ static int32_t init_test_station(iohdlc_station_t *station,
   config.optfuncs = NULL;  /* Use defaults: REJ, SST, INH, FFF enabled */
   config.phydriver = NULL;
   config.phydriver_config = NULL;
+  config.reply_timeout_ms = 0;  /* Use default (100ms) */
 
   /* Initialize station */
   memset(station, 0, sizeof *station);

@@ -228,7 +228,9 @@ ssize_t mock_stream_read(mock_stream_t *stream, uint8_t *buf, size_t size, int t
 
 #include "ioHdlc_log.h"
 __attribute__((weak)) void iohdlc_log_msg(iohdlc_log_dir_t a,  uint8_t b,  const char * c, ...) {
-
+  (void)a;
+  (void)b;
+  (void)c;
 }
 
 ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size, int timeout_ms) {

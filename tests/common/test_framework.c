@@ -138,6 +138,15 @@ void test_print_config(const test_config_t *cfg) {
     default: dir_str = "UNKNOWN"; break;
   }
   test_printf("Direction:    %s\n", dir_str);
+  
+  /* Error injection */
+  test_printf("Error rate:   %u%% %s\n", cfg->error_rate, 
+              cfg->error_rate == 0 ? "(disabled)" : "(enabled)");
+  
+  /* Protocol parameters */
+  test_printf("Reply timeout: %u ms %s\n", 
+              cfg->reply_timeout_ms == 0 ? 100 : cfg->reply_timeout_ms,
+              cfg->reply_timeout_ms == 0 ? "(default)" : "");
   test_printf("\n");
 }
 

@@ -735,8 +735,9 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
          5.6.2.2: If checkpoint retransmission is already handling the same
          particular I frame (same N(S)), REJ shall be inhibited. */
       if (!IOHDLC_USE_TWA(s)) {
+#if defined(IOHDLC_LOG_R)
         uint32_t nr = extractNR(s, fp);
-
+#endif
         /* Check if checkpoint is active and starting with same particular I frame.
            "same particular I frame" = same N(S) value. */
         if (p->chkpt_actioned == 0 /*|| nr != p->chkpt_actioned - 1*/) {
@@ -1031,7 +1032,6 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     cm_flags &= ~IOHDLC_EVT_SSNDREQ;
     
     iohdlc_mutex_lock(&p->state_mutex);
-    p->ss_state |= IOHDLC_SS_SENDING;
 
     if (nrmSendOpportunity(s)) {
       const uint32_t outstanding = (p->vs - p->nr) & s->modmask;

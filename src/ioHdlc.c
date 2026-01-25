@@ -136,8 +136,13 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->pfoctet = (mod2 + 1) / 8;
   ioHdlcsp->ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->pfoctet * 2);
 
-  /* Default timeout */
-  ioHdlcsp->reply_timeout_ms = 25;
+  /* Reply timeout: use config value, or default 100ms if 0 */
+  ioHdlcsp->reply_timeout_ms = (ioHdlcsconfp->reply_timeout_ms != 0) ? 
+                                ioHdlcsconfp->reply_timeout_ms : 100;
+
+  /* Poll retry max: store config value for later use when adding peers */
+  ioHdlcsp->poll_retry_max_cfg = (ioHdlcsconfp->poll_retry_max != 0) ?
+                                  ioHdlcsconfp->poll_retry_max : 5;
 
   /* Frame pool and driver */
   ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;
@@ -347,7 +352,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   peer->stationp = s;
   peer->kr = peer->ks = s->modmask;
   peer->miflr = peer->mifls = mifl;
-  peer->poll_retry_max = 3;  /* Default: max 3 retries before link down */
+  peer->poll_retry_max = s->poll_retry_max_cfg;
   
   /* Initialize queues */
   ioHdlc_frameq_init(&peer->i_recept_q);
@@ -357,7 +362,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   /* Initialize flow control condvar, semaphore and mutex */
   iohdlc_condvar_init(&peer->tx_cv);            /* TX flow control (used with state_mutex) */
   iohdlc_sem_init(&peer->i_recept_sem, 0);      /* Counting semaphore - number of frames available */
-  iohdlc_mutex_init(&peer->state_mutex);        /* Priority-inheriting mutex for state */
+  iohdlc_mutex_init(&peer->state_mutex);        /* Mutex for state */
   
   /* Initialize virtual timers (reply and I-frame reply) */
   iohdlc_vt_init(&peer->reply_tmr);

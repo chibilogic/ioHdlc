@@ -337,6 +337,7 @@ struct iohdlc_station {
   uint8_t   optfuncs[5];        /* Active HDLC optional functions among those supported.
                                    See ISO13239 Table 16. Maintains ISO format for XID. */
   uint16_t  reply_timeout_ms;   /* Reply timer timeout value in milliseconds. Default: 100ms. */
+  uint8_t   poll_retry_max_cfg; /* Configured max poll retries (from station config). Default: 5. */
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
   iohdlc_station_peer_t *arm_peer;  /* The peer currently in arm mode, if any. */
@@ -380,6 +381,8 @@ struct iohdlc_station_config {
                                       NULL for defaults.                     */
   void *phydriver;        /**< @brief the physical driver used by the station*/
   void *phydriver_config; /**< @brief the physical driver configuration.     */
+  uint16_t reply_timeout_ms; /**< @brief reply timeout in ms (0 = default 100ms) */
+  uint8_t poll_retry_max;    /**< @brief max poll retries (0 = default 5) */
 };
 
 /*===========================================================================*/

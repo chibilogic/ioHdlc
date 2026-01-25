@@ -30,6 +30,8 @@ static void print_usage(const char *progname) {
   printf("  --exchanges=N       Exchanges per iteration (default: 10)\n");
   printf("  --size=N            Packet size in bytes (default: 64, max: 120)\n");
   printf("  --direction=DIR     Traffic direction: pri2sec, sec2pri, both (default: both)\n");
+  printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
+  printf("  --reply-timeout=N   Reply timeout in ms (default: 0=100ms)\n");  printf("  --poll-retry-max=N  Max poll retries before link down (default: 0=5)\n");  printf("  --progress-interval=ms  Progress update interval in ms (default: 1000)\n");
   printf("  --help              Show this help\n\n");
   printf("Examples:\n");
   printf("  %s --mode=nrm --twa --count=100 --exchanges=50 --size=64\n", progname);
@@ -50,6 +52,10 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->exchanges_per_iteration = 10;
   cfg->bytes_per_exchange = 64;  /* Safe default for TYPE0 FFF (max 120) */
   cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
+  cfg->error_rate = 0;  /* Disabled by default */
+  cfg->reply_timeout_ms = 0;  /* Use default (100ms) */
+  cfg->poll_retry_max = 0;  /* Use default (5) */
+  cfg->progress_interval_ms = 1000;  /* 1 second by default */
   cfg->test_name = argv[0];
   
   /* Long options */
@@ -62,6 +68,10 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     {"exchanges", required_argument, 0, 'e'},
     {"size",      required_argument, 0, 'z'},
     {"direction", required_argument, 0, 'd'},
+    {"error-rate",required_argument, 0, 'r'},
+    {"reply-timeout",required_argument, 0, 'T'},
+    {"poll-retry-max",required_argument, 0, 'R'},
+    {"progress-interval", required_argument, 0, 'p'},
     {"help",      no_argument,       0, 'h'},
     {0, 0, 0, 0}
   };
@@ -69,7 +79,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   int opt;
   int option_index = 0;
   
-  while ((opt = getopt_long(argc, argv, "m:asc:t:e:z:d:h",
+  while ((opt = getopt_long(argc, argv, "m:asc:t:e:z:d:r:T:R:p:h",
                             long_options, &option_index)) != -1) {
     switch (opt) {
       case 'm':  /* --mode */
@@ -138,6 +148,24 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
           fprintf(stderr, "Error: Invalid direction '%s'\n", optarg);
           return false;
         }
+        break;
+        
+      case 'r':  /* --error-rate */
+        cfg->error_rate = atoi(optarg);
+        if (cfg->error_rate > 100) {
+          fprintf(stderr, "Error: Invalid error rate (must be 0-100)\n");
+          return false;
+        }
+        break;
+      case 'p':  /* --progress-interval */
+        cfg->progress_interval_ms = atoi(optarg);
+        if (cfg->progress_interval_ms == 0) {
+          fprintf(stderr, "Error: Invalid progress interval (must be > 0)\n");
+          return false;
+        }
+        break;
+      case 'T':  /* --reply-timeout */
+        cfg->reply_timeout_ms = atoi(optarg);
         break;
         
       case 'h':  /* --help */
