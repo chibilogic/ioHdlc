@@ -42,6 +42,13 @@
 #include <sched.h>
 #include <signal.h>
 
+/**
+ * @brief   Thread-local errno access.
+ * @details On POSIX systems, errno is already thread-local (TLS).
+ *          This macro provides consistent interface across platforms.
+ */
+#define iohdlc_errno errno
+
 /*===========================================================================*/
 /* Event Types                                                               */
 /*===========================================================================*/
@@ -64,8 +71,8 @@ typedef struct {
   timer_t timer_id;             /**< POSIX timer ID */
   iohdlc_vt_callback_t callback;/**< Callback function */
   void *par;                    /**< User parameter */
-  bool armed;                   /**< Timer is armed/running */
-  bool expired;                 /**< Timer expired flag */
+  volatile bool armed;          /**< Timer is armed/running (volatile for consistency) */
+  volatile bool expired;        /**< Timer expired flag (volatile for consistency) */
   pthread_mutex_t lock;         /**< Protect state */
   
   /* Timer kind (for event broadcasting in runner) */

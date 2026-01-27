@@ -116,7 +116,6 @@ bool test_station_creation(void) {
   TEST_ASSERT(station.ctrl_size == 1, "Modulo 8 should have ctrl_size 1");
   TEST_ASSERT(station.frame_pool == &frame_pool, "Frame pool should be set");
   TEST_ASSERT(station.driver == &mock_driver, "Driver should be set");
-  TEST_ASSERT(station.errorno == 0, "No error should be set");
 
   test_printf("✅ Station creation and initialization successful\n");
   return 0;
@@ -166,7 +165,7 @@ bool test_peer_creation(void) {
   iohdlc_station_peer_t duplicate_peer;
   result = ioHdlcAddPeer(&station, &duplicate_peer, SECONDARY_ADDR);
   TEST_ASSERT(result == -1, "Adding duplicate peer should fail");
-  TEST_ASSERT(station.errorno == EEXIST, "Error should be EEXIST");
+  TEST_ASSERT(iohdlc_errno == EEXIST, "Error should be EEXIST");
 
   test_printf("✅ Peer creation and initialization successful\n");
   return 0;
@@ -277,9 +276,9 @@ bool test_snrm_handshake(void) {
   test_printf("Calling ioHdlcStationLinkUp...\n");
   int ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM); // DEBUG: Set breakpoint here
   if (ret != 0) {
-    test_printf("❌ ioHdlcStationLinkUp returned %d, station errno=%d\n", ret, station_primary.errorno);
+    test_printf("❌ ioHdlcStationLinkUp returned %d, errno=%d\n", ret, iohdlc_errno);
   }
-  TEST_ASSERT(ret == 0, "ioHdlcStationLinkUp should succeed"); // DEBUG: Check station_primary.errorno here
+  TEST_ASSERT(ret == 0, "ioHdlcStationLinkUp should succeed");
   
   /* Allow time for protocol exchange (SNRM → UA) */
 #ifdef IOHDLC_USE_CHIBIOS
@@ -291,8 +290,8 @@ bool test_snrm_handshake(void) {
   /* Verify connection established at both ends */
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_secondary), "Secondary peer should be connected");
-  TEST_ASSERT(station_primary.errorno == 0, "Primary station should have no errors");
-  TEST_ASSERT(station_secondary.errorno == 0, "Secondary station should have no errors");
+  TEST_ASSERT(iohdlc_errno == 0, "Primary station should have no errors");
+  TEST_ASSERT(iohdlc_errno == 0, "Secondary station should have no errors");
   
   test_printf("✅ SNRM handshake completed successfully\n");
   
@@ -447,7 +446,7 @@ static int test_data_exchange(void) {
     sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 500);
     if (sent != (ssize_t)msg_len) {
       test_printf("❌ Primary write returned %zd (expected %zu), errno=%d\n", 
-                  sent, msg_len, station_primary.errorno);
+                  sent, msg_len, iohdlc_errno);
     }
     TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
     test_printf("Primary sent %zd bytes\n", sent);
@@ -460,7 +459,7 @@ static int test_data_exchange(void) {
   for (i = 0; i < 10; ++i) {
     received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, msg_len, 500);
     test_printf("Secondary read returned %zd bytes (expected %zu), errno=%d\n",
-                received, msg_len, station_secondary.errorno);
+                received, msg_len, iohdlc_errno);
     if (received > 0 && received <= (ssize_t)sizeof recv_buf) {
       /* Null-terminate for printing */
       recv_buf[received < (ssize_t)sizeof recv_buf ? (size_t)received : sizeof recv_buf-1] = '\0';

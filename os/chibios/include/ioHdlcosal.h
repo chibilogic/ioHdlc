@@ -26,6 +26,15 @@
 #include "ch.h"
 #include "hal.h"
 #include "ioHdlctypes.h"
+#include <errno.h>
+
+/**
+ * @brief   Thread-local errno access.
+ * @details ChibiOS uses standard errno (thread-local if newlib configured with reentrant).
+ *          This macro provides consistent interface across platforms.
+ * @note    Ensure newlib is configured with --enable-newlib-reent-thread-local for TLS errno.
+ */
+#define iohdlc_errno errno
 
 #define iohdlc_event_source_t event_source_t
 
@@ -38,7 +47,8 @@ typedef event_listener_t iohdlc_event_listener_t;
  */
 typedef struct {
   virtual_timer_t vt;       /* ChibiOS virtual timer. */
-  bool expired;             /* True if timer expired (cleared on start/restart/stop). */
+  volatile bool expired;    /* True if timer expired (cleared on start/restart/stop).
+                               Volatile: modified from ISR context, read from thread. */
 } iohdlc_virtual_timer_t;
 
 typedef semaphore_t iohdlc_sem_t;

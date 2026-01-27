@@ -193,7 +193,7 @@ int test_data_exchange_twa(void) {
     sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 2000);
     if (sent != (ssize_t)msg_len) {
       test_printf("❌ Primary write returned %zd (expected %zu), errno=%d\n", 
-                  sent, msg_len, station_primary.errorno);
+                  sent, msg_len, iohdlc_errno);
     }
     TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
     test_printf("Primary sent %zd bytes\n", sent);
@@ -210,7 +210,7 @@ int test_data_exchange_twa(void) {
   for (i = 0; i < 10; ++i) {
     received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, msg_len, 2000);
     test_printf("Secondary read returned %zd bytes (expected %zu), errno=%d\n",
-                received, msg_len, station_secondary.errorno);
+                received, msg_len, iohdlc_errno);
     if (received > 0 && received <= (ssize_t)sizeof recv_buf) {
       /* Null-terminate for printing */
       recv_buf[received < (ssize_t)sizeof recv_buf ? (size_t)received : sizeof recv_buf-1] = '\0';

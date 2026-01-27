@@ -104,7 +104,7 @@ static void ioHdlc_framepool_on_normal(void *stationp) {
  *
  * @param[in] ioHdlcsp      Station descriptor to initialize
  * @param[in] ioHdlcsconfp  Configuration parameters
- * @return                  0 on success, -1 on error (check ioHdlcsp->errorno)
+ * @return                  0 on success, -1 on error (check iohdlc_errno)
  * 
  * @note The caller must have prepared:
  *       - Frame pool (ioHdlcsconfp->fpp)
@@ -121,7 +121,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM) &&
       (mode != IOHDLC_OM_NRM) && (mode != IOHDLC_OM_ARM) &&
       (mode != IOHDLC_OM_ABM)) {
-    ioHdlcsp->errorno = EINVAL;
+    iohdlc_errno = EINVAL;
     return -1;
   }
 
@@ -219,7 +219,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
       if (inh_precedence) {
         want_transparency = false;  /* FFF takes precedence (INH option) */
       } else {
-        ioHdlcsp->errorno = EINVAL; 
+        iohdlc_errno = EINVAL; 
         return -1;  /* Conflicting options */
       }
     }
@@ -237,14 +237,14 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
         }
       }
       if (!fff_supported) {
-        ioHdlcsp->errorno = ENOTSUP;
+        iohdlc_errno = ENOTSUP;
         return -1;  /* Driver doesn't support this FFF type */
       }
     }
     
     if (want_transparency && !caps->transparency.hw_support && 
         !caps->transparency.sw_available) {
-      ioHdlcsp->errorno = ENOTSUP;
+      iohdlc_errno = ENOTSUP;
       return -1;  /* Driver doesn't support transparency */
     }
     
@@ -258,7 +258,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     int32_t config_result = hdlcConfigure(ioHdlcsp->driver, selected_fcs_size, 
                                           want_transparency, selected_fff_type);
     if (config_result != 0) {
-      ioHdlcsp->errorno = config_result;
+      iohdlc_errno = config_result;
       return -1;  /* errno-compatible error */
     }
     
@@ -277,7 +277,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
                                   ioHdlcsp->frame_pool);
   }
 
-  ioHdlcsp->errorno = 0;
+  iohdlc_errno = 0;
   return 0;
 }
 
@@ -319,7 +319,7 @@ iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
  *                  - EINVAL: Secondary station not in NDM/ADM mode
  *                  - EEXIST: Peer with same address already exists
  * 
- * @note Station errorno field contains detailed error code on failure.
+ * @note iohdlc_errno field contains detailed error code on failure.
  * @note mifl is calculated as: framesize - (FFF + ADDR + CTRL + FCS)
  *       For modulo 8: framesize - (1 + 1 + 1 + 2) = framesize - 5 (if FFF enabled)
  * 
@@ -330,13 +330,13 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   /* Secondary stations can only add peer when in disconnected mode */
   if (!(s->flags & IOHDLC_FLG_PRI) &&
       (s->mode != IOHDLC_OM_NDM) && (s->mode != IOHDLC_OM_ADM)) {
-    s->errorno = EINVAL;
+    iohdlc_errno = EINVAL;
     return -1;
   }
 
   /* Check that addr does not already exist */
   if (addr2peer(s, addr) != NULL) {
-    s->errorno = EEXIST;
+    iohdlc_errno = EEXIST;
     return -1;
   }
 
@@ -414,7 +414,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
  *                      - ETIMEDOUT: No response after max retries
  *                      - ECONNREFUSED: Peer sent DM (refused connection)
  * 
- * @note Station errorno field contains detailed error code on failure.
+ * @note iohdlc_errno field contains detailed error code on failure.
  * @note This function blocks until connection completes or fails.
  * @note Uses protocol-level retry (no application timeout parameter).
  * @note Uses app_es event source to avoid conflicts with core events.
@@ -431,13 +431,13 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   /* Find peer by address */
   p = addr2peer(s, peer_addr);
   if (p == NULL) {
-    s->errorno = EINVAL;
+    iohdlc_errno = EINVAL;
     return -1;
   }
 
   /* Check if already connected */
   if (p->ss_state & IOHDLC_SS_ST_CONN) {
-    s->errorno = EISCONN;
+    iohdlc_errno = EISCONN;
     return -1;
   }
 
@@ -448,7 +448,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   /* Validate mode and get corresponding U-frame command */
   u_cmd = IOHDLC_MODE_TO_UCMD(mode);
   if (u_cmd == 0) {
-    s->errorno = EINVAL;
+    iohdlc_errno = EINVAL;
     return -1;
   }
 
@@ -486,7 +486,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
       } else if (flags & IOHDLC_APP_LINK_REFUSED) {
         /* DM received: peer refused connection */
         iohdlc_evt_unregister(&s->app_es, &listener);
-        s->errorno = ECONNREFUSED;
+        iohdlc_errno = ECONNREFUSED;
         return -1;
       }
     }
@@ -495,7 +495,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
 
   /* All retries exhausted */
   iohdlc_evt_unregister(&s->app_es, &listener);
-  s->errorno = ETIMEDOUT;
+  iohdlc_errno = ETIMEDOUT;
   return -1;
 }
 
@@ -523,7 +523,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
  *                      - ENOTCONN: Not connected or peer not found
  *                      - ETIMEDOUT: No response after max retries
  * 
- * @note Station errorno field contains detailed error code on failure.
+ * @note iohdlc_errno field contains detailed error code on failure.
  * @note This function blocks until disconnection completes or fails.
  * @note Peer state is reset (queues cleared, variables reset) on success.
  * @note Uses app_es event source to avoid conflicts with core events.
@@ -539,13 +539,13 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
   /* Find peer by address */
   p = addr2peer(s, peer_addr);
   if (p == NULL) {
-    s->errorno = ENOTCONN;
+    iohdlc_errno = ENOTCONN;
     return -1;
   }
 
   /* Check if already disconnected */
   if (!(p->ss_state & IOHDLC_SS_ST_CONN)) {
-    s->errorno = ENOTCONN;
+    iohdlc_errno = ENOTCONN;
     return -1;
   }
 
@@ -588,7 +588,7 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
 
   /* All retries exhausted */
   iohdlc_evt_unregister(&s->app_es, &listener);
-  s->errorno = ETIMEDOUT;
+  iohdlc_errno = ETIMEDOUT;
   return -1;
 }
 
@@ -605,11 +605,14 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
  * 
  * @return               Bytes written on success, -1 on error
  * @retval count         All data successfully queued
- * @retval -1            Error occurred (check station->errorno)
+ * @retval -1            Error occurred (check iohdlc_errno)
  * 
  * @note Blocks if i_pending_count >= 2*ks OR pool is LOW_WATER.
  * @note Sets address, N(S), frame ID; N(R) and P/F set during TX.
  * @note Automatically fragments data if count > mifls.
+ * @note Multiple threads can call Write concurrently on same peer.
+ *       Flow control is thread-safe, but frame transmission ORDER is not guaranteed
+ *       between concurrent writers. If ordering matters, serialize writes externally.
  * 
  * @api
  */
@@ -624,13 +627,13 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
   
   /* Validate parameters */
   if (buf == NULL || count == 0) {
-    s->errorno = EINVAL;
+    iohdlc_errno = EINVAL;
     return -1;
   }
   
   /* Check if connected */
   if (IOHDLC_PEER_DISC(peer)) {
-    s->errorno = ENOTCONN;
+    iohdlc_errno = ENOTCONN;
     return -1;
   }
   
@@ -653,7 +656,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
                                                   IOHDLC_TIME_MS2I(timeout_ms));
       if (result == MSG_TIMEOUT) {
         iohdlc_mutex_unlock(&peer->state_mutex);
-        s->errorno = ETIMEDOUT;
+        iohdlc_errno = ETIMEDOUT;
         ssize_t t = count -remaining;
         return t != 0 ? t : -1;  /* Return bytes written so far */
       }
@@ -733,11 +736,14 @@ void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags);
  * 
  * @return               Bytes read on success, -1 on error
  * @retval >0            Number of bytes read
- * @retval -1            Error occurred (check station->errorno)
+ * @retval -1            Error occurred (check iohdlc_errno)
  * 
  * @note Blocks until frame available or timeout.
  * @note Releases frame back to pool when fully consumed (may trigger watermark).
  * @note Supports partial reads: call multiple times to consume large frames.
+ * @note Multiple threads can call Read concurrently on same peer.
+ *       Partial read state (partial_read_frame/offset) protected by state_mutex.
+ *       Frames delivered in-order as received from peer.
  * 
  * @api
  */
@@ -752,13 +758,13 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
   
   /* Validate parameters */
   if (buf == NULL || count == 0) {
-    s->errorno = EINVAL;
+    iohdlc_errno = EINVAL;
     return -1;
   }
   
   /* Check if connected */
   if (IOHDLC_PEER_DISC(peer) && ioHdlc_frameq_isempty(&peer->i_recept_q)) {
-    s->errorno = ENOTCONN;
+    iohdlc_errno = ENOTCONN;
     return -1;
   }
   
@@ -776,12 +782,17 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
   iohdlc_mutex_unlock(&peer->state_mutex);
   
   /* Greedy consumption loop: read frames until count satisfied, timeout, or queue empty.
-     POSIX semantics: returns bytes read even on timeout (only -1 if no bytes read yet). */
+     POSIX semantics: returns bytes read even on timeout (only -1 if no bytes read yet).
+     All access to partial_read_frame/offset is protected by state_mutex for thread-safety. */
   while (total_bytes_read < (ssize_t)count) {
 
-    /* Check if we have a partial frame from previous read */
-    if (peer->partial_read_frame != NULL) {
-      fp = peer->partial_read_frame;
+    /* Check if we have a partial frame from previous read (mutex protected) */
+    iohdlc_mutex_lock(&peer->state_mutex);
+    fp = peer->partial_read_frame;
+    iohdlc_mutex_unlock(&peer->state_mutex);
+    
+    if (fp != NULL) {
+      /* Continue reading from partial frame - offset handled atomically later */
     } else {
       if (IOHDLC_PEER_DISC(peer) && ioHdlc_frameq_isempty(&peer->i_recept_q))
         break;
@@ -801,7 +812,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
         if (total_bytes_read > 0) {
           break;  /* POSIX: return partial read on timeout */
         }
-        s->errorno = ETIMEDOUT;
+        iohdlc_errno = ETIMEDOUT;
         total_bytes_read = -1;
         break;
       }
@@ -820,18 +831,23 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
           break;
         if (total_bytes_read > 0)
           break;  /* Return what we've read so far */
-        s->errorno = EAGAIN;
+        iohdlc_errno = EAGAIN;
         total_bytes_read = -1;
         break;
       }
       
       /* Start reading from beginning of this frame */
+      iohdlc_mutex_lock(&peer->state_mutex);
       peer->partial_read_offset = 0;
+      iohdlc_mutex_unlock(&peer->state_mutex);
     }
     
     /* Get info field pointer and calculate total length */
     info_ptr = IOHDLC_FRAME_INFO(s, fp);
     info_len = fp->elen - (s->frame_offset + 1 + s->ctrl_size);
+    
+    /* Lock mutex for entire read-update-check sequence to ensure atomicity */
+    iohdlc_mutex_lock(&peer->state_mutex);
     
     /* Calculate available bytes from current offset */
     available_bytes = info_len - peer->partial_read_offset;
@@ -843,27 +859,27 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
     
     /* Update read state */
     peer->partial_read_offset += bytes_to_copy;
+    
     dest += bytes_to_copy;
     total_bytes_read += bytes_to_copy;
     
-    /* Check if frame fully consumed */
+    /* Check if frame fully consumed (still holding mutex from line 850) */
     if (peer->partial_read_offset < info_len) {
       /* Frame partially read: save for next call and exit loop */
       peer->partial_read_frame = fp;
+      iohdlc_mutex_unlock(&peer->state_mutex);
       break;  /* Buffer full, frame partially consumed */
     }
-    /* Frame fully read: release back to pool.
-       Must hold mutex during release to ensure framepool callback
+    /* Frame fully read: release back to pool (still holding mutex).
+       Mutex held during release to ensure framepool callback
        (on_normal) executes with proper synchronization for tx_cv broadcast. */
-    iohdlc_mutex_lock(&peer->state_mutex);
     hdlcReleaseFrame(s->frame_pool, fp);
-    iohdlc_mutex_unlock(&peer->state_mutex);
-
     peer->partial_read_frame = NULL;
     peer->partial_read_offset = 0;
+    iohdlc_mutex_unlock(&peer->state_mutex);
   }
   iohdlc_mutex_lock(&peer->state_mutex);
-  peer->ss_state &= ~IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
+  peer->ss_state &= ~IOHDLC_SS_RECVING;  /* Done receiving I-frames from the peer. */
   iohdlc_mutex_unlock(&peer->state_mutex);
   
   return total_bytes_read;

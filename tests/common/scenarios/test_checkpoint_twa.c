@@ -356,7 +356,7 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
       test_printf("❌ Write frame %d failed: sent=%zd, errno=%d\r\n", 
-                  i, sent, station_primary.errorno);
+                  i, sent, iohdlc_errno);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
     test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
@@ -402,7 +402,7 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
                   read_attempts + 1, total_received);
     } else {
       test_printf("  Read attempt %d: error %zd, errno=%d\r\n", 
-                  read_attempts + 1, received, station_secondary.errorno);
+                  read_attempts + 1, received, iohdlc_errno);
     }
     
     read_attempts++;
@@ -599,7 +599,7 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
       test_printf("❌ Write frame %d failed: sent=%zd, errno=%d\r\n", 
-                  i, sent, station_primary.errorno);
+                  i, sent, iohdlc_errno);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
     test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
@@ -645,7 +645,7 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
                   read_attempts + 1, total_received);
     } else {
       test_printf("  Read attempt %d: error %zd, errno=%d\r\n", 
-                  read_attempts + 1, received, station_secondary.errorno);
+                  read_attempts + 1, received, iohdlc_errno);
     }
     
     read_attempts++;
@@ -842,7 +842,7 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
       test_printf("❌ Write frame %d failed: sent=%zd, errno=%d\r\n", 
-                  i, sent, station_primary.errorno);
+                  i, sent, iohdlc_errno);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
     test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
@@ -888,7 +888,7 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
                   read_attempts + 1, total_received);
     } else {
       test_printf("  Read attempt %d: error %zd, errno=%d\r\n", 
-                  read_attempts + 1, received, station_secondary.errorno);
+                  read_attempts + 1, received, iohdlc_errno);
     }
     
     read_attempts++;

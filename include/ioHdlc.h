@@ -241,36 +241,35 @@ struct iohdlc_station_peer {
   iohdlc_station_t *stationp;   /* The station this peer belongs on. */
 
   /* configuration parameters. */
-  uint32_t  addr;               /* Address of the peer. 0 if is not determined yet. */
-  uint32_t  ks;                 /* Window size k, transmit. Max modulus - 1. */
-  uint32_t  kr;                 /* Window size k, receive. Max modulus - 1. */
-  uint32_t  mifls;              /* Maximum information field length, transmit. */
-  uint32_t  miflr;              /* Maximum information field length, receive. */
+  uint32_t addr;                /* Address of the peer. 0 if is not determined yet. */
+  uint32_t ks;                  /* Window size k, transmit. Max modulus - 1. */
+  uint32_t kr;                  /* Window size k, receive. Max modulus - 1. */
+  uint32_t mifls;               /* Maximum information field length, transmit. */
+  uint32_t miflr;               /* Maximum information field length, receive. */
 
-  /* state variables. */
-  uint32_t  vs;                 /* Send state variable V(S). */
-  uint32_t  vr;                 /* Receive state variable V(R). */
-  uint32_t  nr;                 /* Last N(R) received and accepted + 1.
+  volatile uint32_t vs;         /* Send state variable V(S). */
+  volatile uint32_t vr;         /* Receive state variable V(R). */
+  volatile uint32_t nr;         /* Last N(R) received and accepted + 1.
                                    Invariant: (vs-nr) & modmask = len(i_retrans_q), must be ≤ ks. */
-  uint32_t  vs_highest;         /* Highest value of state variable V(S) in the
+  volatile uint32_t vs_highest; /* Highest value of state variable V(S) in the
                                    same numbering cycle. */
-  uint32_t  rej_actioned;       /* a value x != 0 of this field indicates that a
-                                   REJ exception with N(R) = x-1 is in action. The receipt
-                                   of a I-frame with N(S) = x-1 clears the exception. */
-  uint32_t  chkpt_actioned;     /* a value x != 0 indicates checkpoint retransmission
-                                   started with first frame N(S) = x-1. Used to inhibit
-                                   REJ if requesting same particular I frame (ISO 13239). */
-  uint32_t  vs_atlast_pf;       /* V(S) at the time of transmission of the last
-                                   frame with the P bit set in case of primary/combined station
-                                   or with the F bit set in case of secondary station. */
-  uint32_t  i_pending_count;    /* Total pending I-frames: len(i_trans_q) + len(i_retrans_q).
-                                   Incremented when adding to i_trans_q, decremented when
-                                   removing from i_retrans_q. Maintained for O(1) flow control. */
-  uint8_t   um_state;           /* Unnumbered state. See definitions. */
-  uint8_t   ss_state;           /* Supervision state. See definitions. */
-  uint8_t   um_cmd;             /* Unnumbered command to_send. */
-  uint8_t   um_rsp;             /* Unnumbered response. */
-  uint8_t   ss_fun;             /* Supervision function to send. */
+  volatile uint32_t rej_actioned; /* a value x != 0 of this field indicates that a
+                                     REJ exception with N(R) = x-1 is in action. The receipt
+                                     of a I-frame with N(S) = x-1 clears the exception. */
+  volatile uint32_t chkpt_actioned; /* a value x != 0 indicates checkpoint retransmission
+                                       started with first frame N(S) = x-1. Used to inhibit
+                                       REJ if requesting same particular I frame (ISO 13239). */
+  volatile uint32_t vs_atlast_pf; /* V(S) at the time of transmission of the last
+                                     frame with the P bit set in case of primary/combined station
+                                     or with the F bit set in case of secondary station. */
+  volatile uint32_t i_pending_count;  /* Total pending I-frames: len(i_trans_q) + len(i_retrans_q).
+                                         Incremented when adding to i_trans_q, decremented when
+                                         removing from i_retrans_q. Maintained for O(1) flow control. */
+  volatile uint8_t  um_state;   /* Unnumbered state. See definitions. */
+  volatile uint8_t  ss_state;   /* Supervision state. See definitions. */
+  uint8_t  um_cmd;              /* Unnumbered command to_send. */
+  uint8_t  um_rsp;              /* Unnumbered response. */
+  uint8_t  ss_fun;              /* Supervision function to send. */
 
   /* data queues. */
   iohdlc_frame_q_t i_retrans_q; /* I-frame retransmission queue. No more than ks frames
@@ -294,8 +293,8 @@ struct iohdlc_station_peer {
                                    Used by Read to block until data available. */
   iohdlc_mutex_t state_mutex;   /* Mutex protecting protocol state variables:
                                    nr, vr, vs, i_pending_count, queues (i_retrans_q, i_trans_q),
-                                   chkpt_actioned, rej_actioned, ss_state. */
-
+                                   chkpt_actioned, rej_actioned, ss_state,
+				   partial_read_frame/offset. */
   /* partial read state. */
   iohdlc_frame_t *partial_read_frame;  /* Frame being read partially (NULL if none). */
   size_t partial_read_offset;          /* Offset within partial_read_frame's info field. */
@@ -307,13 +306,12 @@ struct iohdlc_station_peer {
                                          time-out timer. */
 
   /* retry counters. */
-  uint8_t   poll_retry_count;   /* Current number of retries for frames with P=1 (poll bit).
-                                   Incremented on reply_tmr expiry, reset when F=1
-                                   response received. */
-  uint8_t   poll_retry_max;     /* Maximum number of retries allowed for poll frames.
+  volatile uint8_t poll_retry_count;  /* Current number of retries for frames with P=1 (poll bit).
+                                         Incremented on reply_tmr expiry, reset when F=1
+                                         response received. Volatile: accessed from timer context. */
+  uint8_t poll_retry_max;       /* Maximum number of retries allowed for poll frames.
                                    When poll_retry_count >= poll_retry_max, the link
                                    is considered down. */
-
 };
 
 /**
@@ -343,7 +341,6 @@ struct iohdlc_station {
   iohdlc_station_peer_t *arm_peer;  /* The peer currently in arm mode, if any. */
 
   /* state, peers, pool and queues. */
-  int32_t   errorno;            /* number of last error. Follows the posix list of values. */
   iohdlc_peer_list_t  peers;    /* The header of the list of the peers of this station. Stations
                                    in ABM mode and secondary stations have only one peer. */
   ioHdlcFramePool *frame_pool;  /* Pool of free frames. Any station has a its own pool of frames
