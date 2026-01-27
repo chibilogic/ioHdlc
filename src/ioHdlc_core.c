@@ -625,7 +625,6 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
 
 static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
                          iohdlc_frame_t *fp,
-                         bool *should_signal_sem_out,
                          uint32_t *broadcast_flags_out) {
   /* Handle I-frame specific logic:
      - Validate sequence number N(S)
@@ -639,8 +638,6 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   
   uint32_t ns = extractNS(s, fp);
   uint32_t expected_ns = p->vr;
-  
-  *should_signal_sem_out = false;
   
   if (ns != expected_ns) {
     /* Out-of-sequence error detected. */
@@ -692,7 +689,6 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   /* Increment V(R) - frame accepted (use modmask for modular increment). */
   p->vr = (p->vr + 1) & s->modmask;
   
-  *should_signal_sem_out = true;
   return true;  /* Frame accepted */
 }
 
@@ -741,7 +737,7 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         /* Check if checkpoint is active and starting with same particular I frame.
            "same particular I frame" = same N(S) value. */
         if (p->chkpt_actioned == 0 /*|| nr != p->chkpt_actioned - 1*/) {
-          /* REJ acts: move ALL remaining frames from i_retrans_q to head of i_trans_q.
+          /* REJ acts: move all remaining frames from i_retrans_q to head of i_trans_q.
              processNR() has already removed frames with N(S) < N(R),
              so i_retrans_q now contains exactly the frames to retransmit (N(S) >= N(R)). */
 #if defined(IOHDLC_LOG_R)
@@ -806,9 +802,8 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Flags for deferred signaling (after lock release). */
   bool should_signal_tx = false;
   bool checkpoint_moved = false;
-  bool should_signal_sem = false;
   uint32_t broadcast_flags = 0;  /* Consolidated event flags for single broadcast */
-  bool frame_accepted = true;
+  bool frame_accepted = false;
   
   /* Single lock for entire processing sequence.
      This prevents TX from observing intermediate state where checkpoint/ACK
@@ -852,8 +847,8 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   
   /* Branch by frame type for specific handling. */
   if (IOHDLC_IS_I_FRM(ctrl)) {
-    frame_accepted = handleIFrame(s, p, fp, &should_signal_sem, &broadcast_flags);
-  } else if (IOHDLC_IS_S_FRM(ctrl)) {
+    frame_accepted = handleIFrame(s, p, fp, &broadcast_flags);
+  } else {
     handleSFrame(s, p, fp, &broadcast_flags);
   }
   
@@ -862,33 +857,24 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     broadcast_flags |= IOHDLC_EVT_ISNDREQ;
   }
   
+  if (broadcast_flags) {
+    ioHdlcBroadcastFlags(s, broadcast_flags);
+  }
+  
+  /* Signal user threads waiting on flow control */
   if (should_signal_tx) {
     iohdlc_condvar_broadcast(&p->tx_cv);
   }
   
   iohdlc_mutex_unlock(&p->state_mutex);
 
-  /* All signaling happens after lock release with fully consistent state.
-     TX will observe complete checkpoint + I-frame processing atomically. */
-
-  /* Single consolidated broadcast for all event flags */
-  if (broadcast_flags) {
-    ioHdlcBroadcastFlags(s, broadcast_flags);
-  }
-  
-  if (should_signal_sem) {
+  /* Signal application that I-frame is ready to read */
+  if (frame_accepted) {
     iohdlc_sem_signal(&p->i_recept_sem);
+    return;
   }
   
-  /* Release or keep frame based on acceptance. */
-  if (IOHDLC_IS_I_FRM(ctrl) && !frame_accepted) {
-    hdlcReleaseFrame(s->frame_pool, fp);
-  } else if (IOHDLC_IS_S_FRM(ctrl)) {
-    hdlcReleaseFrame(s->frame_pool, fp);
-  } else if (!IOHDLC_IS_I_FRM(ctrl) && !IOHDLC_IS_S_FRM(ctrl)) {
-    /* Unexpected frame type (U-frames already handled upstream). */
-    hdlcReleaseFrame(s->frame_pool, fp);
-  }
+  hdlcReleaseFrame(s->frame_pool, fp);
 }
 
 void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
@@ -899,6 +885,47 @@ void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     (void)s;
     (void)fp;
+}
+
+void ioHdlcRxEntry(void *stationp) {
+  iohdlc_station_t *s = (iohdlc_station_t *)stationp;
+  if (!s) return;
+  for (;;) {
+    /* Check if stop requested */
+    if (s->stop_requested) {
+      break;
+    }
+
+    /* Use short timeout (500ms) to allow stop check */
+    iohdlc_frame_t *fp = hdlcRecvFrame(s->driver, (iohdlc_timeout_t)500);
+    if (fp == NULL) {
+      /* Check again before treating as idle line */
+      if (s->stop_requested) {
+        break;
+      }
+      /* Idle line or timeout */
+      s->flags |= IOHDLC_FLG_IDL;
+      if (s->flags & IOHDLC_FLG_TWA) {
+        /* In TWA mode, line idle might be significant - broadcast event. */
+        ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINIDLE);
+      }
+      IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "--");
+      continue;
+    }
+    s->flags &= ~IOHDLC_FLG_IDL;
+
+    /* Decode control octet to determine frame type. */
+    const uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
+
+    /* Handle U-frames common to all modes. */
+    if (IOHDLC_IS_U_FRM(ctrl)) {
+      handleUFrame(s, fp);
+      continue;
+    }
+
+    /* Call mode-specific RX handler for I and S frames. */
+    s->rx_fn(s, fp);
+  }
 }
 
 /*===========================================================================*/
@@ -1238,6 +1265,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
   cm_flags &= ~IOHDLC_EVT_ISNDREQ;
 
+  iohdlc_mutex_lock(&p->state_mutex);
   /* If no I-frame was sent but we have the opportunity/need to respond,
      prepare to send an opportunistic S-frame (RR or RNR). */
   if (!i_frame_sent && ((p->ss_state & IOHDLC_SS_IF_RCVD) ||
@@ -1256,6 +1284,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     }
   }
   p->ss_state &= ~IOHDLC_SS_IF_RCVD;
+  iohdlc_mutex_unlock(&p->state_mutex);
 
   return cm_flags;
 }
@@ -1439,47 +1468,6 @@ void ioHdlcTxEntry(void *stationp) {
   }
 
   iohdlc_evt_unregister(&s->cm_es, &s->cm_listener);
-}
-
-void ioHdlcRxEntry(void *stationp) {
-  iohdlc_station_t *s = (iohdlc_station_t *)stationp;
-  if (!s) return;
-  for (;;) {
-    /* Check if stop requested */
-    if (s->stop_requested) {
-      break;
-    }
-    
-    /* Use short timeout (500ms) to allow stop check */
-    iohdlc_frame_t *fp = hdlcRecvFrame(s->driver, (iohdlc_timeout_t)500);
-    if (fp == NULL) {
-      /* Check again before treating as idle line */
-      if (s->stop_requested) {
-        break;
-      }
-      /* Idle line or timeout */
-      s->flags |= IOHDLC_FLG_IDL;
-      if (s->flags & IOHDLC_FLG_TWA) {
-        /* In TWA mode, line idle might be significant - broadcast event. */
-        ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINIDLE);
-      }
-      IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "--");
-      continue;
-    }
-    s->flags &= ~IOHDLC_FLG_IDL;
-    
-    /* Decode control octet to determine frame type. */
-    const uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
-
-    /* Handle U-frames common to all modes. */
-    if (IOHDLC_IS_U_FRM(ctrl)) {
-      handleUFrame(s, fp);
-      continue;
-    }
-    
-    /* Call mode-specific RX handler for I and S frames. */
-    s->rx_fn(s, fp);
-  }
 }
 
 void ioHdlcRegisterRunnerOps(const ioHdlcRunnerOps *ops) {

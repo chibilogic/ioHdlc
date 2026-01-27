@@ -661,7 +661,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
 
     if (IOHDLC_PEER_DISC(peer)) {
         iohdlc_mutex_unlock(&peer->state_mutex);
-        return count -remaining;  /* Return bytes written so far */
+        return count - remaining;  /* Return bytes written so far */
     }
     
     /* Condition satisfied: window has space AND pool is normal.
@@ -852,8 +852,12 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       peer->partial_read_frame = fp;
       break;  /* Buffer full, frame partially consumed */
     }
-    /* Frame fully read: release back to pool */
+    /* Frame fully read: release back to pool.
+       Must hold mutex during release to ensure framepool callback
+       (on_normal) executes with proper synchronization for tx_cv broadcast. */
+    iohdlc_mutex_lock(&peer->state_mutex);
     hdlcReleaseFrame(s->frame_pool, fp);
+    iohdlc_mutex_unlock(&peer->state_mutex);
 
     peer->partial_read_frame = NULL;
     peer->partial_read_offset = 0;

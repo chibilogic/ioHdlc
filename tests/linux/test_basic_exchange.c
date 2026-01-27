@@ -158,7 +158,7 @@ static void *reader_thread(void *arg) {
       fprintf(stderr, "Reader %u zero read!\n", ctx->station->addr);
       test_running = false;  /* No data received, assume test end */
     } else {
-      fprintf(stderr, "Reader %u Timeout!\n", ctx->station->addr);
+      fprintf(stderr, "Reader %u Error %d!\n", ctx->station->addr, ctx->station->errorno);
       test_running = false;
     }
     if (ctx->stats->packets_received >=
