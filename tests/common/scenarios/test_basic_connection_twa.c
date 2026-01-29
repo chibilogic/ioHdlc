@@ -79,7 +79,6 @@ int test_data_exchange_twa(void) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_t station_primary, station_secondary;
-  ioHdlcFrameMemPool pool_primary, pool_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t config;
   int32_t result;
@@ -110,17 +109,17 @@ int test_data_exchange_twa(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools with shared arena */
-  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;
   config.flags = IOHDLC_FLG_PRI | IOHDLC_FLG_TWA;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
-  config.fpp = (ioHdlcFramePool *)&pool_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = NULL;
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
@@ -136,7 +135,11 @@ int test_data_exchange_twa(void) {
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
-  config.fpp = (ioHdlcFramePool *)&pool_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = NULL;
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;

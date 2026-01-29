@@ -28,25 +28,30 @@ void test_init_statistics(test_statistics_t *stats) {
 /* Packet Generation/Validation                                              */
 /*===========================================================================*/
 
-size_t test_generate_packet(uint32_t seq, uint32_t payload_size,
+size_t test_generate_packet(uint32_t seq, uint32_t packet_size,
                              uint8_t *buffer, size_t buffer_size) {
-  size_t total_size = TEST_PACKET_HEADER_SIZE + payload_size;
+  /* packet_size is total size INCLUDING header */
+  if (packet_size < TEST_PACKET_HEADER_SIZE) {
+    return 0;  /* Packet too small for header */
+  }
   
-  if (total_size > buffer_size) {
+  if (packet_size > buffer_size) {
     return 0;  /* Buffer too small */
   }
+  
+  uint32_t payload_size = packet_size - TEST_PACKET_HEADER_SIZE;
   
   test_packet_t *pkt = (test_packet_t *)buffer;
   pkt->sequence = seq;
   pkt->timestamp_ms = iohdlc_time_now_ms();
-  pkt->payload_len = payload_size;
+  pkt->payload_len = (uint16_t)payload_size;
   
   /* Fill payload with pattern for debugging (optional) */
   for (uint32_t i = 0; i < payload_size; i++) {
     pkt->payload[i] = (uint8_t)(seq + i);
   }
   
-  return total_size;
+  return packet_size;
 }
 
 bool test_validate_packet(const uint8_t *buffer, size_t len,

@@ -131,7 +131,8 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
 
   chDbgAssert((framealign & (framealign-1)) == 0, "framealign must be a power of 2");
 
-  framesize = framesize * 2 + sizeof (iohdlc_frame_t);
+  ((ioHdlcFramePool *)fmpp)->framesize = framesize;
+  framesize = framesize + sizeof (iohdlc_frame_t);
   /* Align the arena and adjust its size.*/
   p = (uint8_t *)((uint32_t)(arena + framealign - 1) & ~(framealign - 1));
   arenasize = arena + arenasize - p;
@@ -146,7 +147,6 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
   chPoolLoadArray(&fmpp->mp, p, n);
 
   fmpp->vmt = &vmt;
-  ((ioHdlcFramePool *)fmpp)->framesize = framesize;
   ((ioHdlcFramePool *)fmpp)->total = n;
   ((ioHdlcFramePool *)fmpp)->allocated = 0;
   

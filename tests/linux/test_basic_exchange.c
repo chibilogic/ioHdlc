@@ -36,8 +36,7 @@
 #define PRIMARY_ADDR    0x01
 #define SECONDARY_ADDR  0x02
 #define WINDOW_SIZE     7
-#define FRAME_SIZE      128
-#define MAX_PACKET_SIZE 120  /* Limited by TYPE0 FFF (max 127 bytes frame) */
+#define MAX_PACKET_SIZE 128  /* Max packet size for tests */
 
 static volatile bool test_running_global = true;
 
@@ -143,12 +142,11 @@ static void *reader_thread(void *arg) {
   
   while (test_running) {
    
-    ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange +
-      TEST_PACKET_HEADER_SIZE, 20000);
+    ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, 20000);
     if (((ctx->seq+1) & 0xFF) == 0) {
       usleep(20000);
     }
-    if (received > 0 && (size_t)received >= TEST_PACKET_HEADER_SIZE) {
+    if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
       pthread_mutex_lock(ctx->stats_mutex);
       test_validate_packet(buffer, received, &ctx->seq, ctx->stats);
       pthread_mutex_unlock(ctx->stats_mutex);
@@ -188,7 +186,6 @@ int main(int argc, char **argv) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_t station_primary, station_secondary;
-  ioHdlcFrameMemPool pool_primary, pool_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t station_config;
   thread_context_t ctx_pri_writer, ctx_pri_reader, ctx_sec_writer, ctx_sec_reader;
@@ -257,10 +254,6 @@ int main(int argc, char **argv) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools */
-  fmpInit(&pool_primary, arena_primary, sizeof arena_primary, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, arena_secondary, sizeof arena_secondary, FRAME_SIZE, 8);
-  
   /* Configure primary station */
   /* Note: Using default optfuncs (NULL) which enables TYPE0 FFF (max 127 bytes frame) */
   station_config.mode = config.mode;
@@ -268,7 +261,11 @@ int main(int argc, char **argv) {
   station_config.log2mod = 3;
   station_config.addr = PRIMARY_ADDR;
   station_config.driver = (ioHdlcDriver *)&driver_primary;
-  station_config.fpp = (ioHdlcFramePool *)&pool_primary;
+  station_config.frame_arena = arena_primary;
+  station_config.frame_arena_size = sizeof arena_primary;
+  station_config.max_info_len = 0;
+  station_config.pool_watermark = 0;  /* Auto: 20% min 1 */
+  station_config.fff_type = 1;  /* TYPE0 */
   station_config.optfuncs = NULL;  /* Use defaults (TYPE0 FFF) */
   station_config.phydriver = &port_primary;
   station_config.phydriver_config = NULL;
@@ -287,7 +284,10 @@ int main(int argc, char **argv) {
   station_config.flags = 0;
   station_config.addr = SECONDARY_ADDR;
   station_config.driver = (ioHdlcDriver *)&driver_secondary;
-  station_config.fpp = (ioHdlcFramePool *)&pool_secondary;
+  station_config.frame_arena = arena_secondary;
+  station_config.frame_arena_size = sizeof arena_secondary;
+  station_config.max_info_len = 0;  /* Auto: 122 bytes for TYPE0 FFF */
+  station_config.pool_watermark = 0;  /* Auto: 20% min 1 */
   station_config.phydriver = &port_secondary;
   station_config.reply_timeout_ms = config.reply_timeout_ms;
   station_config.poll_retry_max = config.poll_retry_max;

@@ -152,7 +152,7 @@ void test_init_statistics(test_statistics_t *stats);
  * @param[in] buffer_size   Size of buffer
  * @return                  Total packet size, or 0 on error
  */
-size_t test_generate_packet(uint32_t seq, uint32_t payload_size,
+size_t test_generate_packet(uint32_t seq, uint32_t packet_size,
                              uint8_t *buffer, size_t buffer_size);
 
 /**

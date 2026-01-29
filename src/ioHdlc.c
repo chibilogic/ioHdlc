@@ -90,13 +90,60 @@ static void ioHdlc_framepool_on_normal(void *stationp) {
 }
 
 /*===========================================================================*/
+/* Module local functions.                                                   */
+/*===========================================================================*/
+
+/**
+ * @brief   Calculate optimal frame buffer size based on configuration.
+ * @details Computes frame size = FFF + ADDR + CTRL + INFO + FCS + CLOSING_FLAG.
+ *          Respects FFF TYPE0 limit (127 bytes) and TYPE1 limit (4095 bytes).
+ *
+ * @param[in] log2mod       Log2 of modulus (3=mod8, 7=mod128, 15=mod32768)
+ * @param[in] fff_type      FFF type: 0=none, 1=TYPE0, 2=TYPE1
+ * @param[in] fcs_size      FCS size in bytes (0, 2, 4)
+ * @param[in] max_info_len  Desired max INFO field length
+ * @return                  Optimal frame buffer size in bytes
+ */
+static uint32_t calculate_frame_size(uint8_t log2mod, uint8_t fff_type,
+                                     uint8_t fcs_size, uint32_t max_info_len,
+                                     bool transparency) {
+  /* Calculate ctrl_size from modulo */
+  uint8_t ctrl_size = (log2mod == 3) ? 1 : ((log2mod + 1) / 4);
+  
+  /* Calculate elen (frame length without FCS and FLAGS) */
+  uint32_t elen = fff_type + 1 + ctrl_size + max_info_len;
+  
+  /* Apply FFF type limits on total frame (elen + FCS) */
+  if (fff_type != 0) {
+    /* TYPE0: 127 max, TYPE1: 4095 max */
+    uint32_t fff_limit = (fff_type == 1) ? 127 : 4095;
+    uint32_t max_elen = fff_limit - fcs_size;
+    if (elen > max_elen) {
+      elen = max_elen;
+    }
+  }
+  
+  /* Buffer size needed: elen + FCS + CLOSING_FLAG */
+  uint32_t frame_size = elen + fcs_size + 1;
+  
+  /* Apply transparency overhead if needed (worst-case 2x byte stuffing) */
+  if (transparency) {
+    frame_size = frame_size * 2;
+  }
+  
+  return frame_size;
+}
+
+/*===========================================================================*/
 /* Module exported functions.                                                */
 /*===========================================================================*/
 
 /**
  * @brief   Initialize HDLC station with configuration.
  * @details Initializes a station descriptor with the provided configuration:
- *          - Calculates modulus parameters (modmask, pfoctet, ctrl_size)
+ *          - Auto-initializes frame pool from arena
+ *          - Calculates optimal frame size based on FFF type and constraints
+ *          - Configures modulus parameters (modmask, pfoctet, ctrl_size)
  *          - Sets operational mode and flags
  *          - Initializes peer list and event sources
  *          - Configures optional functions (REJ, FFF, STB)
@@ -106,9 +153,9 @@ static void ioHdlc_framepool_on_normal(void *stationp) {
  * @param[in] ioHdlcsconfp  Configuration parameters
  * @return                  0 on success, -1 on error (check iohdlc_errno)
  * 
- * @note The caller must have prepared:
- *       - Frame pool (ioHdlcsconfp->fpp)
- *       - Driver implementation (ioHdlcsconfp->driver)
+ * @note The caller must provide:
+ *       - Frame arena memory (frame_arena, frame_arena_size)
+ *       - Driver implementation (driver)
  *       - Optional: physical device and config (phydriver, phydriver_config)
  * 
  * @api
@@ -121,6 +168,12 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM) &&
       (mode != IOHDLC_OM_NRM) && (mode != IOHDLC_OM_ARM) &&
       (mode != IOHDLC_OM_ABM)) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  /* Validate arena parameters */
+  if (ioHdlcsconfp->frame_arena == NULL || ioHdlcsconfp->frame_arena_size == 0) {
     iohdlc_errno = EINVAL;
     return -1;
   }
@@ -144,13 +197,14 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->poll_retry_max_cfg = (ioHdlcsconfp->poll_retry_max != 0) ?
                                   ioHdlcsconfp->poll_retry_max : 5;
 
-  /* Frame pool and driver */
-  ioHdlcsp->frame_pool = ioHdlcsconfp->fpp;
+  /* Driver setup */
   ioHdlcsp->driver = ioHdlcsconfp->driver;
-
-  /* Frame pool notify callback */
-  ioHdlcsp->frame_pool->on_normal = ioHdlc_framepool_on_normal;
-  ioHdlcsp->frame_pool->cb_arg = (void *)ioHdlcsp;
+  
+  /* Validate driver is present - station cannot operate without driver */
+  if (ioHdlcsp->driver == NULL || ioHdlcsp->driver->vmt == NULL) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
 
   /* Initialize peer list */
   ioHdlc_peerl_init(&ioHdlcsp->peers);
@@ -209,72 +263,110 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   }
 
   /* Configure driver settings */
-  if (ioHdlcsp->driver != NULL && ioHdlcsp->driver->vmt != NULL) {
-    /* Extract station options */
-    bool want_transparency = (ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) != 0;
-    bool inh_precedence = (ioHdlcsp->optfuncs[IOHDLC_OPT_INH_OCT] & IOHDLC_OPT_INH) != 0;
-    
-    /* CRITICAL: FFF and Transparency are mutually exclusive */
-    if (ioHdlcsp->frame_offset && want_transparency) {
-      if (inh_precedence) {
-        want_transparency = false;  /* FFF takes precedence (INH option) */
-      } else {
-        iohdlc_errno = EINVAL; 
-        return -1;  /* Conflicting options */
-      }
+  /* Extract station options */
+  bool want_transparency = (ioHdlcsp->optfuncs[IOHDLC_OPT_STB_OCT] & IOHDLC_OPT_STB) != 0;
+  bool inh_precedence = (ioHdlcsp->optfuncs[IOHDLC_OPT_INH_OCT] & IOHDLC_OPT_INH) != 0;
+  
+  /* FFF and Transparency are mutually exclusive */
+  if (ioHdlcsp->frame_offset && want_transparency) {
+    if (inh_precedence) {
+      want_transparency = false;  /* FFF takes precedence (INH option) */
+    } else {
+      iohdlc_errno = EINVAL; 
+      return -1;  /* Conflicting options */
     }
-    
-    /* Query driver capabilities */
-    const ioHdlcDriverCapabilities *caps = hdlcGetCapabilities(ioHdlcsp->driver);
-    
-    /* Validate FFF type against driver capabilities */
-    if (ioHdlcsp->frame_offset > 0) {
-      bool fff_supported = false;
-      for (int i = 0; i < 4; i++) {
-        if (caps->fff.supported_types[i] == ioHdlcsp->frame_offset) {
-          fff_supported = true;
-          break;
-        }
-      }
-      if (!fff_supported) {
-        iohdlc_errno = ENOTSUP;
-        return -1;  /* Driver doesn't support this FFF type */
-      }
-    }
-    
-    if (want_transparency && !caps->transparency.hw_support && 
-        !caps->transparency.sw_available) {
-      iohdlc_errno = ENOTSUP;
-      return -1;  /* Driver doesn't support transparency */
-    }
-    
-    /* Select FCS size (default: 16-bit per ISO 13239) */
-    uint8_t selected_fcs_size = caps->fcs.default_size;
-    
-    /* Select FFF type from station frame_offset (0=none, 1=TYPE0, 2=TYPE1) */
-    uint8_t selected_fff_type = ioHdlcsp->frame_offset;
-    
-    /* Configure driver with validated settings */
-    int32_t config_result = hdlcConfigure(ioHdlcsp->driver, selected_fcs_size, 
-                                          want_transparency, selected_fff_type);
-    if (config_result != 0) {
-      iohdlc_errno = config_result;
-      return -1;  /* errno-compatible error */
-    }
-    
-    /* Store FCS size for overhead calculation */
-    ioHdlcsp->fcs_size = selected_fcs_size;
-  } else {
-    /* No driver or VMT: use default FCS size (16-bit) */
-    ioHdlcsp->fcs_size = 2;
   }
+  
+  /* Query driver capabilities */
+  const ioHdlcDriverCapabilities *caps = hdlcGetCapabilities(ioHdlcsp->driver);
+  
+  /* Validate transparency against driver capabilities */
+  if (want_transparency && !caps->transparency.hw_support && 
+      !caps->transparency.sw_available) {
+    iohdlc_errno = ENOTSUP;
+    return -1;  /* Driver doesn't support transparency */
+  }
+    
+  /* Determine FFF type for driver and frame size calculation */
+  uint8_t fff_type = ioHdlcsconfp->fff_type;
+  if (fff_type == 0) {
+    /* Auto-detect from optfuncs */
+    if (ioHdlcsp->frame_offset != 0) {
+      /* FFF enabled: check for TYPE1 flag (future extension) */
+      /* For now, default to TYPE0 when FFF enabled */
+      fff_type = 1;  /* TYPE0 */
+    }
+    /* else fff_type stays 0 (no FFF) */
+  }
+  
+  /* Update frame_offset based on final fff_type (may differ from optfuncs) */
+  ioHdlcsp->frame_offset = fff_type;  /* 0, 1, or 2 bytes */
+  
+  /* Configure driver with validated settings */
+  /* Select FCS size (default: 16-bit per ISO 13239) */
+  int32_t config_result = hdlcConfigure(ioHdlcsp->driver, caps->fcs.default_size, 
+                                        want_transparency, fff_type);
+  if (config_result != 0) {
+    iohdlc_errno = config_result;
+    return -1;  /* errno-compatible error */
+  }
+  
+  /* Store FCS size for overhead calculation */
+  ioHdlcsp->fcs_size = caps->fcs.default_size;
+  
+  /* Determine max_info_len for frame size calculation */
+  uint32_t max_info = ioHdlcsconfp->max_info_len;
+  if (max_info == 0) {
+    /* Auto: optimal default based on FFF type */
+    uint8_t ctrl_size = ioHdlcsp->ctrl_size;
+    if (fff_type == 1) {
+      /* TYPE0: 127 - FFF(1) - ADDR(1) - CTRL - FCS */
+      max_info = 127 - 1 - 1 - ctrl_size - caps->fcs.default_size;
+    } else if (fff_type == 2) {
+      /* TYPE1: 4095 - FFF(2) - ADDR(1) - CTRL - FCS */
+      max_info = 4095 - 2 - 1 - ctrl_size - caps->fcs.default_size;
+    } else {
+      /* No FFF: reasonable default (122 bytes INFO) */
+      max_info = 122;
+    }
+  }
+  
+  /* Calculate optimal frame buffer size */
+  uint32_t frame_size = calculate_frame_size(ioHdlcsconfp->log2mod, 
+                                              fff_type,
+                                              caps->fcs.default_size, 
+                                              max_info,
+                                              want_transparency);
+  
+  /* Calculate watermark percentage (default 20%) */
+  uint32_t num_frames = ioHdlcsconfp->frame_arena_size / frame_size;
+  uint8_t watermark_pct = (ioHdlcsconfp->pool_watermark != 0) ? 
+                          ioHdlcsconfp->pool_watermark : 20;
+  
+  /* Validate arena has reasonable size */
+  if (num_frames < 2) {
+    iohdlc_errno = ENOMEM;
+    return -1;  /* Arena too small */
+  }
+  
+  /* Initialize frame pool directly in station storage */
+  fmpInit(&ioHdlcsp->frame_pool, 
+          ioHdlcsconfp->frame_arena,
+          ioHdlcsconfp->frame_arena_size,
+          frame_size,
+          8);  /* framealign: 8-byte alignment */
+  
+  /* Configure watermark (20% low, 40% high for hysteresis) */
+  hdlcPoolConfigWatermark((ioHdlcFramePool *)&ioHdlcsp->frame_pool, 
+                          watermark_pct, watermark_pct * 2, NULL,
+                          ioHdlc_framepool_on_normal, (void *)ioHdlcsp);
 
   /* Start driver if physical device provided */
   if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
     ioHdlcsp->driver->vmt->start(ioHdlcsp->driver, 
                                   ioHdlcsconfp->phydriver,
                                   ioHdlcsconfp->phydriver_config,
-                                  ioHdlcsp->frame_pool);
+                                  (ioHdlcFramePool *)&ioHdlcsp->frame_pool);
   }
 
   iohdlc_errno = 0;
@@ -341,10 +433,10 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   }
 
   /* Calculate mifl from frame pool size minus overhead.
-     Overhead = FFF (frame_offset) + ADDR (1) + CTRL (ctrl_size) + FCS (fcs_size) */
-  uint32_t overhead = s->frame_offset + 1 + s->ctrl_size + s->fcs_size;
-  uint32_t mifl = (s->frame_pool->framesize > overhead) ? 
-                  (s->frame_pool->framesize - overhead) : 64;  /* Fallback to 64 */
+     Overhead = FFF (frame_offset) + ADDR (1) + CTRL (ctrl_size) + FCS (fcs_size) + FLAG (1) */
+  uint32_t overhead = s->frame_offset + 1 + s->ctrl_size + s->fcs_size + 1;
+  uint32_t mifl = (s->frame_pool.framesize > overhead) ? 
+                  (s->frame_pool.framesize - overhead) : 64;  /* Fallback to 64 */
 
   /* Initialize the peer structure */
   memset(peer, 0, sizeof *peer);
@@ -650,7 +742,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
        and re-acquires it before returning. */
     while (!IOHDLC_PEER_DISC(peer) &&
 	   (peer->i_pending_count >= (2 * peer->ks) ||
-	    hdlcPoolGetState(s->frame_pool) != IOHDLC_POOL_NORMAL)) {
+	    hdlcPoolGetState(&s->frame_pool) != IOHDLC_POOL_NORMAL)) {
       msg_t result = iohdlc_condvar_wait_timeout(&peer->tx_cv,
                                                   &peer->state_mutex,
                                                   IOHDLC_TIME_MS2I(timeout_ms));
@@ -671,8 +763,17 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
        Calculate chunk size for this frame (max mifls). */
     chunk_size = (remaining < peer->mifls) ? remaining : peer->mifls;
     
+    /* Avoid creating frames with FFF == FLAG (0x7E)
+       when FFF present and chunk_size > 1 */
+    if (s->frame_offset != 0 && chunk_size > 1) {
+      uint32_t frame_total = s->frame_offset + 1 + s->ctrl_size + chunk_size + s->fcs_size;
+      if ((frame_total & 0xFF) == 0x7E) {
+         chunk_size = chunk_size / 2;
+      }
+    }
+
     /* Allocate frame from pool */
-    fp = hdlcTakeFrame(s->frame_pool);
+    fp = hdlcTakeFrame(&s->frame_pool);
     iohdlc_mutex_unlock(&peer->state_mutex);
     if (fp == NULL) {
       /* Pool exhausted - this could still happen due to low-level driver
@@ -873,7 +974,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
     /* Frame fully read: release back to pool (still holding mutex).
        Mutex held during release to ensure framepool callback
        (on_normal) executes with proper synchronization for tx_cv broadcast. */
-    hdlcReleaseFrame(s->frame_pool, fp);
+    hdlcReleaseFrame(&s->frame_pool, fp);
     peer->partial_read_frame = NULL;
     peer->partial_read_offset = 0;
     iohdlc_mutex_unlock(&peer->state_mutex);

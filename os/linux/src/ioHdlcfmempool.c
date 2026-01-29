@@ -130,7 +130,8 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
 
   assert((framealign & (framealign-1)) == 0 && "framealign must be a power of 2");
 
-  framesize = framesize * 2 + sizeof(iohdlc_frame_t);  /* Account for worst-case transparency */
+  fmpp->framesize = framesize;
+  framesize = framesize + sizeof(iohdlc_frame_t);
   
   /* Align the arena and adjust its size */
   p = (uint8_t *)(((uintptr_t)arena + framealign - 1) & ~(uintptr_t)(framealign - 1));
@@ -145,7 +146,6 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
   
   /* Build free list */
   fmpp->mp.free_list = NULL;
-  fmpp->mp.element_size = es;
   
   for (uint32_t i = 0; i < n; i++) {
     void *elem = p + (i * es);
@@ -155,7 +155,6 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
 
   /* Initialize base class */
   fmpp->vmt = &vmt;
-  fmpp->framesize = framesize;
   fmpp->total = n;
   fmpp->allocated = 0;
   

@@ -28,6 +28,7 @@
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
+#include "ioHdlcfmempool.h"
 #include "ioHdlcdriver.h"
 #include "ioHdlcqueue.h"
 #include "ioHdlcosal.h"
@@ -343,11 +344,8 @@ struct iohdlc_station {
   /* state, peers, pool and queues. */
   iohdlc_peer_list_t  peers;    /* The header of the list of the peers of this station. Stations
                                    in ABM mode and secondary stations have only one peer. */
-  ioHdlcFramePool *frame_pool;  /* Pool of free frames. Any station has a its own pool of frames
-                                   to be used for any frame type, and for transmission
-                                   and reception. The pool shall be dimensioned in order to satisfy
-                                   the windows size and the reception buffering of all the
-                                   peers. */
+  ioHdlcFrameMemPool frame_pool;/* Frame pool auto-initialized from arena. Pool dimensioned to satisfy
+                                   the windows size and the reception buffering of all peers. */
   iohdlc_tx_fn_t tx_fn;         /* Active transmit handler for the current mode. */
   iohdlc_rx_fn_t rx_fn;         /* Active receiver handler for the current mode. */
 
@@ -373,13 +371,22 @@ struct iohdlc_station_config {
   uint8_t  log2mod;       /**< @brief log2mod, log2(modulus).                */
   uint32_t addr;          /**< @brief address of the station.                */
   ioHdlcDriver *driver;   /**< @brief the link driver interface implementor. */
-  ioHdlcFramePool *fpp;   /**< @brief the frame pool used by the station.    */
+  
+  /* Frame pool auto-initialization from arena */
+  void *frame_arena;      /**< @brief Arena memory for frame pool.           */
+  size_t frame_arena_size;/**< @brief Arena size in bytes.                   */
+  uint32_t max_info_len;  /**< @brief Max INFO field length (0=auto).        */
+  uint8_t pool_watermark; /**< @brief Pool low watermark (0=auto: 10% min 8).*/
+  uint8_t fff_type;       /**< @brief FFF type: 0=auto from optfuncs,
+                                      1=TYPE0(max 127 bytes),
+                                      2=TYPE1(max 4095 bytes).               */
+
   const uint8_t *optfuncs;/**< @brief optional functions array (5 bytes),
                                       NULL for defaults.                     */
   void *phydriver;        /**< @brief the physical driver used by the station*/
   void *phydriver_config; /**< @brief the physical driver configuration.     */
   uint16_t reply_timeout_ms; /**< @brief reply timeout in ms (0 = default 100ms) */
-  uint8_t poll_retry_max;    /**< @brief max poll retries (0 = default 5) */
+  uint8_t poll_retry_max; /**< @brief max poll retries (0 = default 5)       */
 };
 
 /*===========================================================================*/

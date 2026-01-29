@@ -84,7 +84,7 @@ static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
   while (!ioHdlc_frameq_isempty(q)) {
     iohdlc_frame_t *fp = q->next;
     ioHdlc_frameq_delete(fp);
-    hdlcReleaseFrame(p->stationp->frame_pool, fp);
+    hdlcReleaseFrame(&p->stationp->frame_pool, fp);
   }
 }
 
@@ -249,14 +249,14 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   if (is_command) {
     /* Command to us: must be from c_peer. */
     if (addr != s->addr) {
-      hdlcReleaseFrame(s->frame_pool, fp);
+      hdlcReleaseFrame(&s->frame_pool, fp);
       return;
     }
   } else {
     /* Response from peer: must be from c_peer. */
     if (!p || addr != p->addr) {
       /* Spurious frame from wrong peer or no peer selected → discard. */
-      hdlcReleaseFrame(s->frame_pool, fp);
+      hdlcReleaseFrame(&s->frame_pool, fp);
       return;
     }
   }
@@ -267,7 +267,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
        Per 6.11.4.1.3: if already UM_RCVED in progress, ignore additional
        commands until response sent. */
     if (p->um_state & IOHDLC_UM_RCVED) {
-      hdlcReleaseFrame(s->frame_pool, fp);
+      hdlcReleaseFrame(&s->frame_pool, fp);
       iohdlc_mutex_unlock(&p->state_mutex);
       return;
     }
@@ -318,7 +318,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     /* Verify we have an outstanding UM command (UM_SENT). */
     if (!(p->um_state & IOHDLC_UM_SENT)) {
       /* Unsolicited response → discard. */
-      hdlcReleaseFrame(s->frame_pool, fp);
+      hdlcReleaseFrame(&s->frame_pool, fp);
       iohdlc_mutex_unlock(&p->state_mutex);
       return;
     }
@@ -326,7 +326,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     /* Verify F bit is set (mandatory for responses). */
     if (!has_pf) {
       /* Missing F bit → protocol error, discard. */
-      hdlcReleaseFrame(s->frame_pool, fp);
+      hdlcReleaseFrame(&s->frame_pool, fp);
       iohdlc_mutex_unlock(&p->state_mutex);
       return;
     }
@@ -390,7 +390,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   }
   
   iohdlc_mutex_unlock(&p->state_mutex);
-  hdlcReleaseFrame(s->frame_pool, fp);
+  hdlcReleaseFrame(&s->frame_pool, fp);
 }
 
 /*===========================================================================*/
@@ -457,7 +457,7 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                        p->nr, acked_ns);
     }
 
-    hdlcReleaseFrame(s->frame_pool, acked_fp);
+    hdlcReleaseFrame(&s->frame_pool, acked_fp);
     p->i_pending_count--;  /* Decrement pending counter */
     released_frames = true;
     /* Increment with modmask */
@@ -680,7 +680,7 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   
   /* Check frame pool watermark and set local busy if LOW_WATER.
      This triggers RNR transmission to apply flow control. */
-  if (hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_LOW_WATER) {
+  if (hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_LOW_WATER) {
     p->ss_fun = IOHDLC_S_RNR;
     p->ss_state |= IOHDLC_SS_SENDING;
     *broadcast_flags_out |= IOHDLC_EVT_SSNDREQ;  /* RNR needs S-frame transmission */
@@ -788,13 +788,13 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   if (IOHDLC_IS_PRI(s)) {
     /* Primary: address must match current peer. */
     if (addr != p->addr) {
-      hdlcReleaseFrame(s->frame_pool, fp);
+      hdlcReleaseFrame(&s->frame_pool, fp);
       return;
     }
   } else {
     /* Secondary: address must match station address. */
     if (addr != s->addr) {
-      hdlcReleaseFrame(s->frame_pool, fp);
+      hdlcReleaseFrame(&s->frame_pool, fp);
       return;
     }
   }
@@ -841,7 +841,7 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   if (!handleCheckpointAndAck(s, p, fp, &should_signal_tx, &checkpoint_moved, &broadcast_flags)) {
     /* Protocol error occurred during checkpoint/ack processing. */
     iohdlc_mutex_unlock(&p->state_mutex);
-    hdlcReleaseFrame(s->frame_pool, fp);
+    hdlcReleaseFrame(&s->frame_pool, fp);
     return;
   }
   
@@ -874,7 +874,7 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     return;
   }
   
-  hdlcReleaseFrame(s->frame_pool, fp);
+  hdlcReleaseFrame(&s->frame_pool, fp);
 }
 
 void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
@@ -997,7 +997,7 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
  */
 static bool sendFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   size_t err = hdlcSendFrame(s->driver, fp);
-  hdlcReleaseFrame(s->frame_pool, fp);
+  hdlcReleaseFrame(&s->frame_pool, fp);
   return (err == 0);
 }
 
@@ -1070,7 +1070,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       
       
       p->ss_state &= ~IOHDLC_SS_SENDING;
-      iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
+      iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
       if (fp != NULL) {
         bool is_command = IOHDLC_IS_PRI(s);
 
@@ -1275,7 +1275,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        In TWS, we may also want to send periodic acknowledgments. */
     if (nrmSendOpportunity(s) && p->ss_fun == 0xFF) {
       /* Determine S-frame function: RR or RNR based on frame pool state. */
-      p->ss_fun = hdlcPoolGetState(s->frame_pool) == IOHDLC_POOL_LOW_WATER ?
+      p->ss_fun = hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_LOW_WATER ?
         IOHDLC_S_RNR : IOHDLC_S_RR;
       p->ss_state |= IOHDLC_SS_SENDING;
 
@@ -1363,7 +1363,7 @@ void ioHdlcTxEntry(void *stationp) {
         IOHDLC_ACK_P(s);                  /* ack P  */
         
         /* Build and send UM response. */
-        iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
+        iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
         if (fp != NULL) {
           buildUFrame(s, p, fp, p->um_rsp, true, false);  /* F=1, response */
 
@@ -1431,7 +1431,7 @@ void ioHdlcTxEntry(void *stationp) {
 
       if (sendOpportunity(s, &cm_flags)) {
         /* Build and send UM command. */
-        iohdlc_frame_t *fp = hdlcTakeFrame(s->frame_pool);
+        iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
         if (fp != NULL) {
           buildUFrame(s, p, fp, p->um_cmd, true, true);  /* P=1, command */
 

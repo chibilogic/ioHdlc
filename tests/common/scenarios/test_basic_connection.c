@@ -58,23 +58,70 @@
 /* Test Helpers                                                              */
 /*===========================================================================*/
 
+/* Mock driver VMT with minimal capabilities */
+static const ioHdlcDriverCapabilities mock_caps = {
+  .fcs = {
+    .supported_sizes = {0, 2, 0, 0},
+    .default_size = 2,
+    .hw_support = false
+  },
+  .transparency = {
+    .hw_support = false,
+    .sw_available = false
+  },
+  .fff = {
+    .supported_types = {0, 1, 0, 0},
+    .default_type = 1,
+    .hw_support = false
+  }
+};
+
+static const ioHdlcDriverCapabilities* mock_get_caps(void *instance) {
+  (void)instance;
+  return &mock_caps;
+}
+
+static int32_t mock_configure(void *instance, uint8_t fcs_size, bool transparency, uint8_t fff_type) {
+  (void)instance; (void)fcs_size; (void)transparency; (void)fff_type;
+  return 0;  /* Success */
+}
+
+static void mock_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFramePool *fpp) {
+  (void)instance; (void)phyp; (void)phyconfigp; (void)fpp;
+}
+
+static size_t mock_send_frame(void *instance, iohdlc_frame_t *fp) {
+  (void)instance; (void)fp;
+  return 0;
+}
+
+static iohdlc_frame_t* mock_recv_frame(void *instance, iohdlc_timeout_t tmo) {
+  (void)instance; (void)tmo;
+  return NULL;
+}
+
+static const struct _iohdlc_driver_vmt mock_vmt = {
+  .start = mock_start,
+  .send_frame = mock_send_frame,
+  .recv_frame = mock_recv_frame,
+  .get_capabilities = mock_get_caps,
+  .configure = mock_configure
+};
+
 /**
  * @brief   Initialize a test station with minimal configuration.
  * @details Helper to reduce boilerplate in tests that need a station.
  *          Creates a basic primary NRM station with modulo 8.
  */
 static int32_t init_test_station(iohdlc_station_t *station,
-                                 ioHdlcFramePool *frame_pool,
+                                 uint8_t *frame_arena,
                                  ioHdlcDriver *driver,
                                  uint32_t addr) {
   iohdlc_station_config_t config;
 
-  /* Initialize frame pool (minimal mock) */
-  memset(frame_pool, 0, sizeof *frame_pool);
-  frame_pool->framesize = FRAME_SIZE;
-  
-  /* Initialize mock driver */
+  /* Initialize mock driver with VMT */
   memset(driver, 0, sizeof *driver);
+  driver->vmt = &mock_vmt;
 
   /* Configure station */
   memset(&config, 0, sizeof config);
@@ -83,7 +130,11 @@ static int32_t init_test_station(iohdlc_station_t *station,
   config.log2mod = 3;  /* Modulo 8 */
   config.addr = addr;
   config.driver = driver;
-  config.fpp = frame_pool;
+  config.frame_arena = frame_arena;
+  config.frame_arena_size = 1024;  /* Reasonable size */
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = NULL;  /* Use defaults: REJ, SST, INH, FFF enabled */
   config.phydriver = NULL;
   config.phydriver_config = NULL;
@@ -100,12 +151,12 @@ static int32_t init_test_station(iohdlc_station_t *station,
 
 bool test_station_creation(void) {
   iohdlc_station_t station;
-  ioHdlcFramePool frame_pool;
+  uint8_t frame_arena[1024];
   ioHdlcDriver mock_driver;
   int32_t result;
 
   /* Initialize station using helper */
-  result = init_test_station(&station, &frame_pool, &mock_driver, PRIMARY_ADDR);
+  result = init_test_station(&station, frame_arena, &mock_driver, PRIMARY_ADDR);
 
   /* Validate initialization */
   TEST_ASSERT(result == 0, "Station init should succeed");
@@ -114,7 +165,7 @@ bool test_station_creation(void) {
   TEST_ASSERT(station.flags == IOHDLC_FLG_PRI, "Station should be primary");
   TEST_ASSERT(station.modmask == 7, "Modulo 8 should have modmask 7");
   TEST_ASSERT(station.ctrl_size == 1, "Modulo 8 should have ctrl_size 1");
-  TEST_ASSERT(station.frame_pool == &frame_pool, "Frame pool should be set");
+  TEST_ASSERT(station.frame_pool.framesize > 0, "Frame pool should be initialized");
   TEST_ASSERT(station.driver == &mock_driver, "Driver should be set");
 
   test_printf("✅ Station creation and initialization successful\n");
@@ -127,13 +178,13 @@ bool test_station_creation(void) {
 
 bool test_peer_creation(void) {
   iohdlc_station_t station;
-  ioHdlcFramePool frame_pool;
+  uint8_t frame_arena[1024];
   ioHdlcDriver mock_driver;
   iohdlc_station_peer_t peer;
   int32_t result;
 
   /* Initialize station */
-  result = init_test_station(&station, &frame_pool, &mock_driver, PRIMARY_ADDR);
+  result = init_test_station(&station, frame_arena, &mock_driver, PRIMARY_ADDR);
   TEST_ASSERT(result == 0, "Station init should succeed");
 
   /* Add peer to station */
@@ -146,9 +197,9 @@ bool test_peer_creation(void) {
   TEST_ASSERT(peer.ks == 7, "Peer ks should match modmask (7)");
   TEST_ASSERT(peer.kr == 7, "Peer kr should match modmask (7)");
   
-  /* Validate mifl calculation: FRAME_SIZE - (FFF + ADDR + CTRL + FCS)
-     For modulo 8 with FFF: 128 - (1 + 1 + 1 + fcs_size) */
-  uint32_t expected_mifl = FRAME_SIZE - (station.frame_offset + 1 + station.ctrl_size + station.fcs_size);
+  /* Validate mifl calculation: framesize - (FFF + ADDR + CTRL + FCS)
+     Should use actual frame_pool.framesize, not the constant FRAME_SIZE */
+  uint32_t expected_mifl = station.frame_pool.framesize - (station.frame_offset + 1 + station.ctrl_size + station.fcs_size);
   TEST_ASSERT(peer.mifls == expected_mifl, "Peer mifls should be calculated correctly");
   TEST_ASSERT(peer.miflr == expected_mifl, "Peer miflr should be calculated correctly");
   
@@ -181,7 +232,6 @@ bool test_snrm_handshake(void) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_t station_primary, station_secondary;
-  ioHdlcFrameMemPool pool_primary, pool_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t config;
   int32_t result;
@@ -214,17 +264,17 @@ bool test_snrm_handshake(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools with shared arena */
-  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;
   config.flags = IOHDLC_FLG_PRI;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
-  config.fpp = (ioHdlcFramePool *)&pool_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = NULL;
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
@@ -240,7 +290,11 @@ bool test_snrm_handshake(void) {
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
-  config.fpp = (ioHdlcFramePool *)&pool_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = NULL;
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;
@@ -332,7 +386,6 @@ static int test_data_exchange(void) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_t station_primary, station_secondary;
-  ioHdlcFrameMemPool pool_primary, pool_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t config;
   int32_t result;
@@ -363,17 +416,17 @@ static int test_data_exchange(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools with shared arena */
-  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  
   /* Configure primary station */
   config.mode = IOHDLC_OM_NRM;
   config.flags = IOHDLC_FLG_PRI;  /* | IOHDLC_FLG_TWA; */
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
-  config.fpp = (ioHdlcFramePool *)&pool_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = NULL;
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
@@ -389,7 +442,11 @@ static int test_data_exchange(void) {
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
-  config.fpp = (ioHdlcFramePool *)&pool_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = NULL;
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;

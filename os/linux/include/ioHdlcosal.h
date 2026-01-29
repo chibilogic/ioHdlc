@@ -346,7 +346,6 @@ static inline void iohdlc_sem_signal(iohdlc_sem_t *sp) {
 typedef struct {
   pthread_mutex_t lock;      /**< Mutex for thread-safety.                  */
   void *free_list;           /**< Head of free list.                        */
-  size_t element_size;       /**< Size of each element.                     */
 } iohdlc_memory_pool_t;
 
 /*===========================================================================*/

@@ -225,7 +225,7 @@ bool test_A1_1_frame_loss_window_full(void) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
-  ioHdlcFrameMemPool pool_primary, pool_secondary;
+  uint8_t arena_primary[8192], arena_secondary[8192];
   mock_stream_t *stream_primary, *stream_secondary;
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   iohdlc_station_config_t config;
@@ -267,8 +267,6 @@ bool test_A1_1_frame_loss_window_full(void) {
   ioHdlcSwDriverInit(&driver_secondary);
   
   /* Initialize frame pools with shared arena */
-  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
   
   /* Configure optional functions: disable REJ, enable others */
   static const uint8_t optfuncs_norej[5] = {
@@ -286,7 +284,7 @@ bool test_A1_1_frame_loss_window_full(void) {
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
-  config.fpp = (ioHdlcFramePool *)&pool_primary;
+  config.frame_arena = arena_primary; config.frame_arena_size = sizeof arena_primary; config.max_info_len = 0; config.pool_watermark = 0; config.fff_type = 1;
   config.optfuncs = optfuncs_norej;  /* Disable REJ */
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
@@ -302,7 +300,7 @@ bool test_A1_1_frame_loss_window_full(void) {
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
-  config.fpp = (ioHdlcFramePool *)&pool_secondary;
+  config.frame_arena = arena_secondary; config.frame_arena_size = sizeof arena_secondary; config.max_info_len = 0; config.pool_watermark = 0; config.fff_type = 1;
   config.optfuncs = optfuncs_norej;  /* Disable REJ */
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;
@@ -468,7 +466,7 @@ bool test_A2_1_multiple_frame_loss(void) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
-  ioHdlcFrameMemPool pool_primary, pool_secondary;
+
   mock_stream_t *stream_primary, *stream_secondary;
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   iohdlc_station_config_t config;
@@ -509,10 +507,6 @@ bool test_A2_1_multiple_frame_loss(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools with shared arena */
-  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  
   /* Configure optional functions: disable REJ, enable others */
   static const uint8_t optfuncs_norej[5] = {
     0x00,                              /* Octet 0: REJ bit disabled */
@@ -529,7 +523,11 @@ bool test_A2_1_multiple_frame_loss(void) {
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
-  config.fpp = (ioHdlcFramePool *)&pool_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = optfuncs_norej;  /* Disable REJ */
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
@@ -545,7 +543,11 @@ bool test_A2_1_multiple_frame_loss(void) {
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
-  config.fpp = (ioHdlcFramePool *)&pool_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = optfuncs_norej;  /* Disable REJ */
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;
@@ -711,7 +713,7 @@ bool test_A2_2_first_and_last_frame_loss(void) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
-  ioHdlcFrameMemPool pool_primary, pool_secondary;
+
   mock_stream_t *stream_primary, *stream_secondary;
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   iohdlc_station_config_t config;
@@ -752,10 +754,6 @@ bool test_A2_2_first_and_last_frame_loss(void) {
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
-  /* Initialize frame pools with shared arena */
-  fmpInit(&pool_primary, shared_arena_primary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  fmpInit(&pool_secondary, shared_arena_secondary, TEST_ARENA_SIZE, FRAME_SIZE, 8);
-  
   /* Configure optional functions: disable REJ, enable others */
   static const uint8_t optfuncs_norej[5] = {
     0x00,                              /* Octet 0: REJ bit disabled */
@@ -772,7 +770,11 @@ bool test_A2_2_first_and_last_frame_loss(void) {
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
-  config.fpp = (ioHdlcFramePool *)&pool_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = optfuncs_norej;  /* Disable REJ */
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
@@ -788,7 +790,11 @@ bool test_A2_2_first_and_last_frame_loss(void) {
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_secondary;
-  config.fpp = (ioHdlcFramePool *)&pool_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.max_info_len = 0;  /* Auto */
+  config.pool_watermark = 0;  /* Auto: 10% min 8 */
+  config.fff_type = 1;  /* TYPE0 */
   config.optfuncs = optfuncs_norej;  /* Disable REJ */
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;

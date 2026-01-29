@@ -25,6 +25,9 @@
 #ifndef IOHDLCFMEMPOOL_H_
 #define IOHDLCFMEMPOOL_H_
 
+#include "ioHdlcframepool.h"
+#include "ioHdlcosal.h"
+
 /*
  * @extends @p ioHdlcFramePool
  */
