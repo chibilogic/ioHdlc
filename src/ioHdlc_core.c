@@ -1180,7 +1180,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     if ((cm_flags & (IOHDLC_EVT_UMRECVD | IOHDLC_EVT_SSNDREQ))) {
       /* Urgent event detected: exit I-frame loop immediately. */
       iohdlc_mutex_unlock(&p->state_mutex);
-      return cm_flags;
+      break;
     }
 
     /* Extract frame from transmission queue with lookahead. */
@@ -1293,12 +1293,12 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     p->ss_fun = IOHDLC_S_RR;
     p->ss_state |= IOHDLC_SS_SENDING;
     cm_flags |= IOHDLC_EVT_SSNDREQ;
-    cm_flags &= ~IOHDLC_EVT_POOLNORM;
     
     /* Wake up writers blocked on pool availability. */
     iohdlc_condvar_broadcast(&p->tx_cv);
   }
   
+  cm_flags &= ~IOHDLC_EVT_POOLNORM;
   p->ss_state &= ~IOHDLC_SS_IF_RCVD;
   iohdlc_mutex_unlock(&p->state_mutex);
 
