@@ -106,6 +106,7 @@ static void *writer_thread(void *arg) {
         pthread_mutex_unlock(ctx->stats_mutex);
         packets_sent++;
       } else {
+        test_dump_station_state(ctx->station, "At writer error");
         if (iohdlc_errno == ETIMEDOUT)
           fprintf(stderr, "Writer %u Timeout!\n", ctx->station->addr);
         else
@@ -156,6 +157,7 @@ static void *reader_thread(void *arg) {
       fprintf(stderr, "Reader %u zero read!\n", ctx->station->addr);
       test_running = false;  /* No data received, assume test end */
     } else {
+      test_dump_station_state(ctx->station, "At reader error");
       fprintf(stderr, "Reader %u Error %d!\n", ctx->station->addr, iohdlc_errno);
       test_running = false;
     }

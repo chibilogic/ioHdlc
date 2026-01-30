@@ -83,16 +83,6 @@ extern const ioHdlcRunnerOps *s_runner_ops;
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
-static void ioHdlc_framepool_on_normal(void *stationp) {
-  iohdlc_station_t *s = (iohdlc_station_t *)stationp;
-  if (s && s->c_peer)
-    iohdlc_condvar_broadcast(&s->c_peer->tx_cv);
-}
-
-/*===========================================================================*/
-/* Module local functions.                                                   */
-/*===========================================================================*/
-
 /**
  * @brief   Calculate optimal frame buffer size based on configuration.
  * @details Computes frame size = FFF + ADDR + CTRL + INFO + FCS + CLOSING_FLAG.
@@ -359,7 +349,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   /* Configure watermark (20% low, 40% high for hysteresis) */
   hdlcPoolConfigWatermark((ioHdlcFramePool *)&ioHdlcsp->frame_pool, 
                           watermark_pct, watermark_pct * 2, NULL,
-                          ioHdlc_framepool_on_normal, (void *)ioHdlcsp);
+                          NULL, NULL);
 
   /* Start driver if physical device provided */
   if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
@@ -977,6 +967,14 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
     hdlcReleaseFrame(&s->frame_pool, fp);
     peer->partial_read_frame = NULL;
     peer->partial_read_offset = 0;
+    
+    /* Check if pool returned to normal if we are busy.
+       Generate event to wake TX thread so it can send RR. */
+    if ((s->flags & IOHDLC_FLG_BUSY) && 
+        hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_NORMAL) {
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_POOLNORM);
+    }
+    
     iohdlc_mutex_unlock(&peer->state_mutex);
   }
   iohdlc_mutex_lock(&peer->state_mutex);

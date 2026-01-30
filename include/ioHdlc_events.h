@@ -30,4 +30,5 @@
 #define IOHDLC_EVT_LINKDOWN   0x0080  /* Link down (retry count exhausted). */
 #define IOHDLC_EVT_ISNDREQ    0x0100  /* I-frame transmit requested. */
 #define IOHDLC_EVT_PFHONOR    0x0200  /* Check if we must honor P/F. */
+#define IOHDLC_EVT_POOLNORM   0x0400  /* Frame pool returned to normal. */
 #endif /* IOHDLC_EVENTS_H_ */

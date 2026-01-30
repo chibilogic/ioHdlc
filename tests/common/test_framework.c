@@ -196,4 +196,133 @@ void test_print_statistics(const test_statistics_t *stats) {
   test_printf("\n");
 }
 
+/**
+ * @brief   Dump HDLC station and current peer state for debugging.
+ */
+void test_dump_station_state(iohdlc_station_t *station, const char *label) {
+  if (station == NULL) {
+    test_printf("ERROR: NULL station pointer\n");
+    return;
+  }
+  
+  if (label != NULL) {
+    test_printf("\n========================================\n");
+    test_printf("STATION DUMP: %s\n", label);
+    test_printf("========================================\n\n");
+  } else {
+    test_printf("\n========================================\n");
+    test_printf("STATION DUMP\n");
+    test_printf("========================================\n\n");
+  }
+  
+  /* Station information */
+  test_printf("Station Configuration:\n");
+  test_printf("  Address:        0x%02X\n", station->addr);
+  test_printf("  Mode:           %s\n", 
+         station->mode == IOHDLC_OM_NDM ? "NDM" :
+         station->mode == IOHDLC_OM_ADM ? "ADM" :
+         station->mode == IOHDLC_OM_NRM ? "NRM" :
+         station->mode == IOHDLC_OM_ARM ? "ARM" :
+         station->mode == IOHDLC_OM_ABM ? "ABM" : "UNKNOWN");
+  test_printf("  Flags:          0x%04X %s\n", station->flags,
+         (station->flags & IOHDLC_FLG_PRI) ? "(PRIMARY)" : "(SECONDARY)");
+  test_printf("  Modmask:        0x%08X (mod %u)\n", station->modmask, station->modmask + 1);
+  test_printf("  Frame offset:   %u byte%s", station->frame_offset,
+         station->frame_offset == 1 ? " (FFF TYPE0)" :
+         station->frame_offset == 2 ? "s (FFF TYPE1)" : " (No FFF)");
+  test_printf("\n");
+  test_printf("  Control size:   %u byte%s\n", station->ctrl_size, 
+         station->ctrl_size > 1 ? "s" : "");
+  test_printf("  FCS size:       %u byte%s\n", station->fcs_size,
+         station->fcs_size > 1 ? "s" : "");
+  test_printf("  Reply timeout:  %u ms\n", station->reply_timeout_ms);
+  test_printf("  Poll retry max: %u\n", station->poll_retry_max_cfg);
+  test_printf("  P/F state:      0x%02X", station->pf_state);
+  if (station->pf_state & 0x01) test_printf(" P_RCVED");
+  if (station->pf_state & 0x02) test_printf(" F_RCVED");
+  test_printf("\n");
+  
+  test_printf("\nFrame Pool:\n");
+  test_printf("  Framesize:      %zu bytes\n", station->frame_pool.framesize);
+  test_printf("  Total frames:   %u\n", station->frame_pool.total);
+  test_printf("  Allocated:      %u\n", station->frame_pool.allocated);
+  test_printf("  Free:           %u\n", station->frame_pool.total - station->frame_pool.allocated);
+  test_printf("  State:          %s\n",
+         station->frame_pool.state == IOHDLC_POOL_NORMAL ? "NORMAL" :
+         station->frame_pool.state == IOHDLC_POOL_LOW_WATER ? "LOW_WATER" : "UNKNOWN");
+  test_printf("  Low threshold:  %u frames (%u%%)\n",
+         station->frame_pool.low_threshold, station->frame_pool.low_pct);
+  test_printf("  High threshold: %u frames (%u%%)\n",
+         station->frame_pool.high_threshold, station->frame_pool.high_pct);
+  
+  /* Current peer information */
+  iohdlc_station_peer_t *peer = station->c_peer;
+  if (peer != NULL) {
+    test_printf("\nCurrent Peer (0x%02X):\n", peer->addr);
+    test_printf("  State:          0x%08X", peer->ss_state);
+    if (peer->ss_state & IOHDLC_SS_ST_CONN) test_printf(" CONNECTED");
+    if (peer->ss_state & IOHDLC_SS_ST_DISM) test_printf(" DISCONNECTED");
+    if (peer->ss_state & IOHDLC_SS_RECVING) test_printf(" RECEIVING");
+    if (peer->ss_state & IOHDLC_SS_IF_RCVD) test_printf(" I-FRAME-RCVD");
+    if (peer->ss_state & IOHDLC_SS_SENDING) test_printf(" SENDING");
+    if (peer->ss_state & IOHDLC_SS_BUSY) test_printf(" BUSY");
+    test_printf("\n");
+    
+    test_printf("  Max info (TX):  %u bytes\n", peer->mifls);
+    test_printf("  Max info (RX):  %u bytes\n", peer->miflr);
+    test_printf("  Window size:    %u frames\n", peer->ks);
+    
+    test_printf("\nSequence Numbers:\n");
+    test_printf("  V(S):           %u (next to send)\n", peer->vs);
+    test_printf("  V(R):           %u (next expected)\n", peer->vr);
+    test_printf("  V(S) highest:   %u\n", peer->vs_highest);
+    test_printf("  N(R):           %u (last acked)\n", peer->nr);
+    
+    /* Count frames in queues by traversing */
+    uint32_t trans_count = 0, retrans_count = 0, recept_count = 0;
+    iohdlc_frame_t *fp;
+    
+    for (fp = peer->i_trans_q.next; fp != (iohdlc_frame_t *)&peer->i_trans_q; fp = fp->next) {
+      trans_count++;
+    }
+    for (fp = peer->i_retrans_q.next; fp != (iohdlc_frame_t *)&peer->i_retrans_q; fp = fp->next) {
+      retrans_count++;
+    }
+    for (fp = peer->i_recept_q.next; fp != (iohdlc_frame_t *)&peer->i_recept_q; fp = fp->next) {
+      recept_count++;
+    }
+    
+    test_printf("\nFrame Queues:\n");
+    test_printf("  I trans queue:  %u frames\n", trans_count);
+    test_printf("  I retrans queue:%u frames\n", retrans_count);
+    test_printf("  I recept queue: %u frames\n", recept_count);
+    test_printf("  Pending count:  %u (window limit: %u)\n", 
+           peer->i_pending_count, peer->ks * 2);
+    
+    test_printf("\nPartial Read State:\n");
+    test_printf("  Frame:          %s\n", peer->partial_read_frame ? "ACTIVE" : "none");
+    if (peer->partial_read_frame) {
+      test_printf("  Offset:         %zu bytes\n", peer->partial_read_offset);
+    }
+    
+    test_printf("\nCheckpoint/Retry State:\n");
+    test_printf("  Poll retry cnt: %u (max: %u)\n", peer->poll_retry_count, peer->poll_retry_max);
+    test_printf("  Checkpoint act: %u\n", peer->chkpt_actioned);
+    test_printf("  REJ actioned:   %u\n", peer->rej_actioned);
+    test_printf("  V(S) at last PF:%u\n", peer->vs_atlast_pf);
+    
+    test_printf("\nTimer State:\n");
+    test_printf("  Reply timer:    %s%s\n", 
+           peer->reply_tmr.armed ? "ACTIVE" : "stopped",
+           peer->reply_tmr.expired ? " (EXPIRED)" : "");
+    test_printf("  I-reply timer:  %s%s\n",
+           peer->i_reply_tmr.armed ? "ACTIVE" : "stopped",
+           peer->i_reply_tmr.expired ? " (EXPIRED)" : "");
+  } else {
+    test_printf("\nNo current peer\n");
+  }
+  
+  test_printf("\n========================================\n\n");
+}
+
 

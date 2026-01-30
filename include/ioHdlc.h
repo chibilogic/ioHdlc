@@ -112,6 +112,7 @@
 #define IOHDLC_FLG_PRI    0x01  /**< @brief Primary station flag. */
 #define IOHDLC_FLG_TWA    0x02  /**< @brief Two Way Alternate flag. */
 #define IOHDLC_FLG_IDL    0x04  /**< @brief Idle line flag. */
+#define IOHDLC_FLG_BUSY   0x08  /**< @brief Local stataion is busy. */
 #define IOHDLC_FLG_TRACE  0x80  /**< @brief Trace flag. */
 
 /** @} */

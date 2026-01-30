@@ -181,6 +181,14 @@ void test_print_config(const test_config_t *cfg);
  */
 void test_print_statistics(const test_statistics_t *stats);
 
+/**
+ * @brief   Dump HDLC station and current peer state for debugging.
+ *
+ * @param[in] station       Station to dump
+ * @param[in] label         Optional label for the dump (can be NULL)
+ */
+void test_dump_station_state(iohdlc_station_t *station, const char *label);
+
 #ifdef __cplusplus
 }
 #endif

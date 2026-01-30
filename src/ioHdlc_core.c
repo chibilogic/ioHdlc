@@ -674,19 +674,19 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   
   /* Clear REJ exception if this is the frame that completes recovery.
      rej_actioned = x means waiting for frame with N(S) = x-1. */
-  if (p->rej_actioned != 0 && ns == (p->rej_actioned - 1)) {
+  if (p->rej_actioned != 0 && ns == (p->rej_actioned - 1))
     p->rej_actioned = 0;
-  }
   
   /* Check frame pool watermark and set local busy if LOW_WATER.
      This triggers RNR transmission to apply flow control. */
   if (hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_LOW_WATER) {
     p->ss_fun = IOHDLC_S_RNR;
     p->ss_state |= IOHDLC_SS_SENDING;
+    s->flags |= IOHDLC_FLG_BUSY;  /* Mark that we are busy */
     *broadcast_flags_out |= IOHDLC_EVT_SSNDREQ;  /* RNR needs S-frame transmission */
   }
   
-  /* Increment V(R) - frame accepted (use modmask for modular increment). */
+  /* Increment V(R) - frame accepted. */
   p->vr = (p->vr + 1) & s->modmask;
   
   return true;  /* Frame accepted */
@@ -700,7 +700,7 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      - Process REJ for retransmission
      - Ignore SREJ (not implemented)
      
-     THREAD SAFETY: Caller must hold state_mutex.
+     Caller must hold state_mutex.
      Returns flags via output parameters for deferred signaling.
   */
   
@@ -1274,15 +1274,31 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        we should send an S-frame to acknowledge and cede the link.
        In TWS, we may also want to send periodic acknowledgments. */
     if (nrmSendOpportunity(s) && p->ss_fun == 0xFF) {
-      /* Determine S-frame function: RR or RNR based on frame pool state. */
-      p->ss_fun = hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_LOW_WATER ?
-        IOHDLC_S_RNR : IOHDLC_S_RR;
+      /* Determine S-frame function: RR or RNR based on local busy state. */
+      p->ss_fun = (s->flags & IOHDLC_FLG_BUSY) ? IOHDLC_S_RNR : IOHDLC_S_RR;
       p->ss_state |= IOHDLC_SS_SENDING;
 
       /* Raise event to trigger S-frame transmission. */
       cm_flags |= IOHDLC_EVT_SSNDREQ;
     }
   }
+  
+  /* Check if we need to clear local busy: pool returned NORMAL after RNR. */
+  if ((s->flags & IOHDLC_FLG_BUSY) && 
+      hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_NORMAL) {
+
+    s->flags &= ~IOHDLC_FLG_BUSY;
+
+    /* Force NOT opportunistic RR transmission. */
+    p->ss_fun = IOHDLC_S_RR;
+    p->ss_state |= IOHDLC_SS_SENDING;
+    cm_flags |= IOHDLC_EVT_SSNDREQ;
+    cm_flags &= ~IOHDLC_EVT_POOLNORM;
+    
+    /* Wake up writers blocked on pool availability. */
+    iohdlc_condvar_broadcast(&p->tx_cv);
+  }
+  
   p->ss_state &= ~IOHDLC_SS_IF_RCVD;
   iohdlc_mutex_unlock(&p->state_mutex);
 
@@ -1332,7 +1348,8 @@ void ioHdlcTxEntry(void *stationp) {
   iohdlc_evt_register(&s->cm_es, &s->cm_listener,
                     EVENT_MASK(0),
                     IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_UMRECVD|IOHDLC_EVT_PFHONOR|
-                    IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ);
+                    IOHDLC_EVT_CONNSTR|IOHDLC_EVT_LINIDLE|IOHDLC_EVT_ISNDREQ|
+                    IOHDLC_EVT_POOLNORM);
   for (;;) {
     if (!cm_flags) {
       if (s_runner_ops && s_runner_ops->wait_events)
