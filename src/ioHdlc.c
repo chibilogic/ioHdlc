@@ -970,7 +970,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
     
     /* Check if pool returned to normal if we are busy.
        Generate event to wake TX thread so it can send RR. */
-    if ((s->flags & IOHDLC_FLG_BUSY) && 
+    if (IOHDLC_IS_BUSY(s) && 
         hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_NORMAL) {
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_POOLNORM);
     }

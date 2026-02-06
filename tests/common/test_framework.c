@@ -264,10 +264,10 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     if (peer->ss_state & IOHDLC_SS_ST_DISM) test_printf(" DISCONNECTED");
     if (peer->ss_state & IOHDLC_SS_RECVING) test_printf(" RECEIVING");
     if (peer->ss_state & IOHDLC_SS_IF_RCVD) test_printf(" I-FRAME-RCVD");
-    if (peer->ss_state & IOHDLC_SS_SENDING) test_printf(" SENDING");
     if (peer->ss_state & IOHDLC_SS_BUSY) test_printf(" BUSY");
     test_printf("\n");
     
+    test_printf("  Pending flags:  0x%08X\n", peer->pend_flags);
     test_printf("  Max info (TX):  %u bytes\n", peer->mifls);
     test_printf("  Max info (RX):  %u bytes\n", peer->miflr);
     test_printf("  Window size:    %u frames\n", peer->ks);

@@ -172,15 +172,15 @@
 /* ss_state definitions. */
 #define IOHDLC_SS_BUSY    0x01  /* Busy state.
                                    Temporarily the peer cannot receive I-frames. */
-#define IOHDLC_SS_SENDING 0x02  /* An S-frame is being sent to the peer. */                                     
-#define IOHDLC_SS_IF_RCVD 0x04  /* I-frame received from the peer. */
-#define IOHDLC_SS_RECVING 0x08  /* In receiving I-frames from the peer. */
+#define IOHDLC_SS_IF_RCVD 0x02  /* I-frame received from the peer. */
+#define IOHDLC_SS_RECVING 0x04  /* In receiving I-frames from the peer. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
 /* helper macros */
 #define IOHDLC_IS_SEC(s)      (!((s)->flags & IOHDLC_FLG_PRI))
 #define IOHDLC_IS_PRI(s)      ((s)->flags & IOHDLC_FLG_PRI)
+#define IOHDLC_IS_BUSY(s)     ((s)->flags & IOHDLC_FLG_BUSY)
 #define IOHDLC_IS_DISC(s)     (((s)->mode == IOHDLC_OM_NDM) || \
                                ((s)->mode == IOHDLC_OM_ADM))
 #define IOHDLC_IS_NRM(s)      ((s)->mode == IOHDLC_OM_NRM)
@@ -249,6 +249,7 @@ struct iohdlc_station_peer {
   uint32_t mifls;               /* Maximum information field length, transmit. */
   uint32_t miflr;               /* Maximum information field length, receive. */
 
+  /* state variables. */
   volatile uint32_t vs;         /* Send state variable V(S). */
   volatile uint32_t vr;         /* Receive state variable V(R). */
   volatile uint32_t nr;         /* Last N(R) received and accepted + 1.
@@ -267,6 +268,7 @@ struct iohdlc_station_peer {
   volatile uint32_t i_pending_count;  /* Total pending I-frames: len(i_trans_q) + len(i_retrans_q).
                                          Incremented when adding to i_trans_q, decremented when
                                          removing from i_retrans_q. Maintained for O(1) flow control. */
+  volatile uint32_t pend_flags; /* Pending event flags. */
   volatile uint8_t  um_state;   /* Unnumbered state. See definitions. */
   volatile uint8_t  ss_state;   /* Supervision state. See definitions. */
   uint8_t  um_cmd;              /* Unnumbered command to_send. */

@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include <signal.h>
 
+static iohdlc_station_t *st_pri, *st_sec;
 /*===========================================================================*/
 /* Configuration                                                             */
 /*===========================================================================*/
@@ -37,6 +38,7 @@
 #define SECONDARY_ADDR  0x02
 #define WINDOW_SIZE     7
 #define MAX_PACKET_SIZE 128  /* Max packet size for tests */
+#define TMO 2000
 
 static volatile bool test_running_global = true;
 
@@ -98,7 +100,7 @@ static void *writer_thread(void *arg) {
                                                 ctx->config->bytes_per_exchange,
                                                 buffer, sizeof buffer);
       
-      ssize_t sent = ioHdlcWriteTmo(ctx->peer, buffer, packet_size, 20000);
+      ssize_t sent = ioHdlcWriteTmo(ctx->peer, buffer, packet_size, TMO);
       if (sent >= (ssize_t)packet_size) {
         pthread_mutex_lock(ctx->stats_mutex);
         ctx->stats->packets_sent++;
@@ -106,7 +108,9 @@ static void *writer_thread(void *arg) {
         pthread_mutex_unlock(ctx->stats_mutex);
         packets_sent++;
       } else {
-        test_dump_station_state(ctx->station, "At writer error");
+        test_dump_station_state(st_pri, "Pri At writer error");
+        test_dump_station_state(st_sec, "Sec At writer error");
+
         if (iohdlc_errno == ETIMEDOUT)
           fprintf(stderr, "Writer %u Timeout!\n", ctx->station->addr);
         else
@@ -143,9 +147,9 @@ static void *reader_thread(void *arg) {
   
   while (test_running) {
    
-    ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, 20000);
+    ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, TMO);
     if (((ctx->seq+1) & 0xFF) == 0) {
-      usleep(20000);
+      usleep(30000);
     }
     if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
       pthread_mutex_lock(ctx->stats_mutex);
@@ -192,10 +196,13 @@ int main(int argc, char **argv) {
   iohdlc_station_config_t station_config;
   thread_context_t ctx_pri_writer, ctx_pri_reader, ctx_sec_writer, ctx_sec_reader;
   pthread_t thread_pri_writer, thread_pri_reader, thread_sec_writer, thread_sec_reader;
-  uint8_t arena_primary[16384], arena_secondary[16384];
+  static uint8_t arena_primary[16384], arena_secondary[16384];
   int32_t result;
   uint32_t start_time, elapsed_time;
   
+  st_pri = &station_primary;
+  st_sec = &station_secondary;
+
   /* Parse configuration */
   if (!test_parse_config(&config, argc, argv)) {
     return 1;
