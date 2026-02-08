@@ -167,12 +167,11 @@
 /* um_state definitions. */
 #define IOHDLC_UM_SENT    0x01  /* Unnumbered command sent and not acknowledged yet. */
 #define IOHDLC_UM_RCVED   0x02  /* Unnumbered command received and to acknowledge. */
-#define IOHDLC_UM_SENDING 0x04  /* Unnumbered command pending transmission. */
 
 /* ss_state definitions. */
 #define IOHDLC_SS_BUSY    0x01  /* Busy state.
                                    Temporarily the peer cannot receive I-frames. */
-#define IOHDLC_SS_IF_RCVD 0x02  /* I-frame received from the peer. */
+#define IOHDLC_SS_REJPEND 0x02  /* An REJ has to be sent. */
 #define IOHDLC_SS_RECVING 0x04  /* In receiving I-frames from the peer. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
@@ -190,6 +189,8 @@
 #define IOHDLC_IS_ADM(s)      ((s)->mode == IOHDLC_OM_ADM)
 #define IOHDLC_P_ISRCVED(s)   ((s)->pf_state & IOHDLC_P_RCVED)
 #define IOHDLC_F_ISRCVED(s)   ((s)->pf_state & IOHDLC_F_RCVED)
+#define IOHDLC_P_SENT(s)      (((s)->pf_state & IOHDLC_F_RCVED) == 0)
+#define IOHDLC_F_SENT(s)      (((s)->pf_state & IOHDLC_P_RCVED) == 0)
 #define IOHDLC_P_ISFLYING(s)  ((IOHDLC_IS_PRI(s) && !IOHDLC_F_ISRCVED(s)) || \
                                (IOHDLC_IS_SEC(s) && !IOHDLC_P_ISRCVED(s)))
 #define IOHDLC_ACK_P(s)       ((s)->pf_state &= ~IOHDLC_P_RCVED)
@@ -271,8 +272,8 @@ struct iohdlc_station_peer {
   volatile uint32_t pend_flags; /* Pending event flags. */
   volatile uint8_t  um_state;   /* Unnumbered state. See definitions. */
   volatile uint8_t  ss_state;   /* Supervision state. See definitions. */
-  uint8_t  um_cmd;              /* Unnumbered command to_send. */
-  uint8_t  um_rsp;              /* Unnumbered response. */
+  uint8_t  um_cmd;              /* Unnumbered command event payload. */
+  uint8_t  um_rsp;              /* Unnumbered response event payload. */
   uint8_t  ss_fun;              /* Supervision function to send. */
 
   /* data queues. */

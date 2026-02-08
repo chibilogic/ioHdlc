@@ -263,7 +263,7 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     if (peer->ss_state & IOHDLC_SS_ST_CONN) test_printf(" CONNECTED");
     if (peer->ss_state & IOHDLC_SS_ST_DISM) test_printf(" DISCONNECTED");
     if (peer->ss_state & IOHDLC_SS_RECVING) test_printf(" RECEIVING");
-    if (peer->ss_state & IOHDLC_SS_IF_RCVD) test_printf(" I-FRAME-RCVD");
+    if (peer->ss_state & IOHDLC_SS_REJPEND) test_printf(" REJ-TO-SEND");
     if (peer->ss_state & IOHDLC_SS_BUSY) test_printf(" BUSY");
     test_printf("\n");
     

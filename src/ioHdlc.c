@@ -76,9 +76,6 @@
 /* Module local variables and types.                                         */
 /*===========================================================================*/
 
-/* Runner ops registration for core event broadcasting */
-extern const ioHdlcRunnerOps *s_runner_ops;
-
 /*===========================================================================*/
 /* Module local functions.                                                   */
 /*===========================================================================*/
@@ -545,13 +542,12 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   for (retry_count = 0; retry_count < LINKUP_MAX_RETRIES; retry_count++) {
     /* Set unnumbered command in peer descriptor */
     p->um_cmd = u_cmd;
-    p->um_state |= IOHDLC_UM_SENDING;
     
     /* Clear disconnected-mode flag (we're attempting connection) */
     p->ss_state &= ~IOHDLC_SS_ST_DISM;
 
     /* Signal TX task to send the command */
-    s_runner_ops->broadcast_flags(s, IOHDLC_EVT_CONNSTR);
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
 
     /* Wait for app event with timeout */
     uint32_t timeout_ms = s->reply_timeout_ms * p->poll_retry_max;
@@ -643,13 +639,12 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
   for (retry_count = 0; retry_count < LINKDOWN_MAX_RETRIES; retry_count++) {
     /* Set DISC command in peer descriptor */
     p->um_cmd = IOHDLC_U_DISC;
-    p->um_state |= IOHDLC_UM_SENDING;
     
     /* Clear disconnected-mode flag (not yet confirmed) */
     p->ss_state &= ~IOHDLC_SS_ST_DISM;
 
     /* Signal TX task to send DISC */
-    s_runner_ops->broadcast_flags(s, IOHDLC_EVT_CONNSTR);
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
 
     /* Wait for app event with timeout */
     uint32_t timeout_ms = s->reply_timeout_ms * p->poll_retry_max;
@@ -706,6 +701,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
   size_t remaining = count;
   uint8_t *info_ptr;
   size_t chunk_size;
+  bool signal_tx = false;
   
   /* Validate parameters */
   if (buf == NULL || count == 0) {
@@ -721,8 +717,8 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
   
   /* Loop to send all bytes, fragmenting if necessary.
      Uses condition variable for flow control: wait on actual condition
-     (window full OR pool low) instead of proxy semaphore token.
-     This eliminates signal collapse when multiple ACKs arrive (burst). */
+     (window full OR pool low).
+     Coalesce IOHDLC_EVT_TX_IFRM_ENQ signals. */
   while (remaining > 0) {
     /* Acquire mutex for condition check and frame construction */
     iohdlc_mutex_lock(&peer->state_mutex);
@@ -731,8 +727,13 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
        Condition variable automatically releases mutex during wait
        and re-acquires it before returning. */
     while (!IOHDLC_PEER_DISC(peer) &&
-	   (peer->i_pending_count >= (2 * peer->ks) ||
-	    hdlcPoolGetState(&s->frame_pool) != IOHDLC_POOL_NORMAL)) {
+	          (peer->i_pending_count >= (2 * peer->ks) ||
+	          hdlcPoolGetState(&s->frame_pool) != IOHDLC_POOL_NORMAL)) {
+      if (signal_tx) {
+        /* Signal TX task that frames are ready */
+        ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
+        signal_tx = false;  /* Avoid redundant signals while waiting */
+      }
       msg_t result = iohdlc_condvar_wait_timeout(&peer->tx_cv,
                                                   &peer->state_mutex,
                                                   IOHDLC_TIME_MS2I(timeout_ms));
@@ -794,7 +795,8 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     
     /* Queue frame for transmission */
     ioHdlc_frameq_insert(&peer->i_trans_q, fp);
-    
+    signal_tx = true;
+
     /* Increment pending count for flow control */
     peer->i_pending_count++;
     
@@ -806,12 +808,10 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
   }
   
   /* Signal TX task that frames are ready */
-  s_runner_ops->broadcast_flags(s, IOHDLC_EVT_ISNDREQ);
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
   
   return (ssize_t)count;
 }
-
-void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags);
 
 /**
  * @brief   Read data from peer via HDLC I-frames.
@@ -867,8 +867,8 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
   uint32_t deadline_ms = (timeout_ms == IOHDLC_WAIT_FOREVER) ? 
                          IOHDLC_WAIT_FOREVER : (start_time_ms + timeout_ms);
   
-  ioHdlcBroadcastFlags(s, IOHDLC_EVT_PFHONOR);
   iohdlc_mutex_lock(&peer->state_mutex);
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_POOL_ST_CHG);
   peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
   iohdlc_mutex_unlock(&peer->state_mutex);
   
@@ -972,7 +972,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
        Generate event to wake TX thread so it can send RR. */
     if (IOHDLC_IS_BUSY(s) && 
         hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_NORMAL) {
-      ioHdlcBroadcastFlags(s, IOHDLC_EVT_POOLNORM);
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_POOL_ST_CHG);
     }
     
     iohdlc_mutex_unlock(&peer->state_mutex);
