@@ -860,6 +860,7 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 
   /* Signal application that I-frame is ready to read */
   if (frame_accepted) {
+    p->ss_state |= IOHDLC_SS_NEEDPF;
     iohdlc_sem_signal(&p->i_recept_sem);
     return;
   }
@@ -1059,6 +1060,7 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
     if (set_pf) {
       p->vs_atlast_pf = p->vs;
       IOHDLC_IS_PRI(s) ? IOHDLC_ACK_F(s) : IOHDLC_ACK_P(s);
+      p->ss_state &= ~IOHDLC_SS_NEEDPF;
     }
     
     IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun,
@@ -1205,6 +1207,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     if (set_pf) {
       p->vs_atlast_pf = p->vs;
       IOHDLC_IS_PRI(s) ? IOHDLC_ACK_F(s) : IOHDLC_ACK_P(s);
+      p->ss_state &= ~IOHDLC_SS_NEEDPF;
     }
     
     /* Update N(R) and P/F in frame */
@@ -1271,7 +1274,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   /* If no frame was sent, or prepared to, but we have the opportunity/need
      to respond, prepare to send an opportunistic S-frame (RR or RNR). */
   if (sframe_to_send == NULL && !i_frame_sent && ((cm_flags & IOHDLC_EVT_I_RECVD)
-			|| IOHDLC_P_ISRCVED(s) /*|| IOHDLC_F_ISRCVED(s)*/)) {
+			|| IOHDLC_P_ISRCVED(s) || (IOHDLC_F_ISRCVED(s) && (p->ss_state & IOHDLC_SS_NEEDPF)))) {
     /* In TWA, if we still have permission on the link but didn't send I-frames,
        we should send an S-frame to acknowledge and cede the link.
        In TWS, we may also want to send periodic acknowledgments. */
@@ -1340,8 +1343,8 @@ void ioHdlcTxEntry(void *stationp) {
 
   for (;;) {
     p = s->c_peer;
-    p->pend_flags = cm_flags & (IOHDLC_EVT_REJ_ACTED);
-    cm_flags &= ~(IOHDLC_EVT_REJ_ACTED);
+    p->pend_flags = cm_flags & (IOHDLC_EVT_REJ_ACTED|IOHDLC_EVT_LINK_REQ);
+    cm_flags &= ~(IOHDLC_EVT_REJ_ACTED|IOHDLC_EVT_LINK_REQ);
     if (!cm_flags) {
       /* if (s_runner_ops && s_runner_ops->wait_events) TODO: change to asserts */
       ++__p;
@@ -1462,6 +1465,8 @@ void ioHdlcTxEntry(void *stationp) {
         continue;
       }
     }
+
+    cm_flags &= ~(IOHDLC_EVT_LINK_ST_CHG);
 
     iohdlc_mutex_unlock(&p->state_mutex);
     if (IOHDLC_PEER_DISC(p) || IOHDLC_UM_ISSENT(p)) {

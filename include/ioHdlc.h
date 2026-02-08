@@ -173,6 +173,7 @@
                                    Temporarily the peer cannot receive I-frames. */
 #define IOHDLC_SS_REJPEND 0x02  /* An REJ has to be sent. */
 #define IOHDLC_SS_RECVING 0x04  /* In receiving I-frames from the peer. */
+#define IOHDLC_SS_NEEDPF  0x08  /* I-frame received since last P/F. Need close P/F. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 

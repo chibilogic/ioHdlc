@@ -162,6 +162,8 @@ static void *reader_thread(void *arg) {
       test_running = false;  /* No data received, assume test end */
     } else {
       test_dump_station_state(ctx->station, "At reader error");
+      test_dump_station_state(st_sec, "Sec At writer error");
+
       fprintf(stderr, "Reader %u Error %d!\n", ctx->station->addr, iohdlc_errno);
       test_running = false;
     }
@@ -452,6 +454,7 @@ int main(int argc, char **argv) {
   pthread_join(thread_sec_reader, NULL);
   
   ioHdlcStationLinkDown(&station_primary, station_primary.c_peer->addr);
+  usleep(1000000);
 
   /* Print results */
   printf("\n");

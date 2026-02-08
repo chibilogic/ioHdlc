@@ -577,6 +577,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   return -1;
 }
 
+#include <stdio.h>
 /**
  * @brief   Terminate data link connection with a peer (extended version).
  * @details Sends DISC command and waits for UA/DM response.
@@ -868,8 +869,9 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
                          IOHDLC_WAIT_FOREVER : (start_time_ms + timeout_ms);
   
   iohdlc_mutex_lock(&peer->state_mutex);
-  ioHdlcBroadcastFlags(s, IOHDLC_EVT_POOL_ST_CHG);
-  peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_PF_RECVD);
+  /*peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
+  peer->ss_state |= IOHDLC_SS_NEEDPF;
   iohdlc_mutex_unlock(&peer->state_mutex);
   
   /* Greedy consumption loop: read frames until count satisfied, timeout, or queue empty.
