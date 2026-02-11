@@ -173,7 +173,9 @@
                                    Temporarily the peer cannot receive I-frames. */
 #define IOHDLC_SS_REJPEND 0x02  /* An REJ has to be sent. */
 #define IOHDLC_SS_RECVING 0x04  /* In receiving I-frames from the peer. */
-#define IOHDLC_SS_NEEDPF  0x08  /* I-frame received since last P/F. Need close P/F. */
+#define IOHDLC_SS_NEEDPF  0x08  /* Primary only: Indicates need to send P bit in next available
+                                   S-frame (traffic received, peer busy, or timeout).
+                                   Cleared when S-frame with P=1 sent. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
@@ -201,10 +203,12 @@
 #define IOHDLC_USE_STB(s)     ((s)->flags_critical & IOHDLC_CFLG_STB)
 #define IOHDLC_USE_TWA(s)     ((s)->flags & IOHDLC_FLG_TWA)
 #define IOHDLC_ST_IDLE(s)     ((s)->flags & IOHDLC_FLG_IDL)
-#define IOHDLC_UM_INPROG(p)   ((p)->um_state & IOHDLC_UM_SENDING)
 #define IOHDLC_UM_ISSENT(p)   ((p)->um_state & IOHDLC_UM_SENT)
 #define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
 #define IOHDLC_PEER_BUSY(p)   (((p)->ss_state & IOHDLC_SS_BUSY))
+#define IOHDLC_NEED_PF(p)     ((p)->ss_state & IOHDLC_SS_NEEDPF)
+#define IOHDLC_SET_NEEDPF(s,p)  (IOHDLC_IS_PRI(s) ? ((p)->ss_state |= IOHDLC_SS_NEEDPF) : 0)
+#define IOHDLC_CLR_NEEDPF(p)  ((p)->ss_state &= ~IOHDLC_SS_NEEDPF)
 
 /**
  * @name    System-defined parameters
@@ -270,12 +274,10 @@ struct iohdlc_station_peer {
   volatile uint32_t i_pending_count;  /* Total pending I-frames: len(i_trans_q) + len(i_retrans_q).
                                          Incremented when adding to i_trans_q, decremented when
                                          removing from i_retrans_q. Maintained for O(1) flow control. */
-  volatile uint32_t pend_flags; /* Pending event flags. */
   volatile uint8_t  um_state;   /* Unnumbered state. See definitions. */
   volatile uint8_t  ss_state;   /* Supervision state. See definitions. */
   uint8_t  um_cmd;              /* Unnumbered command event payload. */
   uint8_t  um_rsp;              /* Unnumbered response event payload. */
-  uint8_t  ss_fun;              /* Supervision function to send. */
 
   /* data queues. */
   iohdlc_frame_q_t i_retrans_q; /* I-frame retransmission queue. No more than ks frames

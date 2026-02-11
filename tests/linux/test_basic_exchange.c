@@ -93,13 +93,16 @@ static void *writer_thread(void *arg) {
         break;
       }
     }
-    
+
     /* Send burst of packets */
     while (packets_sent < ctx->config->exchanges_per_iteration && !IOHDLC_PEER_DISC(ctx->peer)) {
       size_t packet_size = test_generate_packet(ctx->seq++, 
                                                 ctx->config->bytes_per_exchange,
                                                 buffer, sizeof buffer);
       
+      if ((ctx->station->addr == 2) && ((ctx->seq & 0x0FF) == 0)) {
+        usleep(1000000);
+      }
       ssize_t sent = ioHdlcWriteTmo(ctx->peer, buffer, packet_size, TMO);
       if (sent >= (ssize_t)packet_size) {
         pthread_mutex_lock(ctx->stats_mutex);
@@ -148,8 +151,10 @@ static void *reader_thread(void *arg) {
   while (test_running) {
    
     ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, TMO);
+
+    /* Every 256 frames, introduce a small delay to simulate pool low condition */
     if (((ctx->seq+1) & 0xFF) == 0) {
-      usleep(30000);
+      usleep(45000);
     }
     if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
       pthread_mutex_lock(ctx->stats_mutex);
@@ -268,7 +273,7 @@ int main(int argc, char **argv) {
   /* Configure primary station */
   /* Note: Using default optfuncs (NULL) which enables TYPE0 FFF (max 127 bytes frame) */
   station_config.mode = config.mode;
-  station_config.flags = IOHDLC_FLG_PRI;
+  station_config.flags = IOHDLC_FLG_PRI | (config.use_twa ? IOHDLC_FLG_TWA : 0);
   station_config.log2mod = 3;
   station_config.addr = PRIMARY_ADDR;
   station_config.driver = (ioHdlcDriver *)&driver_primary;
@@ -292,7 +297,7 @@ int main(int argc, char **argv) {
   
   /* Configure secondary station */
   station_config.mode = IOHDLC_OM_NDM;
-  station_config.flags = 0;
+  station_config.flags = config.use_twa ? IOHDLC_FLG_TWA : 0;
   station_config.addr = SECONDARY_ADDR;
   station_config.driver = (ioHdlcDriver *)&driver_secondary;
   station_config.frame_arena = arena_secondary;
@@ -454,7 +459,6 @@ int main(int argc, char **argv) {
   pthread_join(thread_sec_reader, NULL);
   
   ioHdlcStationLinkDown(&station_primary, station_primary.c_peer->addr);
-  usleep(1000000);
 
   /* Print results */
   printf("\n");

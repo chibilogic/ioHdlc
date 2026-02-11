@@ -224,8 +224,11 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
          station->mode == IOHDLC_OM_NRM ? "NRM" :
          station->mode == IOHDLC_OM_ARM ? "ARM" :
          station->mode == IOHDLC_OM_ABM ? "ABM" : "UNKNOWN");
-  test_printf("  Flags:          0x%04X %s\n", station->flags,
+  test_printf("  Flags:          0x%04X %s", station->flags,
          (station->flags & IOHDLC_FLG_PRI) ? "(PRIMARY)" : "(SECONDARY)");
+  if (station->flags & IOHDLC_FLG_TWA) test_printf(" TWA");
+  if (station->flags & IOHDLC_FLG_BUSY) test_printf(" BUSY");
+  test_printf("\n");  
   test_printf("  Modmask:        0x%08X (mod %u)\n", station->modmask, station->modmask + 1);
   test_printf("  Frame offset:   %u byte%s", station->frame_offset,
          station->frame_offset == 1 ? " (FFF TYPE0)" :
@@ -267,7 +270,6 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     if (peer->ss_state & IOHDLC_SS_BUSY) test_printf(" BUSY");
     test_printf("\n");
     
-    test_printf("  Pending flags:  0x%08X\n", peer->pend_flags);
     test_printf("  Max info (TX):  %u bytes\n", peer->mifls);
     test_printf("  Max info (RX):  %u bytes\n", peer->miflr);
     test_printf("  Window size:    %u frames\n", peer->ks);

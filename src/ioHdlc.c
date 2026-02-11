@@ -407,7 +407,7 @@ iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
 int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
                       uint32_t addr) {
   /* Secondary stations can only add peer when in disconnected mode */
-  if (!(s->flags & IOHDLC_FLG_PRI) &&
+  if (IOHDLC_IS_SEC(s) &&
       (s->mode != IOHDLC_OM_NDM) && (s->mode != IOHDLC_OM_ADM)) {
     iohdlc_errno = EINVAL;
     return -1;
@@ -577,7 +577,6 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   return -1;
 }
 
-#include <stdio.h>
 /**
  * @brief   Terminate data link connection with a peer (extended version).
  * @details Sends DISC command and waits for UA/DM response.
@@ -870,7 +869,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
   
   iohdlc_mutex_lock(&peer->state_mutex);
   ioHdlcBroadcastFlags(s, IOHDLC_EVT_PF_RECVD);
-  /*peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
+  peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
   peer->ss_state |= IOHDLC_SS_NEEDPF;
   iohdlc_mutex_unlock(&peer->state_mutex);
   
