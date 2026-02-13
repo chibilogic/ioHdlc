@@ -21,7 +21,7 @@
  * @brief     Event flags
  */
 #define IOHDLC_EVT_C_RPLYTMO    0x0001  /* Command reply timer timeout. */
-#define IOHDLC_EVT_I_RPLYTMO    0x0002  /* I-frame reply timer timeout. */
+#define IOHDLC_EVT_T3_TMO       0x0002  /* T3 timer timeout. */
 #define IOHDLC_EVT_I_RECVD      0x0004  /* I-frame received. */
 #define IOHDLC_EVT_RR_RECVD     0x0008  /* RR received. */
 #define IOHDLC_EVT_RNR_RECVD    0x0010  /* RNR received. */

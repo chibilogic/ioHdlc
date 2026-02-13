@@ -445,7 +445,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   
   /* Initialize virtual timers (reply and I-frame reply) */
   iohdlc_vt_init(&peer->reply_tmr);
-  iohdlc_vt_init(&peer->i_reply_tmr);
+  iohdlc_vt_init(&peer->t3_tmr);
   
   /* Initialize partial read state */
   peer->partial_read_frame = NULL;
@@ -670,6 +670,13 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
 }
 
 /**
+ * @brief   Flow control: writer wait condition is true
+ *          until exceeding pending frames exist OR pool low
+ */
+#define W_WAIT_COND(s, p) \
+	          (p->i_pending_count >= (2 * p->ks) || \
+	          hdlcPoolGetState(&s->frame_pool) != IOHDLC_POOL_NORMAL)
+/**
  * @brief   Write data to peer via HDLC I-frames.
  * @details Fragments data into I-frames if necessary, queues for transmission.
  *          Blocks on flow control if window full or pool low watermark reached.
@@ -726,9 +733,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     /* Flow control: wait while exceeding pending frames exist OR pool low.
        Condition variable automatically releases mutex during wait
        and re-acquires it before returning. */
-    while (!IOHDLC_PEER_DISC(peer) &&
-	          (peer->i_pending_count >= (2 * peer->ks) ||
-	          hdlcPoolGetState(&s->frame_pool) != IOHDLC_POOL_NORMAL)) {
+    while (!IOHDLC_PEER_DISC(peer) && W_WAIT_COND(s, peer)) {
       if (signal_tx) {
         /* Signal TX task that frames are ready */
         ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
@@ -737,7 +742,8 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
       msg_t result = iohdlc_condvar_wait_timeout(&peer->tx_cv,
                                                   &peer->state_mutex,
                                                   IOHDLC_TIME_MS2I(timeout_ms));
-      if (result == MSG_TIMEOUT) {
+      if ((result == MSG_TIMEOUT) && W_WAIT_COND(s, peer)) {
+         /* Timeout occurred and condition still not satisfied */
         iohdlc_mutex_unlock(&peer->state_mutex);
         iohdlc_errno = ETIMEDOUT;
         ssize_t t = count -remaining;

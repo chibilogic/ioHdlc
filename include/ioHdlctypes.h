@@ -61,8 +61,8 @@ typedef void (*iohdlc_rx_fn_t)(iohdlc_station_t *s,
                                iohdlc_frame_t *fp);
 
 typedef enum {
-  IOHDLC_TIMER_REPLY   = IOHDLC_EVT_C_RPLYTMO,
-  IOHDLC_TIMER_I_REPLY = IOHDLC_EVT_I_RPLYTMO,
+  IOHDLC_TIMER_REPLY  = IOHDLC_EVT_C_RPLYTMO,
+  IOHDLC_TIMER_T3     = IOHDLC_EVT_T3_TMO,
 } iohdlc_timer_kind_t;
 
 /**

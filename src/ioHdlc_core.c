@@ -32,7 +32,6 @@
 #include "ioHdlclist.h"
 #include "ioHdlcosal.h"
 #include <errno.h>
-#include <stdio.h>
 
 /* Runner ops pointer */
 static const ioHdlcRunnerOps *s_runner_ops = NULL;
@@ -44,9 +43,9 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
 /* Module local definitions.                                                 */
 /*===========================================================================*/
 
-volatile int __t = 0;
-volatile int __q = 0;
-volatile int __p = 0;
+/* Exponential backoff for reply timer */
+#define IOHDLC_TIMER_BACKOFF(s,p) \
+          (s->reply_timeout_ms << (p)->poll_retry_count)
 
 /*===========================================================================*/
 /* Module exported variables.                                                */
@@ -110,7 +109,7 @@ static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
     
     /* Cleanup: stop timers, reset counters, clear U-frame state. */
     ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
-    ioHdlcStopReplyTimer(p, IOHDLC_TIMER_I_REPLY);
+    ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
     p->poll_retry_count = 0;
     p->um_state &= ~(IOHDLC_UM_SENT);
     
@@ -132,7 +131,7 @@ static void resetPeerUm(iohdlc_station_peer_t *p) {
 /* Reset peer protocol variables, queues and reply timer. */
 static void resetPeerVars(iohdlc_station_peer_t *p) {
   ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
-  ioHdlcStopReplyTimer(p, IOHDLC_TIMER_I_REPLY);
+  ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
   p->nr = p->vr = p->vs = p->vs_highest = 0;
   p->ss_state = 0;
   p->poll_retry_count = 0;
@@ -572,6 +571,8 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
       s->pf_state |= IOHDLC_F_RCVED;
       p->poll_retry_count = 0;
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
+      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3,
+        s->reply_timeout_ms * IOHDLC_DFL_T3_T1_RATIO);
     } else {
       /* Secondary received P=1: it shall respond with F=1.
          Signal TX for I-frame tx and honor the P/F bit. */
@@ -582,11 +583,14 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
   } else {
     /* pf == false (F=0 for Primary, P=0 for Secondary) */
     if (IOHDLC_IS_PRI(s)) {
+      ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3,
+        s->reply_timeout_ms * IOHDLC_DFL_T3_T1_RATIO);
       /* Primary received F=0: peer sent something but not final response yet.
          Restart timer to keep waiting for F=1. */
       if (!IOHDLC_F_ISRCVED(s)) {
         /* Only restart if we're still waiting for F (P is outstanding). */
-        ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
+        ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_REPLY,
+                                    IOHDLC_TIMER_BACKOFF(s, p));
       }
     }
   }
@@ -900,6 +904,8 @@ void ioHdlcRxEntry(void *stationp) {
     /* Call mode-specific RX handler for I and S frames. */
     s->rx_fn(s, fp);
   }
+  ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_REPLY);
+  ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_T3);
 }
 
 /*===========================================================================*/
@@ -1019,7 +1025,6 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
   if (!sendOpportunity(s))
     return NULL;
   
-  if (__t && s->addr == 2) ++__q;    
   const uint32_t outstanding = (p->vs - p->nr) & s->modmask;
   const bool window_full = outstanding >= p->ks;
   const bool no_i_frame = ioHdlc_frameq_isempty(&p->i_trans_q) || window_full;
@@ -1049,15 +1054,10 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
     IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun,
                       p->vr, set_pf, p->i_pending_count, log_flags);
     
-    if ((__t && !is_command)) {
-      fprintf(stderr, "Built frame: fun=0x%02X, cm=0x%02X, set_pf=%d, is_command=%d, q=%d, p=%d\n",
-          s_fun, 0/*cm_flags*/, set_pf, is_command, __q, __p);
-      __t = __q = __p = 0;
-    }
-
-    /* Start timer if needed */
+    /* If sending P, start the T1 timer and stop the T3. */
     if (set_pf && IOHDLC_IS_PRI(s)) {
-      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
+      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, IOHDLC_TIMER_BACKOFF(s, p));
+      ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
     }
   }
   return fp;
@@ -1073,7 +1073,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     cm_flags &= ~IOHDLC_EVT_C_RPLYTMO;
 
     if (ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_REPLY)) {
-      IOHDLC_LOG_WARN(IOHDLC_LOG_TX, s->addr, "TE");
+      IOHDLC_LOG_WARN(IOHDLC_LOG_TX, s->addr, "T1");
       if (!handleTimeoutRetry(s, p)) {
         /* Link down: max retries exceeded, cannot send I-frames. */
         iohdlc_mutex_unlock(&p->state_mutex);
@@ -1084,6 +1084,18 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       IOHDLC_SET_NEEDPF(s, p);
       s->pf_state |= IOHDLC_F_RCVED;
       p->rej_actioned = 0;  /* Clear REJ exception on timeout retry */
+    }
+  }
+
+  if (cm_flags & IOHDLC_EVT_T3_TMO) {
+    /* T3 timeout: handle retry logic. */
+    cm_flags &= ~IOHDLC_EVT_T3_TMO;
+
+    if (ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_T3)) {
+      IOHDLC_LOG_WARN(IOHDLC_LOG_TX, s->addr, "T3");
+      
+      /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
+      IOHDLC_SET_NEEDPF(s, p);
     }
   }
 
@@ -1204,9 +1216,10 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Send frame under lock to ensure state consistency */
     (void)hdlcSendFrame(s->driver, fp);
     
-    /* Start timer if needed */
+    /* If sending P, start the T1 timer and stop the T3. */
     if (set_pf && IOHDLC_IS_PRI(s)) {
-      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
+      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, IOHDLC_TIMER_BACKOFF(s, p));
+      ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
     }
 
     /* Mark that we sent at least one I-frame. */
@@ -1249,9 +1262,6 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     sframe_to_send = prepareSFrame(s, p, IOHDLC_S_RR);
     if (sframe_to_send != NULL) {
       s->flags &= ~IOHDLC_FLG_BUSY;
-
-      if (s->addr == 2)
-        __t = 1, __q = 0;
 
       /* Wake up writers blocked on pool availability. */
       iohdlc_condvar_broadcast(&p->tx_cv);
@@ -1319,7 +1329,7 @@ void ioHdlcTxEntry(void *stationp) {
 
   if (!s) return;
 
-  flags_mask = IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_I_RPLYTMO|
+  flags_mask = IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_T3_TMO|
                IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RNR_RECVD|
                IOHDLC_EVT_POOL_ST_CHG|IOHDLC_EVT_LINK_ST_CHG|IOHDLC_EVT_UM_RECVD|
                IOHDLC_EVT_LINK_REQ|IOHDLC_EVT_LINE_IDLE|IOHDLC_EVT_xREJ_RECVD|
@@ -1332,7 +1342,6 @@ void ioHdlcTxEntry(void *stationp) {
     p = s->c_peer;
     if (!cm_flags) {
       /* if (s_runner_ops && s_runner_ops->wait_events) TODO: change to asserts */
-      ++__p;
       cm_flags = s_runner_ops->wait_events(s, 0);
     }
 
@@ -1399,7 +1408,8 @@ void ioHdlcTxEntry(void *stationp) {
           IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, true);
         }
         
-        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, s->reply_timeout_ms);
+        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY,
+                                  IOHDLC_TIMER_BACKOFF(s, p));
         p->um_state |= IOHDLC_UM_SENT;
         IOHDLC_ACK_F(s);                  /* ack F  */
       } else {
@@ -1463,6 +1473,8 @@ void ioHdlcTxEntry(void *stationp) {
   }
 
   iohdlc_evt_unregister(&s->cm_es, &s->cm_listener);
+  ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_REPLY);
+  ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_T3);
 }
 
 void ioHdlcRegisterRunnerOps(const ioHdlcRunnerOps *ops) {

@@ -38,7 +38,8 @@ static iohdlc_station_t *st_pri, *st_sec;
 #define SECONDARY_ADDR  0x02
 #define WINDOW_SIZE     7
 #define MAX_PACKET_SIZE 128  /* Max packet size for tests */
-#define TMO 2000
+#define WTMO 1800
+#define RTMO 2200
 
 static volatile bool test_running_global = true;
 
@@ -100,10 +101,10 @@ static void *writer_thread(void *arg) {
                                                 ctx->config->bytes_per_exchange,
                                                 buffer, sizeof buffer);
       
-      if ((ctx->station->addr == 2) && ((ctx->seq & 0x0FF) == 0)) {
-        usleep(1000000);
+      if ((ctx->station->addr == 3) && ((ctx->seq & 0x0FF) == 0)) {
+        usleep(600000);
       }
-      ssize_t sent = ioHdlcWriteTmo(ctx->peer, buffer, packet_size, TMO);
+      ssize_t sent = ioHdlcWriteTmo(ctx->peer, buffer, packet_size, WTMO);
       if (sent >= (ssize_t)packet_size) {
         pthread_mutex_lock(ctx->stats_mutex);
         ctx->stats->packets_sent++;
@@ -150,7 +151,7 @@ static void *reader_thread(void *arg) {
   
   while (test_running) {
    
-    ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, TMO);
+    ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, RTMO);
 
     /* Every 256 frames, introduce a small delay to simulate pool low condition */
     if (((ctx->seq+1) & 0xFF) == 0) {
@@ -166,7 +167,7 @@ static void *reader_thread(void *arg) {
       fprintf(stderr, "Reader %u zero read!\n", ctx->station->addr);
       test_running = false;  /* No data received, assume test end */
     } else {
-      test_dump_station_state(ctx->station, "At reader error");
+      test_dump_station_state(ctx->station, "Pri At reader error");
       test_dump_station_state(st_sec, "Sec At writer error");
 
       fprintf(stderr, "Reader %u Error %d!\n", ctx->station->addr, iohdlc_errno);

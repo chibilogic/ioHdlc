@@ -314,12 +314,12 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     test_printf("  V(S) at last PF:%u\n", peer->vs_atlast_pf);
     
     test_printf("\nTimer State:\n");
-    test_printf("  Reply timer:    %s%s\n", 
+    test_printf("  T1    timer:  %s%s\n",
            peer->reply_tmr.armed ? "ACTIVE" : "stopped",
            peer->reply_tmr.expired ? " (EXPIRED)" : "");
-    test_printf("  I-reply timer:  %s%s\n",
-           peer->i_reply_tmr.armed ? "ACTIVE" : "stopped",
-           peer->i_reply_tmr.expired ? " (EXPIRED)" : "");
+    test_printf("  T3    timer:  %s%s\n",
+           peer->t3_tmr.armed ? "ACTIVE" : "stopped",
+           peer->t3_tmr.expired ? " (EXPIRED)" : "");
   } else {
     test_printf("\nNo current peer\n");
   }

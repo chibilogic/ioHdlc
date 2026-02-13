@@ -216,6 +216,7 @@
  */
 #define IOHDLC_DFL_I_SIZE       64
 #define IOHDLC_DFL_MODULUS      8
+#define IOHDLC_DFL_T3_T1_RATIO  5
 /** @} */
 
 /*===========================================================================*/
@@ -310,8 +311,7 @@ struct iohdlc_station_peer {
   /* virtual timers. */
   iohdlc_virtual_timer_t reply_tmr;   /* Primary/combined station command reply time-out
                                          timer. */
-  iohdlc_virtual_timer_t i_reply_tmr; /* Primary/secondary/combined station I-frame reply
-                                         time-out timer. */
+  iohdlc_virtual_timer_t t3_tmr;/* Primary/secondary/combined station T3 time-out timer. */
 
   /* retry counters. */
   volatile uint8_t poll_retry_count;  /* Current number of retries for frames with P=1 (poll bit).
