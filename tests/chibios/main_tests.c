@@ -15,6 +15,7 @@
  */
 #include "ch.h"
 #include "hal.h"
+#include "ioHdlcosal.h"
 #include "chprintf.h"
 #include "test_helpers.h"
 #include "adapter_interface.h"
@@ -53,9 +54,7 @@ extern bool test_A2_2_first_and_last_frame_loss_twa(void);
  * Serial configuration for test output console.
  */
 static const SerialConfig sdcfg = {
-  .speed = 115200,
-  .cr = 0,
-  .mr = UART_MR_PAR_NO
+  .speed = 115200
 };
 /*
  * Test runner thread.
@@ -175,6 +174,7 @@ static THD_FUNCTION(TestRunner, arg) {
     chThdSleepMilliseconds(1000);
   }
 }
+
 /*
  * Application entry point.
  */
@@ -192,6 +192,8 @@ int main(void) {
    * Activates serial driver 0 using the driver default configuration.
    */
   sdStart(&TEST_OUTPUT_SD, &sdcfg);
+  ioHdlcSDx = (BaseSequentialStream *)&TEST_OUTPUT_SD;
+
   /*
    * Creates the test runner thread.
    */

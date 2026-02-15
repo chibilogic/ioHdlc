@@ -41,6 +41,9 @@
 #include <sys/time.h>
 #include <sched.h>
 #include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 
 /**
  * @brief   Thread-local errno access.
@@ -527,6 +530,16 @@ double iohdlc_osal_get_time_ms(void);
  * @note    Linux: outputs to stderr.
  */
 #define IOHDLC_OSAL_VPRINTF(fmt, args) vfprintf(stderr, fmt, args)
+
+/**
+ * @brief   Sleep for milliseconds (Linux).
+ */
+static inline void ioHdlc_sleep_ms(uint32_t ms) {
+  struct timespec ts;
+  ts.tv_sec = ms / 1000;
+  ts.tv_nsec = (ms % 1000) * 1000000L;
+  nanosleep(&ts, NULL);
+}
 
 #endif /* IOHDLCOSAL_H */
 

@@ -14,6 +14,7 @@
  * See the LICENSE file for details.
  */
 #include "ch.h"
+#include "hal.h"
 #include "ioHdlcosal.h"
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
@@ -42,7 +43,7 @@
 
 static syssts_t _chSysGetStatusAndLockX(void) {
 
-  syssts_t sts = port_get_irq_status();
+  syssts_t sts = port_get_lock_status();
   if (port_is_isr_context()) {
     chSysLockFromISR();
   } else {

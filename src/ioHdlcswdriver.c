@@ -311,7 +311,7 @@ static void s_handle_rx_error(ioHdlcSwDriver *drv) {
 static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
   size_t n = 1;
-  uint8_t *b;
+  uint8_t *b = 0;
 
   if (!drv || !drv->started)
     return;

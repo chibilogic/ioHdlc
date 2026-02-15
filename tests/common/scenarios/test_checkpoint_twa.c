@@ -188,11 +188,7 @@ static bool wait_for_condition(bool (*condition)(void *), void *arg, uint32_t ti
     if (condition(arg)) {
       return true;
     }
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(poll_interval);
-#else
-    usleep(poll_interval * 1000);
-#endif
+    ioHdlc_sleep_ms(poll_interval);
     elapsed += poll_interval;
   }
   return false;
@@ -321,11 +317,7 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   ioHdlcRunnerStart(&station_secondary);
   
   /* Wait for threads to be ready */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);
-#endif
+  ioHdlc_sleep_ms(100);
 
   /* Establish connection (SNRM handshake) */
   test_printf("Establishing connection (SNRM/UA)...\r\n");
@@ -333,11 +325,7 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   TEST_ASSERT(result == 0, "LinkUp failed");
   
   /* Allow time for SNRM → UA exchange */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
+  ioHdlc_sleep_ms(200);
   
   /* Verify connection established */
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
@@ -359,18 +347,14 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
 #endif
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
-      test_printf("❌ Write frame %d failed: sent=%zd, errno=%d\r\n", 
-                  i, sent, iohdlc_errno);
+      test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
+                  i, (int32_t)sent, iohdlc_errno);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
-    test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
+    test_printf("  Sent frame N(S)=%d (%d bytes)\r\n", i, (int32_t)sent);
     t_sent += sent;
     /* Small delay between frames */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(1);
-#else
-    usleep(1000);
-#endif
+    ioHdlc_sleep_ms(1);
   }
   
   test_printf("\r\nWaiting for protocol to detect frame loss and retransmit...\r\n");
@@ -378,11 +362,7 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   
   /* Wait for checkpoint timeout + retransmission cycles */
   /* With reply_timeout=1000ms, need multiple cycles to recover */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(50);  /* 50 milliseconds for multiple checkpoint cycles */
-#else
-  usleep(50000);  /* 50 milliseconds */
-#endif
+  ioHdlc_sleep_ms(50);  /* 50 milliseconds for multiple checkpoint cycles */
   
   /* Secondary should eventually receive all frames after retransmission */
   test_printf("\r\nReading frames at secondary (may take multiple reads)...\r\n");
@@ -398,15 +378,15 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
                                      t_sent - total_received, 1000);
     
     if (received > 0) {
-      test_printf("  Read attempt %d: +%zd bytes (total now: %zu)\r\n", 
-                  read_attempts + 1, received, total_received + received);
+      test_printf("  Read attempt %d: +%d bytes (total now: %d)\r\n", 
+                  read_attempts + 1, (int32_t)received, (int32_t)(total_received + received));
       total_received += (size_t)received;
     } else if (received == 0) {
-      test_printf("  Read attempt %d: no data (timeout), total: %zu bytes\r\n",
-                  read_attempts + 1, total_received);
+      test_printf("  Read attempt %d: no data (timeout), total: %d bytes\r\n",
+                  read_attempts + 1, (int32_t)total_received);
     } else {
-      test_printf("  Read attempt %d: error %zd, errno=%d\r\n", 
-                  read_attempts + 1, received, iohdlc_errno);
+      test_printf("  Read attempt %d: error %d, errno=%d\r\n", 
+                  read_attempts + 1, (int32_t)received, iohdlc_errno);
     }
     
     read_attempts++;
@@ -417,23 +397,19 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
     }
     
     /* Small delay between reads */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(100);
-#else
-    usleep(200000);
-#endif
+    ioHdlc_sleep_ms(100);
   }
   
   /* Calculate expected size: 8 frames x 12 bytes each = 96 bytes */
   size_t expected_size = 8 * 12;
-  test_printf("\r\nTotal bytes received: %zu (expected %zu) after %d read attempts\r\n", 
-              total_received, expected_size, read_attempts);
+  test_printf("\r\nTotal bytes received: %d (expected %d) after %d read attempts\r\n", 
+              (int32_t)total_received, (int32_t)expected_size, read_attempts);
   
   if (total_received == expected_size) {
     test_printf("✅ All frames eventually delivered after checkpoint retransmission!\r\n");
   } else {
-    test_printf("❌ Received %zu bytes (expected %zu) - retransmission failed!\r\n", 
-                total_received, expected_size);
+    test_printf("❌ Received %d bytes (expected %d) - retransmission failed!\r\n", 
+                (int32_t)total_received, (int32_t)expected_size);
   }
   
   /* Verify ALL frames were eventually received via retransmission */
@@ -562,11 +538,7 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   ioHdlcRunnerStart(&station_secondary);
   
   /* Wait for threads to be ready */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);
-#endif
+  ioHdlc_sleep_ms(100);
 
   /* Establish connection (SNRM handshake) */
   test_printf("Establishing connection (SNRM/UA)...\r\n");
@@ -574,11 +546,7 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   TEST_ASSERT(result == 0, "LinkUp failed");
   
   /* Allow time for SNRM → UA exchange */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
+  ioHdlc_sleep_ms(200);
   
   /* Verify connection established */
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
@@ -600,18 +568,14 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
 #endif
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
-      test_printf("❌ Write frame %d failed: sent=%zd, errno=%d\r\n", 
-                  i, sent, iohdlc_errno);
+      test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
+                  i, (int32_t)sent, iohdlc_errno);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
-    test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
-    t_sent += sent;
+    test_printf("  Sent frame N(S)=%d (%d bytes)\r\n", i, (int32_t)sent);
+    t_sent += (int32_t)sent;
     /* Small delay between frames */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(1);
-#else
-    usleep(1000);
-#endif
+    ioHdlc_sleep_ms(1);
   }
   
   test_printf("\r\nWaiting for protocol to detect frame loss and retransmit...\r\n");
@@ -619,11 +583,7 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   
   /* Wait for checkpoint timeout + retransmission cycles */
   /* With reply_timeout=1000ms, need multiple cycles to recover */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(50);  /* 50 milliseconds for multiple checkpoint cycles */
-#else
-  usleep(50000);  /* 50 milliseconds */
-#endif
+  ioHdlc_sleep_ms(50);  /* 50 milliseconds for multiple checkpoint cycles */
   
   /* Secondary should eventually receive all frames after retransmission */
   test_printf("\r\nReading frames at secondary (may take multiple reads)...\r\n");
@@ -639,15 +599,15 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
                                      t_sent - total_received, 1000);
     
     if (received > 0) {
-      test_printf("  Read attempt %d: +%zd bytes (total now: %zu)\r\n", 
-                  read_attempts + 1, received, total_received + received);
+      test_printf("  Read attempt %d: +%d bytes (total now: %u)\r\n", 
+                  read_attempts + 1, (int32_t)received, (uint32_t)(total_received + received));
       total_received += (size_t)received;
     } else if (received == 0) {
-      test_printf("  Read attempt %d: no data (timeout), total: %zu bytes\r\n",
-                  read_attempts + 1, total_received);
+      test_printf("  Read attempt %d: no data (timeout), total: %u bytes\r\n",
+                  read_attempts + 1, (uint32_t)total_received);
     } else {
-      test_printf("  Read attempt %d: error %zd, errno=%d\r\n", 
-                  read_attempts + 1, received, iohdlc_errno);
+      test_printf("  Read attempt %d: error %d, errno=%d\r\n", 
+                  read_attempts + 1, (int32_t)received, iohdlc_errno);
     }
     
     read_attempts++;
@@ -658,23 +618,19 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
     }
     
     /* Small delay between reads */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(100);
-#else
-    usleep(200000);
-#endif
+    ioHdlc_sleep_ms(100);
   }
   
   /* Calculate expected size: 8 frames x 12 bytes each = 96 bytes */
   size_t expected_size = 8 * 12;
-  test_printf("\r\nTotal bytes received: %zu (expected %zu) after %d read attempts\r\n", 
-              total_received, expected_size, read_attempts);
+  test_printf("\r\nTotal bytes received: %u (expected %u) after %d read attempts\r\n", 
+              (uint32_t)total_received, (uint32_t)expected_size, read_attempts);
   
   if (total_received == expected_size) {
     test_printf("✅ All frames eventually delivered after checkpoint retransmission!\r\n");
   } else {
-    test_printf("❌ Received %zu bytes (expected %zu) - retransmission failed!\r\n", 
-                total_received, expected_size);
+    test_printf("❌ Received %u bytes (expected %u) - retransmission failed!\r\n", 
+                (uint32_t)total_received, (uint32_t)expected_size);
   }
   
   /* Verify ALL frames were eventually received via retransmission */
@@ -803,11 +759,7 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   ioHdlcRunnerStart(&station_secondary);
   
   /* Wait for threads to be ready */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);
-#endif
+  ioHdlc_sleep_ms(100);
 
   /* Establish connection (SNRM handshake) */
   test_printf("Establishing connection (SNRM/UA)...\r\n");
@@ -815,11 +767,7 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   TEST_ASSERT(result == 0, "LinkUp failed");
   
   /* Allow time for SNRM → UA exchange */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
+  ioHdlc_sleep_ms(200);
   
   /* Verify connection established */
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
@@ -841,18 +789,14 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
 #endif
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
-      test_printf("❌ Write frame %d failed: sent=%zd, errno=%d\r\n", 
-                  i, sent, iohdlc_errno);
+      test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
+                  i, (int32_t)sent, iohdlc_errno);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
-    test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
+    test_printf("  Sent frame N(S)=%d (%d bytes)\r\n", i, (int32_t)sent);
     t_sent += sent;
     /* Small delay between frames */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(1);
-#else
-    usleep(1000);
-#endif
+    ioHdlc_sleep_ms(1);
   }
   
   test_printf("\r\nWaiting for protocol to detect frame loss and retransmit...\r\n");
@@ -860,11 +804,7 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   
   /* Wait for checkpoint timeout + retransmission cycles */
   /* With reply_timeout=1000ms, need multiple cycles to recover */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(50);  /* 50 milliseconds for multiple checkpoint cycles */
-#else
-  usleep(50000);  /* 50 milliseconds */
-#endif
+  ioHdlc_sleep_ms(50);  /* 50 milliseconds for multiple checkpoint cycles */
   
   /* Secondary should eventually receive all frames after retransmission */
   test_printf("\r\nReading frames at secondary (may take multiple reads)...\r\n");
@@ -880,15 +820,15 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
                                      t_sent - total_received, 1000);
     
     if (received > 0) {
-      test_printf("  Read attempt %d: +%zd bytes (total now: %zu)\r\n", 
-                  read_attempts + 1, received, total_received + received);
+      test_printf("  Read attempt %d: +%d bytes (total now: %u)\r\n", 
+                  read_attempts + 1, (int32_t)received, (uint32_t)(total_received + received));
       total_received += (size_t)received;
     } else if (received == 0) {
-      test_printf("  Read attempt %d: no data (timeout), total: %zu bytes\r\n",
-                  read_attempts + 1, total_received);
+      test_printf("  Read attempt %d: no data (timeout), total: %u bytes\r\n",
+                  read_attempts + 1, (uint32_t)total_received);
     } else {
-      test_printf("  Read attempt %d: error %zd, errno=%d\r\n", 
-                  read_attempts + 1, received, iohdlc_errno);
+      test_printf("  Read attempt %d: error %d, errno=%d\r\n", 
+                  read_attempts + 1, (int32_t)received, iohdlc_errno);
     }
     
     read_attempts++;
@@ -899,23 +839,19 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
     }
     
     /* Small delay between reads */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(100);
-#else
-    usleep(200000);
-#endif
+    ioHdlc_sleep_ms(100);
   }
   
   /* Calculate expected size: 8 frames x 12 bytes each = 96 bytes */
   size_t expected_size = 8 * 12;
-  test_printf("\r\nTotal bytes received: %zu (expected %zu) after %d read attempts\r\n", 
-              total_received, expected_size, read_attempts);
+  test_printf("\r\nTotal bytes received: %u (expected %u) after %d read attempts\r\n", 
+              (uint32_t)total_received, (uint32_t)expected_size, read_attempts);
   
   if (total_received == expected_size) {
     test_printf("✅ All frames eventually delivered after checkpoint retransmission!\r\n");
   } else {
-    test_printf("❌ Received %zu bytes (expected %zu) - retransmission failed!\r\n", 
-                total_received, expected_size);
+    test_printf("❌ Received %u bytes (expected %u) - retransmission failed!\r\n", 
+                (uint32_t)total_received, (uint32_t)expected_size);
   }
   
   /* Verify ALL frames were eventually received via retransmission */

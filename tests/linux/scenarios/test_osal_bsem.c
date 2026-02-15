@@ -29,7 +29,6 @@
 #include "../../common/test_helpers.h"
 #include "ioHdlcosal.h"
 #include <pthread.h>
-#include <unistd.h>
 #include <time.h>
 
 /*===========================================================================*/
@@ -147,7 +146,7 @@ typedef struct {
 static void* thread_signal_delayed(void *arg) {
   thread_signal_arg_t *targ = (thread_signal_arg_t *)arg;
   
-  usleep(targ->delay_ms * 1000);
+  ioHdlc_sleep_ms(targ->delay_ms);
   iohdlc_bsem_signal(targ->bsem);
   targ->signal_sent = true;
   
@@ -241,12 +240,12 @@ static bool test_bsem_multiple_waiters(void) {
   }
 
   /* Let threads start waiting */
-  usleep(50000);
+  ioHdlc_sleep_ms(50);
 
   /* Signal multiple times - only ONE should succeed each time (binary semantics) */
   for (i = 0; i < NUM_WAITERS; i++) {
     iohdlc_bsem_signal(&bsem);
-    usleep(20000);  /* Let one thread consume the signal */
+    ioHdlc_sleep_ms(20);  /* Let one thread consume the signal */
   }
 
   /* Join all threads */

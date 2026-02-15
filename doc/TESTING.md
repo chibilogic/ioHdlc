@@ -549,7 +549,7 @@ TEST_ASSERT(result > 0, "ioHdlcWrite returned %d (expected >0)", result);
 
 ```c
 void dump_frame(const uint8_t *data, size_t len) {
-  printf("Frame [%zu bytes]: ", len);
+  printf("Frame [%u bytes]: ", (uint32_t)len);
   for (size_t i = 0; i < len; i++) {
     printf("%02X ", data[i]);
   }

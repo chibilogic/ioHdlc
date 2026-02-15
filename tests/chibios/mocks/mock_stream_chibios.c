@@ -19,6 +19,7 @@
  */
 
 #include "mock_stream_chibios.h"
+#include "../../../os/chibios/include/ioHdlcosal.h"
 #include <string.h>
 
 /*===========================================================================*/
@@ -227,7 +228,7 @@ size_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size,
   if (stream->config.delay_us > 0) {
     uint32_t delay_ms = (stream->config.delay_us + 999) / 1000;  /* Round up */
     if (delay_ms > 0) {
-      chThdSleepMilliseconds(delay_ms);
+      ioHdlc_sleep_ms(delay_ms);
     }
   }
   

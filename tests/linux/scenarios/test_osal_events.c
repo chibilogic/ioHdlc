@@ -30,7 +30,6 @@
 #include "../../common/test_helpers.h"
 #include "ioHdlcosal.h"
 #include <pthread.h>
-#include <unistd.h>
 #include <time.h>
 
 /*===========================================================================*/
@@ -235,7 +234,7 @@ static bool test_event_thread_local(void) {
   pthread_create(&thread, NULL, thread_event_waiter, &arg);
 
   /* Let thread start waiting */
-  usleep(50000);
+  ioHdlc_sleep_ms(50);
 
   /* Broadcast event from main thread */
   iohdlc_evt_broadcast_flags(&es, 0x42);
@@ -289,7 +288,7 @@ static bool test_event_multiple_listeners(void) {
   }
 
   /* Let all threads register and start waiting */
-  usleep(100000);
+  ioHdlc_sleep_ms(100);
 
   /* Broadcast event - ALL listeners should receive it */
   iohdlc_evt_broadcast_flags(&es, 0xAB);

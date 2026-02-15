@@ -23,6 +23,7 @@
 #include "ch.h"
 #include "hal.h"
 #include "chmemheaps.h"
+#include "chprintf.h"
 #include "ioHdlc.h"
 #include "ioHdlcosal.h"
 
@@ -62,7 +63,7 @@ void iohdlc_dma_free(void *p) {
 /**
  * @brief   Stream for logging output (configured by application).
  */
-struct base_sequential_stream *iohdlc_osal_log_stream = NULL;
+BaseSequentialStream *ioHdlcSDx = NULL;
 
 /**
  * @brief   Get current time in milliseconds (relative to first call).
@@ -84,3 +85,19 @@ double iohdlc_osal_get_time_ms(void) {
   return (double)TIME_I2MS(elapsed);
 }
 
+static MUTEX_DECL(ioHdlcLogMutex);
+
+int locked_chvprintf(BaseSequentialStream *chp, const char *fmt, va_list ap){
+  chMtxLock(&ioHdlcLogMutex);
+  int result = chvprintf(chp, fmt, ap);
+  chMtxUnlock(&ioHdlcLogMutex);
+  return result;
+}
+
+int locked_chprintf(BaseSequentialStream *chp, const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  int result = locked_chvprintf(chp, fmt, args);
+  va_end(args);
+  return result;
+}

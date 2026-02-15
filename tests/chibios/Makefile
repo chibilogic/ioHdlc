@@ -56,35 +56,28 @@ endif
 # Architecture specific options
 ##############################################################################
 
-# Stack sizes
-ifeq ($(USE_SYSTEM_STACKSIZE),)
-  USE_SYSTEM_STACKSIZE = 0x400
+# Stack size to be allocated to the Cortex-M process stack. This stack is
+# the stack used by the main() thread.
+ifeq ($(USE_PROCESS_STACKSIZE),)
+  USE_PROCESS_STACKSIZE = 0x400
 endif
 
-ifeq ($(USE_IRQ_STACKSIZE),)
-  USE_IRQ_STACKSIZE = 0x400
+# Stack size to the allocated to the Cortex-M main/exceptions stack. This
+# stack is used for processing interrupts and exceptions.
+ifeq ($(USE_EXCEPTIONS_STACKSIZE),)
+  USE_EXCEPTIONS_STACKSIZE = 0x400
 endif
 
-ifeq ($(USE_FIQ_STACKSIZE),)
-  USE_FIQ_STACKSIZE = 0x400
-endif
-
-ifeq ($(USE_SUPERVISOR_STACKSIZE),)
-  USE_SUPERVISOR_STACKSIZE = 8
-endif
-
-ifeq ($(USE_UND_STACKSIZE),)
-  USE_UND_STACKSIZE = 8
-endif
-
-ifeq ($(USE_ABT_STACKSIZE),)
-  USE_ABT_STACKSIZE = 8
-endif
-
-# Enable FPU
+# Enables the use of FPU (no, softfp, hard).
 ifeq ($(USE_FPU),)
-  USE_FPU = no
+  USE_FPU = hard
 endif
+
+# FPU-related options.
+ifeq ($(USE_FPU_OPT),)
+  USE_FPU_OPT = -mfloat-abi=$(USE_FPU) -mfpu=fpv4-sp-d16
+endif
+
 
 ##############################################################################
 # Project, sources and paths
@@ -105,34 +98,37 @@ COMMON_SCENARIOS_DIR = $(COMMON_DIR)/scenarios
 CONFDIR = ./conf
 
 # ChibiOS location
-CHIBIOS := /opt/gbc/sama5d2x/ChibiOS
+CHIBIOS := $(HOME)/Chibilogic/ChibiOS
 
-# Licensing files
+MCU = cortex-m4
+
+# Licensing files.
 include $(CHIBIOS)/os/license/license.mk
 
-# Startup files for ARM Cortex-A5
-include $(CHIBIOS)/os/common/startup/ARMCAx-TZ/compilers/GCC/mk/startup_sama5d2.mk
+# Startup files.
+include $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk/startup_stm32f4xx.mk
 
-# HAL-OSAL files
+# HAL-OSAL files (optional).
 include $(CHIBIOS)/os/hal/hal.mk
-include $(CHIBIOS)/os/hal/ports/SAMA/SAMA5D2x/platform.mk
-include $(CHIBIOS)/os/hal/boards/BV1000GTV/board.mk
-include $(CHIBIOS)/os/hal/osal/rt/osal.mk
+include $(CHIBIOS)/os/hal/ports/STM32/STM32F4xx/platform.mk
+include $(CHIBIOS)/os/hal/boards/ST_NUCLEO64_F411RE/board.mk
+include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
 
-# RTOS files
+# RTOS files (optional).
 include $(CHIBIOS)/os/rt/rt.mk
-include $(CHIBIOS)/os/common/ports/ARMCAx-TZ/compilers/GCC/mk/port_generic_II.mk
-include $(CHIBIOS)/os/tssi/ports/ARMCAx-TZ/SAMA5D2x/porttssi.mk
-include $(CHIBIOS)/os/tssi/tssi.mk
+include $(CHIBIOS)/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk
 
-# Other files
+# Auto-build files in ./source recursively.
+include $(CHIBIOS)/tools/mk/autobuild.mk
+
+# Other files (optional).
 include $(CHIBIOS)/os/hal/lib/streams/streams.mk
 
 # ioHdlc ChibiOS binding
 include $(OS_CHIBIOS_DIR)/ioHdlcBinding.mk
 
-# Define linker script
-LDSCRIPT = $(STARTUPLD)/BV1000GTV.ld
+# Define linker script file here
+LDSCRIPT= $(STARTUPLD)/STM32F411xE.ld
 
 ##############################################################################
 # Source files
@@ -164,8 +160,7 @@ COMMON_TEST_SCENARIOS = \
 	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c
 
 # Test main (combines all tests)
-TEST_MAIN_SRC = main_tests.c \
-	tssi_stubs.c
+TEST_MAIN_SRC = main_tests.c
 
 # All C sources
 CSRC = $(ALLCSRC) \
@@ -204,8 +199,6 @@ INCDIR = $(CONFDIR) \
 # Compiler settings
 ##############################################################################
 
-MCU = cortex-a5
-
 # Toolchain with absolute path (no PATH dependency)
 TRGT = $(HOME)/ARM/bin/arm-none-eabi-
 CC   = $(TRGT)gcc
@@ -222,9 +215,6 @@ BIN  = $(CP) -O binary
 # ARM-specific options
 AOPT =
 
-# THUMB-specific options
-TOPT = -mthumb -DTHUMB
-
 # C warning options
 CWARN = -Wall -Wextra -Wundef -Wstrict-prototypes
 
@@ -236,7 +226,7 @@ CPPWARN = -Wall -Wextra -Wundef
 ##############################################################################
 
 # User C defines
-UDEFS = -DIOHDLC_USE_CHIBIOS -DBOARD_BV1000GTV
+UDEFS = -DIOHDLC_USE_CHIBIOS -DCHPRINTF_USE_FLOAT=1 $(CFLAGS_EXTRA)
 
 # Test adapter selection (default: mock)
 # Set USE_UART_ADAPTER=1 to build with hardware UART adapter
@@ -266,7 +256,7 @@ ULIBS =
 # Build rules
 ##############################################################################
 
-RULESPATH = $(CHIBIOS)/os/common/startup/ARMCAx-TZ/compilers/GCC
+RULESPATH = $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk
 include $(RULESPATH)/rules.mk
 
 ##############################################################################
@@ -280,7 +270,7 @@ info:
 	@echo "════════════════════════════════════════════════════════"
 	@echo "  ioHdlc Test Suite - ChibiOS/ARM Build"
 	@echo "════════════════════════════════════════════════════════"
-	@echo "Target:      ARM Cortex-A5 (SAMA5D2x)"
+	@echo "Target:      ARM Cortex-M (F411RE)"
 	@echo "Toolchain:   $(CC)"
 	@echo "ChibiOS:     $(CHIBIOS)"
 	@echo "Project:     $(PROJECT)"

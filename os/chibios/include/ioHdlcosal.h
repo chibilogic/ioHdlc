@@ -25,6 +25,7 @@
 
 #include "ch.h"
 #include "hal.h"
+#include "chprintf.h"
 #include "ioHdlctypes.h"
 #include <errno.h>
 
@@ -296,10 +297,25 @@ double iohdlc_osal_get_time_ms(void);
 
 /**
  * @brief   Printf-like output for logging.
- * @note    ChibiOS: outputs to configured stream (iohdlc_log_stream).
+ * @note    ChibiOS: outputs to configured stream (ioHdlcSDx).
  *          Must be set before logging is used.
  */
-extern struct base_sequential_stream *iohdlc_osal_log_stream;
-#define IOHDLC_OSAL_PRINTF(fmt, ...) chprintf(iohdlc_osal_log_stream, fmt, ##__VA_ARGS__)
+extern BaseSequentialStream *ioHdlcSDx;
+int locked_chvprintf(BaseSequentialStream *chp, const char *fmt, va_list ap);
+int locked_chprintf(BaseSequentialStream *chp, const char *fmt, ...);
+
+#define IOHDLC_OSAL_PRINTF(fmt, ...) locked_chprintf(ioHdlcSDx, fmt, ##__VA_ARGS__)
+#define IOHDLC_OSAL_VPRINTF(fmt, args) locked_chvprintf(ioHdlcSDx, fmt, args)
+
+/*===========================================================================*/
+/* Timing Support (OS-abstracted)                                           */
+/*===========================================================================*/
+
+/**
+ * @brief   Sleep for milliseconds (ChibiOS).
+ */
+static inline void ioHdlc_sleep_ms(uint32_t ms) {
+  chThdSleepMilliseconds(ms);
+}
 
 #endif /* IOHDLCOSAL_H_ */

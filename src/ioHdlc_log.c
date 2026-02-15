@@ -98,7 +98,7 @@ void iohdlc_log_iframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
      RX: saddr != addr → response (F), otherwise command (P) */
   bool is_final = (dir == IOHDLC_LOG_TX) ? (saddr == addr) : (saddr != addr);
   
-  IOHDLC_OSAL_PRINTF("[%07.3f] %c%u A%u I%u,%u %c len=%zu w=%u/%u",
+  IOHDLC_OSAL_PRINTF("[%07.3f] %c%u A%u I%u,%u %c len=%u w=%u/%u",
              ts,
              dir == IOHDLC_LOG_TX ? 'S' : 'R',
              saddr,
@@ -106,7 +106,7 @@ void iohdlc_log_iframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
              ns,
              nr,
              pf ? (is_final ? 'F' : 'P') : '-',
-             len,
+             (uint32_t)len,
              pending,
              window);
   

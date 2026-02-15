@@ -13,13 +13,13 @@
  *
  * See the LICENSE file for details.
  */
-#ifndef BOARD_SAMA5D2X_H
-#define BOARD_SAMA5D2X_H
+#ifndef BOARD_NUCLEOF411_H
+#define BOARD_NUCLEOF411_H
 /*
  * Test console output
  * Uses Serial Driver SD1 for test results and debug messages
  */
-#define TEST_OUTPUT_SD    SD1
+#define TEST_OUTPUT_SD    SD2
 /*
  * Test endpoints for HDLC protocol
  * UARTD2:  UART2 - Endpoint A (Primary station)
@@ -30,9 +30,7 @@
  *   UARTD2_RX  <-->  FUARTD1_TX
  * 
  * Pin mappings are defined in:
- *   ChibiOS/os/hal/boards/BV1000GTV/board.h
- *   ChibiOS/os/hal/boards/BV1000GTV/board.c
  */
 #define TEST_ENDPOINT_A   UARTD2
 #define TEST_ENDPOINT_B   FUARTD1
-#endif /* BOARD_SAMA5D2X_H */
+#endif /* BOARD_NUCLEOF411_H */
