@@ -197,9 +197,10 @@ bool test_peer_creation(void) {
   TEST_ASSERT(peer.ks == 7, "Peer ks should match modmask (7)");
   TEST_ASSERT(peer.kr == 7, "Peer kr should match modmask (7)");
   
-  /* Validate mifl calculation: framesize - (FFF + ADDR + CTRL + FCS)
+  /* Validate mifl calculation: framesize - (FFF + ADDR + CTRL + FCS + 1)
      Should use actual frame_pool.framesize, not the constant FRAME_SIZE */
-  uint32_t expected_mifl = station.frame_pool.framesize - (station.frame_offset + 1 + station.ctrl_size + station.fcs_size);
+
+  uint32_t expected_mifl = station.frame_pool.framesize - (station.frame_offset + 1 + station.ctrl_size + station.fcs_size +1);
   TEST_ASSERT(peer.mifls == expected_mifl, "Peer mifls should be calculated correctly");
   TEST_ASSERT(peer.miflr == expected_mifl, "Peer miflr should be calculated correctly");
   
@@ -541,6 +542,7 @@ static int test_data_exchange(void) {
   /* Primary receives echo */
   memset(echo_buf, 0, sizeof echo_buf);
   received = ioHdlcReadTmo(&peer_at_primary, echo_buf, 40 /*sizeof echo_buf - 1*/, 500);
+  test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);
   TEST_ASSERT_GOTO(received == (ssize_t)msg_len, "Primary echo read failed");
   TEST_ASSERT_GOTO(memcmp(echo_buf, test_msg, msg_len) == 0, "Echo data mismatch");
   test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);

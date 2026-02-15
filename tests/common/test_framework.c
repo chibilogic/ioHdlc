@@ -224,8 +224,11 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
          station->mode == IOHDLC_OM_NRM ? "NRM" :
          station->mode == IOHDLC_OM_ARM ? "ARM" :
          station->mode == IOHDLC_OM_ABM ? "ABM" : "UNKNOWN");
-  test_printf("  Flags:          0x%04X %s\n", station->flags,
+  test_printf("  Flags:          0x%04X %s", station->flags,
          (station->flags & IOHDLC_FLG_PRI) ? "(PRIMARY)" : "(SECONDARY)");
+  if (station->flags & IOHDLC_FLG_TWA) test_printf(" TWA");
+  if (station->flags & IOHDLC_FLG_BUSY) test_printf(" BUSY");
+  test_printf("\n");  
   test_printf("  Modmask:        0x%08X (mod %u)\n", station->modmask, station->modmask + 1);
   test_printf("  Frame offset:   %u byte%s", station->frame_offset,
          station->frame_offset == 1 ? " (FFF TYPE0)" :
@@ -263,8 +266,7 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     if (peer->ss_state & IOHDLC_SS_ST_CONN) test_printf(" CONNECTED");
     if (peer->ss_state & IOHDLC_SS_ST_DISM) test_printf(" DISCONNECTED");
     if (peer->ss_state & IOHDLC_SS_RECVING) test_printf(" RECEIVING");
-    if (peer->ss_state & IOHDLC_SS_IF_RCVD) test_printf(" I-FRAME-RCVD");
-    if (peer->ss_state & IOHDLC_SS_SENDING) test_printf(" SENDING");
+    if (peer->ss_state & IOHDLC_SS_REJPEND) test_printf(" REJ-TO-SEND");
     if (peer->ss_state & IOHDLC_SS_BUSY) test_printf(" BUSY");
     test_printf("\n");
     
@@ -312,12 +314,12 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     test_printf("  V(S) at last PF:%u\n", peer->vs_atlast_pf);
     
     test_printf("\nTimer State:\n");
-    test_printf("  Reply timer:    %s%s\n", 
+    test_printf("  T1    timer:  %s%s\n",
            peer->reply_tmr.armed ? "ACTIVE" : "stopped",
            peer->reply_tmr.expired ? " (EXPIRED)" : "");
-    test_printf("  I-reply timer:  %s%s\n",
-           peer->i_reply_tmr.armed ? "ACTIVE" : "stopped",
-           peer->i_reply_tmr.expired ? " (EXPIRED)" : "");
+    test_printf("  T3    timer:  %s%s\n",
+           peer->t3_tmr.armed ? "ACTIVE" : "stopped",
+           peer->t3_tmr.expired ? " (EXPIRED)" : "");
   } else {
     test_printf("\nNo current peer\n");
   }

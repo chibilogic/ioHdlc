@@ -167,20 +167,22 @@
 /* um_state definitions. */
 #define IOHDLC_UM_SENT    0x01  /* Unnumbered command sent and not acknowledged yet. */
 #define IOHDLC_UM_RCVED   0x02  /* Unnumbered command received and to acknowledge. */
-#define IOHDLC_UM_SENDING 0x04  /* Unnumbered command pending transmission. */
 
 /* ss_state definitions. */
 #define IOHDLC_SS_BUSY    0x01  /* Busy state.
                                    Temporarily the peer cannot receive I-frames. */
-#define IOHDLC_SS_SENDING 0x02  /* An S-frame is being sent to the peer. */                                     
-#define IOHDLC_SS_IF_RCVD 0x04  /* I-frame received from the peer. */
-#define IOHDLC_SS_RECVING 0x08  /* In receiving I-frames from the peer. */
+#define IOHDLC_SS_REJPEND 0x02  /* An REJ has to be sent. */
+#define IOHDLC_SS_RECVING 0x04  /* In receiving I-frames from the peer. */
+#define IOHDLC_SS_NEEDPF  0x08  /* Primary only: Indicates need to send P bit in next available
+                                   S-frame (traffic received, peer busy, or timeout).
+                                   Cleared when S-frame with P=1 sent. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
 #define IOHDLC_SS_ST_CONN 0x80  /* Peer connected. */
 
 /* helper macros */
 #define IOHDLC_IS_SEC(s)      (!((s)->flags & IOHDLC_FLG_PRI))
 #define IOHDLC_IS_PRI(s)      ((s)->flags & IOHDLC_FLG_PRI)
+#define IOHDLC_IS_BUSY(s)     ((s)->flags & IOHDLC_FLG_BUSY)
 #define IOHDLC_IS_DISC(s)     (((s)->mode == IOHDLC_OM_NDM) || \
                                ((s)->mode == IOHDLC_OM_ADM))
 #define IOHDLC_IS_NRM(s)      ((s)->mode == IOHDLC_OM_NRM)
@@ -190,6 +192,8 @@
 #define IOHDLC_IS_ADM(s)      ((s)->mode == IOHDLC_OM_ADM)
 #define IOHDLC_P_ISRCVED(s)   ((s)->pf_state & IOHDLC_P_RCVED)
 #define IOHDLC_F_ISRCVED(s)   ((s)->pf_state & IOHDLC_F_RCVED)
+#define IOHDLC_P_SENT(s)      (((s)->pf_state & IOHDLC_F_RCVED) == 0)
+#define IOHDLC_F_SENT(s)      (((s)->pf_state & IOHDLC_P_RCVED) == 0)
 #define IOHDLC_P_ISFLYING(s)  ((IOHDLC_IS_PRI(s) && !IOHDLC_F_ISRCVED(s)) || \
                                (IOHDLC_IS_SEC(s) && !IOHDLC_P_ISRCVED(s)))
 #define IOHDLC_ACK_P(s)       ((s)->pf_state &= ~IOHDLC_P_RCVED)
@@ -199,10 +203,12 @@
 #define IOHDLC_USE_STB(s)     ((s)->flags_critical & IOHDLC_CFLG_STB)
 #define IOHDLC_USE_TWA(s)     ((s)->flags & IOHDLC_FLG_TWA)
 #define IOHDLC_ST_IDLE(s)     ((s)->flags & IOHDLC_FLG_IDL)
-#define IOHDLC_UM_INPROG(p)   ((p)->um_state & IOHDLC_UM_SENDING)
 #define IOHDLC_UM_ISSENT(p)   ((p)->um_state & IOHDLC_UM_SENT)
 #define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
 #define IOHDLC_PEER_BUSY(p)   (((p)->ss_state & IOHDLC_SS_BUSY))
+#define IOHDLC_NEED_PF(p)     ((p)->ss_state & IOHDLC_SS_NEEDPF)
+#define IOHDLC_SET_NEEDPF(s,p)  (IOHDLC_IS_PRI(s) ? ((p)->ss_state |= IOHDLC_SS_NEEDPF) : 0)
+#define IOHDLC_CLR_NEEDPF(p)  ((p)->ss_state &= ~IOHDLC_SS_NEEDPF)
 
 /**
  * @name    System-defined parameters
@@ -210,6 +216,7 @@
  */
 #define IOHDLC_DFL_I_SIZE       64
 #define IOHDLC_DFL_MODULUS      8
+#define IOHDLC_DFL_T3_T1_RATIO  5
 /** @} */
 
 /*===========================================================================*/
@@ -249,6 +256,7 @@ struct iohdlc_station_peer {
   uint32_t mifls;               /* Maximum information field length, transmit. */
   uint32_t miflr;               /* Maximum information field length, receive. */
 
+  /* state variables. */
   volatile uint32_t vs;         /* Send state variable V(S). */
   volatile uint32_t vr;         /* Receive state variable V(R). */
   volatile uint32_t nr;         /* Last N(R) received and accepted + 1.
@@ -269,9 +277,8 @@ struct iohdlc_station_peer {
                                          removing from i_retrans_q. Maintained for O(1) flow control. */
   volatile uint8_t  um_state;   /* Unnumbered state. See definitions. */
   volatile uint8_t  ss_state;   /* Supervision state. See definitions. */
-  uint8_t  um_cmd;              /* Unnumbered command to_send. */
-  uint8_t  um_rsp;              /* Unnumbered response. */
-  uint8_t  ss_fun;              /* Supervision function to send. */
+  uint8_t  um_cmd;              /* Unnumbered command event payload. */
+  uint8_t  um_rsp;              /* Unnumbered response event payload. */
 
   /* data queues. */
   iohdlc_frame_q_t i_retrans_q; /* I-frame retransmission queue. No more than ks frames
@@ -304,8 +311,7 @@ struct iohdlc_station_peer {
   /* virtual timers. */
   iohdlc_virtual_timer_t reply_tmr;   /* Primary/combined station command reply time-out
                                          timer. */
-  iohdlc_virtual_timer_t i_reply_tmr; /* Primary/secondary/combined station I-frame reply
-                                         time-out timer. */
+  iohdlc_virtual_timer_t t3_tmr;/* Primary/secondary/combined station T3 time-out timer. */
 
   /* retry counters. */
   volatile uint8_t poll_retry_count;  /* Current number of retries for frames with P=1 (poll bit).

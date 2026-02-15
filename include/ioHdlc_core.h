@@ -37,7 +37,7 @@ extern "C" {
 void ioHdlcOnRxFrame(iohdlc_station_t *station, iohdlc_frame_t *fp);
 
 /* Line idle notification (runner signals inter-frame idle). */
-/* Returns station event flags the runner should signal (e.g., EVT_CM_LINIDLE). */
+/* Returns station event flags the runner should signal (e.g., IOHDLC_EVT_LINE_IDLE). */
 uint32_t ioHdlcOnLineIdle(iohdlc_station_t *station);
 
 /* Runner ops registration (timer controls etc.). */
@@ -72,6 +72,8 @@ void ioHdlcStopReplyTimer(iohdlc_station_peer_t *peer,
                           iohdlc_timer_kind_t timer_kind);
 bool ioHdlcIsReplyTimerExpired(iohdlc_station_peer_t *peer,
                                iohdlc_timer_kind_t timer_kind);
+void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags);
+
 
 /* Thread/task entry points (runner creates threads and calls these). */
 void ioHdlcTxEntry(void *stationp);

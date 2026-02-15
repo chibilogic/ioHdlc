@@ -66,7 +66,7 @@ void ioHdlcRunnerStop(iohdlc_station_t *station) {
 
 static iohdlc_virtual_timer_t *s_select_timer(iohdlc_station_peer_t *peer,
                                               iohdlc_timer_kind_t timer_kind) {
-  return (timer_kind == IOHDLC_TIMER_I_REPLY) ? &peer->i_reply_tmr : &peer->reply_tmr;
+  return (timer_kind == IOHDLC_TIMER_T3) ? &peer->t3_tmr : &peer->reply_tmr;
 }
 
 static void s_handle_timer_expiry(iohdlc_station_peer_t *peer,
@@ -83,12 +83,12 @@ static void s_reply_timer_cb(void *arg) {
   s_handle_timer_expiry((iohdlc_station_peer_t *)arg, IOHDLC_TIMER_REPLY);
 }
 
-static void s_i_reply_timer_cb(void *arg) {
-  s_handle_timer_expiry((iohdlc_station_peer_t *)arg, IOHDLC_TIMER_I_REPLY);
+static void s_t3_reply_timer_cb(void *arg) {
+  s_handle_timer_expiry((iohdlc_station_peer_t *)arg, IOHDLC_TIMER_T3);
 }
 
 static vtfunc_t s_select_cb(iohdlc_timer_kind_t timer_kind) {
-  return (timer_kind == IOHDLC_TIMER_I_REPLY) ? s_i_reply_timer_cb : s_reply_timer_cb;
+  return (timer_kind == IOHDLC_TIMER_T3) ? s_t3_reply_timer_cb : s_reply_timer_cb;
 }
 
 void ioHdlcRunnerStartReplyTimer(iohdlc_station_peer_t *peer,

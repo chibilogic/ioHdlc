@@ -149,7 +149,7 @@ void ioHdlcRunnerStop(iohdlc_station_t *station) {
 
 static iohdlc_virtual_timer_t* s_select_timer(iohdlc_station_peer_t *peer,
                                                iohdlc_timer_kind_t timer_kind) {
-  return (timer_kind == IOHDLC_TIMER_I_REPLY) ? &peer->i_reply_tmr : &peer->reply_tmr;
+  return (timer_kind == IOHDLC_TIMER_T3) ? &peer->t3_tmr : &peer->reply_tmr;
 }
 
 /**
