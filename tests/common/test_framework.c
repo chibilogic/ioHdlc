@@ -246,7 +246,7 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
   test_printf("\n");
   
   test_printf("\nFrame Pool:\n");
-  test_printf("  Framesize:      %zu bytes\n", station->frame_pool.framesize);
+  test_printf("  Framesize:      %u bytes\n", (uint32_t)station->frame_pool.framesize);
   test_printf("  Total frames:   %u\n", station->frame_pool.total);
   test_printf("  Allocated:      %u\n", station->frame_pool.allocated);
   test_printf("  Free:           %u\n", station->frame_pool.total - station->frame_pool.allocated);
@@ -304,7 +304,7 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     test_printf("\nPartial Read State:\n");
     test_printf("  Frame:          %s\n", peer->partial_read_frame ? "ACTIVE" : "none");
     if (peer->partial_read_frame) {
-      test_printf("  Offset:         %zu bytes\n", peer->partial_read_offset);
+      test_printf("  Offset:         %u bytes\n", (uint32_t)peer->partial_read_offset);
     }
     
     test_printf("\nCheckpoint/Retry State:\n");

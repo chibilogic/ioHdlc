@@ -226,7 +226,7 @@ extern int passed_count;   /* Alias for compatibility */
  * @brief   Hexdump utility for debugging.
  */
 static inline void test_hexdump(const char *label, const uint8_t *data, size_t len) {
-  test_printf("%s (%zu bytes):\r\n", label, len);
+  test_printf("%s (%u bytes):\r\n", label, (uint32_t)len);
   for (size_t i = 0; i < len; i++) {
     test_printf("%02X ", data[i]);
     if ((i + 1) % 16 == 0) test_printf("\r\n");

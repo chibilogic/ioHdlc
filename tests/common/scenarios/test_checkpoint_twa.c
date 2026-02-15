@@ -347,11 +347,11 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
 #endif
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
-      test_printf("❌ Write frame %d failed: sent=%zd, errno=%d\r\n", 
-                  i, sent, iohdlc_errno);
+      test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
+                  i, (int32_t)sent, iohdlc_errno);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
-    test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
+    test_printf("  Sent frame N(S)=%d (%d bytes)\r\n", i, (int32_t)sent);
     t_sent += sent;
     /* Small delay between frames */
     ioHdlc_sleep_ms(1);
@@ -378,15 +378,15 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
                                      t_sent - total_received, 1000);
     
     if (received > 0) {
-      test_printf("  Read attempt %d: +%zd bytes (total now: %zu)\r\n", 
-                  read_attempts + 1, received, total_received + received);
+      test_printf("  Read attempt %d: +%d bytes (total now: %d)\r\n", 
+                  read_attempts + 1, (int32_t)received, (int32_t)(total_received + received));
       total_received += (size_t)received;
     } else if (received == 0) {
-      test_printf("  Read attempt %d: no data (timeout), total: %zu bytes\r\n",
-                  read_attempts + 1, total_received);
+      test_printf("  Read attempt %d: no data (timeout), total: %d bytes\r\n",
+                  read_attempts + 1, (int32_t)total_received);
     } else {
-      test_printf("  Read attempt %d: error %zd, errno=%d\r\n", 
-                  read_attempts + 1, received, iohdlc_errno);
+      test_printf("  Read attempt %d: error %d, errno=%d\r\n", 
+                  read_attempts + 1, (int32_t)received, iohdlc_errno);
     }
     
     read_attempts++;
@@ -402,14 +402,14 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   
   /* Calculate expected size: 8 frames x 12 bytes each = 96 bytes */
   size_t expected_size = 8 * 12;
-  test_printf("\r\nTotal bytes received: %zu (expected %zu) after %d read attempts\r\n", 
-              total_received, expected_size, read_attempts);
+  test_printf("\r\nTotal bytes received: %d (expected %d) after %d read attempts\r\n", 
+              (int32_t)total_received, (int32_t)expected_size, read_attempts);
   
   if (total_received == expected_size) {
     test_printf("✅ All frames eventually delivered after checkpoint retransmission!\r\n");
   } else {
-    test_printf("❌ Received %zu bytes (expected %zu) - retransmission failed!\r\n", 
-                total_received, expected_size);
+    test_printf("❌ Received %d bytes (expected %d) - retransmission failed!\r\n", 
+                (int32_t)total_received, (int32_t)expected_size);
   }
   
   /* Verify ALL frames were eventually received via retransmission */
@@ -568,12 +568,12 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
 #endif
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
-      test_printf("❌ Write frame %d failed: sent=%zd, errno=%d\r\n", 
-                  i, sent, iohdlc_errno);
+      test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
+                  i, (int32_t)sent, iohdlc_errno);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
-    test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
-    t_sent += sent;
+    test_printf("  Sent frame N(S)=%d (%d bytes)\r\n", i, (int32_t)sent);
+    t_sent += (int32_t)sent;
     /* Small delay between frames */
     ioHdlc_sleep_ms(1);
   }
@@ -599,15 +599,15 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
                                      t_sent - total_received, 1000);
     
     if (received > 0) {
-      test_printf("  Read attempt %d: +%zd bytes (total now: %zu)\r\n", 
-                  read_attempts + 1, received, total_received + received);
+      test_printf("  Read attempt %d: +%d bytes (total now: %u)\r\n", 
+                  read_attempts + 1, (int32_t)received, (uint32_t)(total_received + received));
       total_received += (size_t)received;
     } else if (received == 0) {
-      test_printf("  Read attempt %d: no data (timeout), total: %zu bytes\r\n",
-                  read_attempts + 1, total_received);
+      test_printf("  Read attempt %d: no data (timeout), total: %u bytes\r\n",
+                  read_attempts + 1, (uint32_t)total_received);
     } else {
-      test_printf("  Read attempt %d: error %zd, errno=%d\r\n", 
-                  read_attempts + 1, received, iohdlc_errno);
+      test_printf("  Read attempt %d: error %d, errno=%d\r\n", 
+                  read_attempts + 1, (int32_t)received, iohdlc_errno);
     }
     
     read_attempts++;
@@ -623,14 +623,14 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   
   /* Calculate expected size: 8 frames x 12 bytes each = 96 bytes */
   size_t expected_size = 8 * 12;
-  test_printf("\r\nTotal bytes received: %zu (expected %zu) after %d read attempts\r\n", 
-              total_received, expected_size, read_attempts);
+  test_printf("\r\nTotal bytes received: %u (expected %u) after %d read attempts\r\n", 
+              (uint32_t)total_received, (uint32_t)expected_size, read_attempts);
   
   if (total_received == expected_size) {
     test_printf("✅ All frames eventually delivered after checkpoint retransmission!\r\n");
   } else {
-    test_printf("❌ Received %zu bytes (expected %zu) - retransmission failed!\r\n", 
-                total_received, expected_size);
+    test_printf("❌ Received %u bytes (expected %u) - retransmission failed!\r\n", 
+                (uint32_t)total_received, (uint32_t)expected_size);
   }
   
   /* Verify ALL frames were eventually received via retransmission */
@@ -789,11 +789,11 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
 #endif
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
-      test_printf("❌ Write frame %d failed: sent=%zd, errno=%d\r\n", 
-                  i, sent, iohdlc_errno);
+      test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
+                  i, (int32_t)sent, iohdlc_errno);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
-    test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
+    test_printf("  Sent frame N(S)=%d (%d bytes)\r\n", i, (int32_t)sent);
     t_sent += sent;
     /* Small delay between frames */
     ioHdlc_sleep_ms(1);
@@ -820,15 +820,15 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
                                      t_sent - total_received, 1000);
     
     if (received > 0) {
-      test_printf("  Read attempt %d: +%zd bytes (total now: %zu)\r\n", 
-                  read_attempts + 1, received, total_received + received);
+      test_printf("  Read attempt %d: +%d bytes (total now: %u)\r\n", 
+                  read_attempts + 1, (int32_t)received, (uint32_t)(total_received + received));
       total_received += (size_t)received;
     } else if (received == 0) {
-      test_printf("  Read attempt %d: no data (timeout), total: %zu bytes\r\n",
-                  read_attempts + 1, total_received);
+      test_printf("  Read attempt %d: no data (timeout), total: %u bytes\r\n",
+                  read_attempts + 1, (uint32_t)total_received);
     } else {
-      test_printf("  Read attempt %d: error %zd, errno=%d\r\n", 
-                  read_attempts + 1, received, iohdlc_errno);
+      test_printf("  Read attempt %d: error %d, errno=%d\r\n", 
+                  read_attempts + 1, (int32_t)received, iohdlc_errno);
     }
     
     read_attempts++;
@@ -844,14 +844,14 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   
   /* Calculate expected size: 8 frames x 12 bytes each = 96 bytes */
   size_t expected_size = 8 * 12;
-  test_printf("\r\nTotal bytes received: %zu (expected %zu) after %d read attempts\r\n", 
-              total_received, expected_size, read_attempts);
+  test_printf("\r\nTotal bytes received: %u (expected %u) after %d read attempts\r\n", 
+              (uint32_t)total_received, (uint32_t)expected_size, read_attempts);
   
   if (total_received == expected_size) {
     test_printf("✅ All frames eventually delivered after checkpoint retransmission!\r\n");
   } else {
-    test_printf("❌ Received %zu bytes (expected %zu) - retransmission failed!\r\n", 
-                total_received, expected_size);
+    test_printf("❌ Received %u bytes (expected %u) - retransmission failed!\r\n", 
+                (uint32_t)total_received, (uint32_t)expected_size);
   }
   
   /* Verify ALL frames were eventually received via retransmission */
