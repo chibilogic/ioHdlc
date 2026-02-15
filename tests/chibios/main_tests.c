@@ -50,12 +50,38 @@ extern bool test_A2_2_first_and_last_frame_loss(void);
 extern bool test_A1_1_frame_loss_window_full_twa(void);
 extern bool test_A2_1_multiple_frame_loss_twa(void);
 extern bool test_A2_2_first_and_last_frame_loss_twa(void);
+
 /*
  * Serial configuration for test output console.
  */
 static const SerialConfig sdcfg = {
   .speed = 115200
 };
+
+/*
+ * Green LED blinker thread, times are in milliseconds.
+ */
+static THD_WORKING_AREA(waThread1, 128);
+static THD_FUNCTION(Thread1, arg) {
+
+  (void)arg;
+  chRegSetThreadName("blinker");
+  while (true) {
+    palSetPad(GPIOA, GPIOA_LED_GREEN);
+    chThdSleepMilliseconds(80);
+    palClearPad(GPIOA, GPIOA_LED_GREEN);
+    chThdSleepMilliseconds(120);
+    palSetPad(GPIOA, GPIOA_LED_GREEN);
+    chThdSleepMilliseconds(120);
+    palClearPad(GPIOA, GPIOA_LED_GREEN);
+    chThdSleepMilliseconds(120);
+    palSetPad(GPIOA, GPIOA_LED_GREEN);
+    chThdSleepMilliseconds(160);
+    palClearPad(GPIOA, GPIOA_LED_GREEN);
+    chThdSleepMilliseconds(600);
+  }
+}
+
 /*
  * Test runner thread.
  */
@@ -193,6 +219,11 @@ int main(void) {
    */
   sdStart(&TEST_OUTPUT_SD, &sdcfg);
   ioHdlcSDx = (BaseSequentialStream *)&TEST_OUTPUT_SD;
+
+  /*
+   * Creates the blinker thread.
+   */
+  chThdCreateStatic(waThread1, sizeof(waThread1), NORMALPRIO, Thread1, NULL);
 
   /*
    * Creates the test runner thread.
