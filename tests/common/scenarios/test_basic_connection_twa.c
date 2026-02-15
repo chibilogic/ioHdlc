@@ -39,7 +39,6 @@
 #include "../../linux/mocks/mock_stream.h"
 #include "../../linux/mocks/mock_stream_adapter.h"
 #include <pthread.h>
-#include <unistd.h>
 #endif
 
 /*===========================================================================*/
@@ -159,11 +158,7 @@ int test_data_exchange_twa(void) {
   ioHdlcRunnerStart(&station_primary);
   ioHdlcRunnerStart(&station_secondary);
   
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(50);
-#else
-  usleep(50000);
-#endif
+  ioHdlc_sleep_ms(50);
   
   /* Establish connection (SNRM handshake) */
   int ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
@@ -172,11 +167,7 @@ int test_data_exchange_twa(void) {
   }
   TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
   
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);
-#endif
+  ioHdlc_sleep_ms(100);
   
   TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
   TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_secondary), "Secondary peer should be connected");
@@ -201,11 +192,7 @@ int test_data_exchange_twa(void) {
     TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
     test_printf("Primary sent %zd bytes\n", sent);
   }
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(500);
-#else
-  usleep(500000);
-#endif
+  ioHdlc_sleep_ms(500);
 
   /* Secondary receives message */
   memset(recv_buf, 0, sizeof recv_buf);
@@ -242,11 +229,7 @@ int test_data_exchange_twa(void) {
   TEST_ASSERT_GOTO(memcmp(echo_buf, test_msg, msg_len) == 0, "Echo data mismatch");
   test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);
   
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
+  ioHdlc_sleep_ms(200);
 
   test_printf("✅ Data exchange completed successfully\n");
   
@@ -255,11 +238,7 @@ int test_data_exchange_twa(void) {
   TEST_ASSERT_GOTO(ret == 0, "LinkDown failed");
   
 test_cleanup:
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
+  ioHdlc_sleep_ms(200);
   /* Stop runners */
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);

@@ -24,20 +24,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include "ioHdlcosal.h"
 
-/* Platform-specific includes */
-#ifdef IOHDLC_USE_CHIBIOS
-  #include "ch.h"
-  /* ChibiOS: declare printf function (implemented in .c) */
-  void test_printf_impl(const char *fmt, ...);
-  #define test_printf test_printf_impl
-#else
-  #include <stdio.h>
-  #include <stdlib.h>
-  #include <time.h>
-  /* Linux/POSIX: use standard printf */
-  #define test_printf printf
-#endif
+/* Declare the same printf function used for logs*/
+#define test_printf IOHDLC_OSAL_PRINTF    
+
 
 /*===========================================================================*/
 /* Test Framework Macros                                                     */
@@ -249,24 +240,5 @@ static inline void test_hexdump(const char *label, const uint8_t *data, size_t l
 static inline bool test_mem_equal(const uint8_t *a, const uint8_t *b, size_t len) {
   return memcmp(a, b, len) == 0;
 }
-
-#ifndef IOHDLC_USE_CHIBIOS
-/**
- * @brief   Sleep for milliseconds (Linux only).
- */
-static inline void test_sleep_ms(uint32_t ms) {
-  struct timespec ts;
-  ts.tv_sec = ms / 1000;
-  ts.tv_nsec = (ms % 1000) * 1000000L;
-  nanosleep(&ts, NULL);
-}
-#else
-/**
- * @brief   Sleep for milliseconds (ChibiOS).
- */
-static inline void test_sleep_ms(uint32_t ms) {
-  chThdSleepMilliseconds(ms);
-}
-#endif
 
 #endif /* TEST_HELPERS_H */

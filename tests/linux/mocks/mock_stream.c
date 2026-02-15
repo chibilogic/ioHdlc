@@ -26,6 +26,7 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <stdio.h>
+#include "ioHdlcosal.h"
 
 /*===========================================================================*/
 /* Buffer Operations                                                         */
@@ -240,7 +241,7 @@ ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size
 
   /* Simulate delay if configured */
   if (stream->config.delay_us > 0) {
-    usleep(stream->config.delay_us);
+    ioHdlc_sleep_ms((stream->config.delay_us + 999) / 1000);
   }
 
   pthread_mutex_lock(&stream->state_lock);

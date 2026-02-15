@@ -42,7 +42,6 @@
 #include "../../linux/mocks/mock_stream.h"
 #include "../../linux/mocks/mock_stream_adapter.h"
 #include <pthread.h>
-#include <unistd.h>
 #endif
 
 /*===========================================================================*/
@@ -321,11 +320,7 @@ bool test_snrm_handshake(void) {
   ioHdlcRunnerStart(&station_secondary);
   
   /* Allow time for threads to initialize and register listeners */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(50);
-#else
-  usleep(50000);  /* 50 ms */
-#endif
+  ioHdlc_sleep_ms(50);  /* 50 ms */
   
   /* Initiate connection from primary to secondary */
   test_printf("Calling ioHdlcStationLinkUp...\n");
@@ -336,11 +331,7 @@ bool test_snrm_handshake(void) {
   TEST_ASSERT(ret == 0, "ioHdlcStationLinkUp should succeed");
   
   /* Allow time for protocol exchange (SNRM → UA) */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);  /* 100 ms */
-#endif
+  ioHdlc_sleep_ms(100);  /* 100 ms */
   
   /* Verify connection established at both ends */
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
@@ -467,11 +458,7 @@ static int test_data_exchange(void) {
   ioHdlcRunnerStart(&station_primary);
   ioHdlcRunnerStart(&station_secondary);
   
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(50);
-#else
-  usleep(50000);
-#endif
+  ioHdlc_sleep_ms(50);
   
   /* Establish connection (SNRM handshake) */
   int ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
@@ -480,11 +467,7 @@ static int test_data_exchange(void) {
   }
   TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
   
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);
-#endif
+  ioHdlc_sleep_ms(100);
   
   TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
   TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_secondary), "Secondary peer should be connected");
@@ -509,7 +492,7 @@ static int test_data_exchange(void) {
     TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
     test_printf("Primary sent %zd bytes\n", sent);
   }
-  usleep(500000);
+  ioHdlc_sleep_ms(500);
 
   /* Secondary receives message */
   memset(recv_buf, 0, sizeof recv_buf);
@@ -546,21 +529,15 @@ static int test_data_exchange(void) {
   TEST_ASSERT_GOTO(received == (ssize_t)msg_len, "Primary echo read failed");
   TEST_ASSERT_GOTO(memcmp(echo_buf, test_msg, msg_len) == 0, "Echo data mismatch");
   test_printf("Primary received echo %zd bytes: \"%s\"\n", received, echo_buf);
-  
-  usleep(200000);
 
-  test_printf("✅ Data exchange completed successfully\n");
+  ioHdlc_sleep_ms(200);
   
   /* Disconnect */
   ret = ioHdlcStationLinkDown(&station_primary, SECONDARY_ADDR);
   TEST_ASSERT_GOTO(ret == 0, "LinkDown failed");
   
 test_cleanup:
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
+  ioHdlc_sleep_ms(200);
   /* Stop runners */
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);

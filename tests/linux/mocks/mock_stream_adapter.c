@@ -21,9 +21,9 @@
 
 #include "mock_stream_adapter.h"
 #include "../../../include/ioHdlcstreamport.h"
+#include "../../../os/linux/include/ioHdlcosal.h"
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 /*===========================================================================*/
 /* Forward declarations                                                      */
@@ -235,7 +235,7 @@ static void* adapter_rx_thread(void *arg) {
       /* else timeout - continue accumulating */
     } else {
       pthread_mutex_unlock(&adapter->rx_lock);
-      usleep(1000);  /* Wait 1ms before checking again */
+      ioHdlc_sleep_ms(1);  /* Wait 1ms before checking again */
     }
   }
 

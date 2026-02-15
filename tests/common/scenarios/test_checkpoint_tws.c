@@ -188,11 +188,7 @@ static bool wait_for_condition(bool (*condition)(void *), void *arg, uint32_t ti
     if (condition(arg)) {
       return true;
     }
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(poll_interval);
-#else
-    usleep(poll_interval * 1000);
-#endif
+    ioHdlc_sleep_ms(poll_interval);
     elapsed += poll_interval;
   }
   return false;
@@ -328,11 +324,7 @@ bool test_A1_1_frame_loss_window_full(void) {
   ioHdlcRunnerStart(&station_secondary);
   
   /* Wait for threads to be ready */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);
-#endif
+  ioHdlc_sleep_ms(100);
 
   /* Establish connection (SNRM handshake) */
   test_printf("Establishing connection (SNRM/UA)...\r\n");
@@ -340,11 +332,7 @@ bool test_A1_1_frame_loss_window_full(void) {
   TEST_ASSERT(result == 0, "LinkUp failed");
   
   /* Allow time for SNRM → UA exchange */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
+  ioHdlc_sleep_ms(200);
   
   /* Verify connection established */
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
@@ -373,11 +361,7 @@ bool test_A1_1_frame_loss_window_full(void) {
     test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
     t_sent += sent;
     /* Small delay between frames */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(1);
-#else
-    usleep(1000);
-#endif
+    ioHdlc_sleep_ms(1);
   }
   
   test_printf("\r\nWaiting for protocol to detect frame loss and retransmit...\r\n");
@@ -385,11 +369,7 @@ bool test_A1_1_frame_loss_window_full(void) {
   
   /* Wait for checkpoint timeout + retransmission cycles */
   /* With reply_timeout=1000ms, need multiple cycles to recover */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(50);  /* 50 milliseconds for multiple checkpoint cycles */
-#else
-  usleep(50000);  /* 50 milliseconds */
-#endif
+  ioHdlc_sleep_ms(50);  /* 50 milliseconds for multiple checkpoint cycles */
   
   /* Secondary should eventually receive all frames after retransmission */
   test_printf("\r\nReading frames at secondary (may take multiple reads)...\r\n");
@@ -424,11 +404,7 @@ bool test_A1_1_frame_loss_window_full(void) {
     }
     
     /* Small delay between reads */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(100);
-#else
-    usleep(200000);
-#endif
+    ioHdlc_sleep_ms(100);
   }
   
   /* Calculate expected size: 8 frames x 12 bytes each = 96 bytes */
@@ -575,11 +551,7 @@ bool test_A2_1_multiple_frame_loss(void) {
   ioHdlcRunnerStart(&station_secondary);
   
   /* Wait for threads to be ready */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);
-#endif
+  ioHdlc_sleep_ms(100);
 
   /* Establish connection (SNRM handshake) */
   test_printf("Establishing connection (SNRM/UA)...\r\n");
@@ -587,11 +559,7 @@ bool test_A2_1_multiple_frame_loss(void) {
   TEST_ASSERT(result == 0, "LinkUp failed");
   
   /* Allow time for SNRM → UA exchange */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
+  ioHdlc_sleep_ms(200);
   
   /* Verify connection established */
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
@@ -620,11 +588,7 @@ bool test_A2_1_multiple_frame_loss(void) {
     test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
     t_sent += sent;
     /* Small delay between frames */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(1);
-#else
-    usleep(1000);
-#endif
+    ioHdlc_sleep_ms(1);
   }
   
   test_printf("\r\nWaiting for protocol to detect frame loss and retransmit...\r\n");
@@ -632,11 +596,7 @@ bool test_A2_1_multiple_frame_loss(void) {
   
   /* Wait for checkpoint timeout + retransmission cycles */
   /* With reply_timeout=1000ms, need multiple cycles to recover */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(50);  /* 50 milliseconds for multiple checkpoint cycles */
-#else
-  usleep(50000);  /* 50 milliseconds */
-#endif
+  ioHdlc_sleep_ms(50);  /* 50 milliseconds for multiple checkpoint cycles */
   
   /* Secondary should eventually receive all frames after retransmission */
   test_printf("\r\nReading frames at secondary (may take multiple reads)...\r\n");
@@ -671,11 +631,7 @@ bool test_A2_1_multiple_frame_loss(void) {
     }
     
     /* Small delay between reads */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(100);
-#else
-    usleep(200000);
-#endif
+    ioHdlc_sleep_ms(100);
   }
   
   /* Calculate expected size: 8 frames x 12 bytes each = 96 bytes */
@@ -822,11 +778,7 @@ bool test_A2_2_first_and_last_frame_loss(void) {
   ioHdlcRunnerStart(&station_secondary);
   
   /* Wait for threads to be ready */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(100);
-#else
-  usleep(100000);
-#endif
+  ioHdlc_sleep_ms(100);
 
   /* Establish connection (SNRM handshake) */
   test_printf("Establishing connection (SNRM/UA)...\r\n");
@@ -834,11 +786,7 @@ bool test_A2_2_first_and_last_frame_loss(void) {
   TEST_ASSERT(result == 0, "LinkUp failed");
   
   /* Allow time for SNRM → UA exchange */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(200);
-#else
-  usleep(200000);
-#endif
+  ioHdlc_sleep_ms(200);
   
   /* Verify connection established */
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
@@ -867,11 +815,7 @@ bool test_A2_2_first_and_last_frame_loss(void) {
     test_printf("  Sent frame N(S)=%d (%zd bytes)\r\n", i, sent);
     t_sent += sent;
     /* Small delay between frames */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(1);
-#else
-    usleep(1000);
-#endif
+    ioHdlc_sleep_ms(1);
   }
   
   test_printf("\r\nWaiting for protocol to detect frame loss and retransmit...\r\n");
@@ -879,11 +823,7 @@ bool test_A2_2_first_and_last_frame_loss(void) {
   
   /* Wait for checkpoint timeout + retransmission cycles */
   /* With reply_timeout=1000ms, need multiple cycles to recover */
-#ifdef IOHDLC_USE_CHIBIOS
-  chThdSleepMilliseconds(50);  /* 50 milliseconds for multiple checkpoint cycles */
-#else
-  usleep(50000);  /* 50 milliseconds */
-#endif
+  ioHdlc_sleep_ms(50);  /* 50 milliseconds for multiple checkpoint cycles */
   
   /* Secondary should eventually receive all frames after retransmission */
   test_printf("\r\nReading frames at secondary (may take multiple reads)...\r\n");
@@ -918,11 +858,7 @@ bool test_A2_2_first_and_last_frame_loss(void) {
     }
     
     /* Small delay between reads */
-#ifdef IOHDLC_USE_CHIBIOS
-    chThdSleepMilliseconds(100);
-#else
-    usleep(200000);
-#endif
+    ioHdlc_sleep_ms(100);
   }
   
   /* Calculate expected size: 8 frames x 12 bytes each = 96 bytes */

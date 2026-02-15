@@ -79,11 +79,13 @@ static void s_handle_timer_expiry(iohdlc_station_peer_t *peer,
 }
 
 /* Timer callbacks (OS ISR context) -> wrap common handler. */
-static void s_reply_timer_cb(void *arg) {
+static void s_reply_timer_cb(virtual_timer_t *vt, void *arg) {
+  (void)vt;
   s_handle_timer_expiry((iohdlc_station_peer_t *)arg, IOHDLC_TIMER_REPLY);
 }
 
-static void s_t3_reply_timer_cb(void *arg) {
+static void s_t3_reply_timer_cb(virtual_timer_t *vt, void *arg) {
+  (void)vt;
   s_handle_timer_expiry((iohdlc_station_peer_t *)arg, IOHDLC_TIMER_T3);
 }
 

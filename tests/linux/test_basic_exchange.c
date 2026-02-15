@@ -25,7 +25,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
 
@@ -102,7 +101,7 @@ static void *writer_thread(void *arg) {
                                                 buffer, sizeof buffer);
       
       if ((ctx->station->addr == 3) && ((ctx->seq & 0x0FF) == 0)) {
-        usleep(600000);
+        ioHdlc_sleep_ms(600);
       }
       ssize_t sent = ioHdlcWriteTmo(ctx->peer, buffer, packet_size, WTMO);
       if (sent >= (ssize_t)packet_size) {
@@ -130,7 +129,7 @@ static void *writer_thread(void *arg) {
       iterations++;
     }
     
-    usleep(1);  /* Small yield */
+    ioHdlc_sleep_ms(1);  /* Small yield (was 1us, now 1ms min granularity) */
   }
   fprintf(stderr, "Writer %u Data written (iters %d)!\n", ctx->station->addr, iterations);
   test_running_global = false;
@@ -155,7 +154,7 @@ static void *reader_thread(void *arg) {
 
     /* Every 256 frames, introduce a small delay to simulate pool low condition */
     if (((ctx->seq+1) & 0xFF) == 0) {
-      usleep(45000);
+      ioHdlc_sleep_ms(45);
     }
     if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
       pthread_mutex_lock(ctx->stats_mutex);
@@ -333,7 +332,7 @@ int main(int argc, char **argv) {
   printf("Starting HDLC protocol runners...\n");
   ioHdlcRunnerStart(&station_primary);
   ioHdlcRunnerStart(&station_secondary);
-  usleep(50000);
+  ioHdlc_sleep_ms(50);
   
   /* Establish connection */
   printf("Establishing connection...\n");
@@ -343,7 +342,7 @@ int main(int argc, char **argv) {
     goto cleanup;
   }
   
-  usleep(100000);
+  ioHdlc_sleep_ms(100);
   
   if (IOHDLC_PEER_DISC(&peer_at_primary) || IOHDLC_PEER_DISC(&peer_at_secondary)) {
     fprintf(stderr, "Connection not established\n");
@@ -407,7 +406,7 @@ int main(int argc, char **argv) {
   
   /* Monitor progress */
   while (test_running_global) {
-    usleep(config.progress_interval_ms * 1000);
+    ioHdlc_sleep_ms(config.progress_interval_ms);
     elapsed_time = (iohdlc_time_now_ms() - start_time) / 1000;
     
     if (config.duration_type == TEST_BY_TIME) {
