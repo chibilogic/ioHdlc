@@ -26,8 +26,22 @@
 #include "ioHdlc_core.h"
 #include "ioHdlc_runner.h"
 #include "ioHdlc.h"
+#include <string.h>
 
-/* Forward declarations for runner ops */
+/*===========================================================================*/
+/* Runner context (ChibiOS-specific)                                        */
+/*===========================================================================*/
+
+typedef struct {
+  thread_t *tx_thread;   /* TX thread reference from chThdCreateFromHeap */
+  thread_t *rx_thread;   /* RX thread reference */
+  bool tx_started;       /* TRUE if TX thread created successfully */
+  bool rx_started;       /* TRUE if RX thread created successfully */
+} chibios_runner_context_t;
+
+/*===========================================================================*/
+/* Forward declarations for runner ops                                       */
+/*===========================================================================*/
 static uint32_t s_wait_events(iohdlc_station_t *station, uint32_t mask);
 static uint32_t s_get_events_flags(iohdlc_station_t *station);
 static void s_broadcast_flags(iohdlc_station_t *station, uint32_t flags);
@@ -55,13 +69,70 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
 
   ioHdlcRegisterRunnerOps(&s_ops);
   
-  chThdCreateFromHeap(NULL, 2048, "HDLC-TX", NORMALPRIO + 1, HdlcTxThread, station);
-  chThdCreateFromHeap(NULL, 2048, "HDLC-RX", NORMALPRIO + 1, HdlcRxThread, station);
+  /* Allocate and initialize runner context */
+  chibios_runner_context_t *ctx = chHeapAlloc(NULL, sizeof(chibios_runner_context_t));
+  if (!ctx) {
+    return;  /* Out of memory - abort runner start */
+  }
+  memset(ctx, 0, sizeof *ctx);
+  station->runner_context = ctx;
+  station->stop_requested = false;
+  
+  /* Create TX thread and save reference (joinable) */
+  ctx->tx_thread = chThdCreateFromHeap(NULL, 2048, "HDLC-TX", 
+                                       NORMALPRIO + 1, HdlcTxThread, station);
+  if (ctx->tx_thread == NULL) {
+    /* TX thread creation failed - cleanup and abort */
+    chHeapFree(ctx);
+    station->runner_context = NULL;
+    return;
+  }
+  ctx->tx_started = true;
+  
+  /* Create RX thread and save reference (joinable) */
+  ctx->rx_thread = chThdCreateFromHeap(NULL, 2048, "HDLC-RX",
+                                       NORMALPRIO + 1, HdlcRxThread, station);
+  if (ctx->rx_thread == NULL) {
+    /* RX thread creation failed - stop TX thread and cleanup */
+    station->stop_requested = true;
+    chEvtBroadcastFlags(&station->cm_es, 0xFFFFFFFF);  /* Wake TX */
+    chThdWait(ctx->tx_thread);  /* Wait for TX termination */
+    chHeapFree(ctx);
+    station->runner_context = NULL;
+    return;
+  }
+  ctx->rx_started = true;
 }
 
 void ioHdlcRunnerStop(iohdlc_station_t *station) {
-  (void)station;
-  /* TODO: add thread references and perform graceful stop if needed. */
+  chibios_runner_context_t *ctx = (chibios_runner_context_t *)station->runner_context;
+  
+  if (!ctx) {
+    return;  /* Runner not started or already stopped */
+  }
+  
+  /* Request threads to stop */
+  station->stop_requested = true;
+  
+  /* Wake up TX thread (may be blocked in wait_events) */
+  chEvtBroadcastFlags(&station->cm_es, 0xFFFFFFFF);
+  
+  /* Join threads - wait for graceful termination */
+  if (ctx->tx_started && ctx->tx_thread != NULL) {
+    msg_t exit_msg = chThdWait(ctx->tx_thread);  /* Block until TX exits */
+    (void)exit_msg;  /* Ignore exit code for now */
+    ctx->tx_started = false;
+  }
+  
+  if (ctx->rx_started && ctx->rx_thread != NULL) {
+    msg_t exit_msg = chThdWait(ctx->rx_thread);  /* RX has internal timeout, will exit */
+    (void)exit_msg;
+    ctx->rx_started = false;
+  }
+  
+  /* Free context (working area already freed by ChibiOS after Wait) */
+  chHeapFree(ctx);
+  station->runner_context = NULL;
 }
 
 static iohdlc_virtual_timer_t *s_select_timer(iohdlc_station_peer_t *peer,
