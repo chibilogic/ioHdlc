@@ -25,7 +25,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <signal.h>
 
 static iohdlc_station_t *st_pri, *st_sec;
@@ -60,7 +59,7 @@ typedef struct {
   iohdlc_station_t *station;
   iohdlc_station_peer_t *peer;
   test_statistics_t *stats;
-  pthread_mutex_t *stats_mutex;
+  iohdlc_mutex_t *stats_mutex;
   test_config_t *config;
   uint32_t seq;
   bool enabled;  /* Whether this thread should be active */
@@ -105,10 +104,10 @@ static void *writer_thread(void *arg) {
       }
       ssize_t sent = ioHdlcWriteTmo(ctx->peer, buffer, packet_size, WTMO);
       if (sent >= (ssize_t)packet_size) {
-        pthread_mutex_lock(ctx->stats_mutex);
+        iohdlc_mutex_lock(ctx->stats_mutex);
         ctx->stats->packets_sent++;
         ctx->stats->total_bytes_sent += sent;
-        pthread_mutex_unlock(ctx->stats_mutex);
+        iohdlc_mutex_unlock(ctx->stats_mutex);
         packets_sent++;
       } else {
         test_dump_station_state(st_pri, "Pri At writer error");
@@ -157,9 +156,9 @@ static void *reader_thread(void *arg) {
       ioHdlc_sleep_ms(45);
     }
     if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
-      pthread_mutex_lock(ctx->stats_mutex);
+      iohdlc_mutex_lock(ctx->stats_mutex);
       test_validate_packet(buffer, received, &ctx->seq, ctx->stats);
-      pthread_mutex_unlock(ctx->stats_mutex);
+      iohdlc_mutex_unlock(ctx->stats_mutex);
     } else if (received > 0) {
       fprintf(stderr, "Warning: received short packet (%zd bytes)\n", received);
     } else if (received == 0) {
@@ -193,8 +192,7 @@ static void *reader_thread(void *arg) {
 int main(int argc, char **argv) {
   test_config_t config;
   test_statistics_t stats_primary, stats_secondary;
-  pthread_mutex_t stats_mutex_primary = PTHREAD_MUTEX_INITIALIZER;
-  pthread_mutex_t stats_mutex_secondary = PTHREAD_MUTEX_INITIALIZER;
+  iohdlc_mutex_t stats_mutex_primary, stats_mutex_secondary;
   mock_stream_t *stream_primary, *stream_secondary;
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -202,7 +200,7 @@ int main(int argc, char **argv) {
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t station_config;
   thread_context_t ctx_pri_writer, ctx_pri_reader, ctx_sec_writer, ctx_sec_reader;
-  pthread_t thread_pri_writer, thread_pri_reader, thread_sec_writer, thread_sec_reader;
+  iohdlc_thread_t *thread_pri_writer, *thread_pri_reader, *thread_sec_writer, *thread_sec_reader;
   static uint8_t arena_primary[16384], arena_secondary[16384];
   int32_t result;
   uint32_t start_time, elapsed_time;
@@ -230,6 +228,10 @@ int main(int argc, char **argv) {
   memset(&stats_secondary, 0, sizeof stats_secondary);
   stats_primary.start_time_ms = iohdlc_time_now_ms();
   stats_secondary.start_time_ms = iohdlc_time_now_ms();
+  
+  /* Initialize mutexes */
+  iohdlc_mutex_init(&stats_mutex_primary);
+  iohdlc_mutex_init(&stats_mutex_secondary);
   
   /* Setup signal handler */
   signal(SIGINT, sigint_handler);
@@ -399,10 +401,10 @@ int main(int argc, char **argv) {
   
   /* Start 4 threads */
   start_time = iohdlc_time_now_ms();
-  pthread_create(&thread_pri_writer, NULL, writer_thread, &ctx_pri_writer);
-  pthread_create(&thread_pri_reader, NULL, reader_thread, &ctx_pri_reader);
-  pthread_create(&thread_sec_writer, NULL, writer_thread, &ctx_sec_writer);
-  pthread_create(&thread_sec_reader, NULL, reader_thread, &ctx_sec_reader);
+  thread_pri_writer = iohdlc_thread_create("pri_writer", 0, 0, writer_thread, &ctx_pri_writer);
+  thread_pri_reader = iohdlc_thread_create("pri_reader", 0, 0, reader_thread, &ctx_pri_reader);
+  thread_sec_writer = iohdlc_thread_create("sec_writer", 0, 0, writer_thread, &ctx_sec_writer);
+  thread_sec_reader = iohdlc_thread_create("sec_reader", 0, 0, reader_thread, &ctx_sec_reader);
   
   /* Monitor progress */
   while (test_running_global) {
@@ -453,10 +455,10 @@ int main(int argc, char **argv) {
   
   /* Wait for threads */
   printf("\nStopping threads...\n");
-  pthread_join(thread_pri_writer, NULL);
-  pthread_join(thread_pri_reader, NULL);
-  pthread_join(thread_sec_writer, NULL);
-  pthread_join(thread_sec_reader, NULL);
+  iohdlc_thread_join(thread_pri_writer);
+  iohdlc_thread_join(thread_pri_reader);
+  iohdlc_thread_join(thread_sec_writer);
+  iohdlc_thread_join(thread_sec_reader);
   
   ioHdlcStationLinkDown(&station_primary, station_primary.c_peer->addr);
 

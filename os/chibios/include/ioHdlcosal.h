@@ -318,4 +318,92 @@ static inline void ioHdlc_sleep_ms(uint32_t ms) {
   chThdSleepMilliseconds(ms);
 }
 
+/*===========================================================================*/
+/* Thread Abstraction                                                        */
+/*===========================================================================*/
+
+/**
+ * @brief   Thread handle (opaque OS-specific implementation).
+ */
+typedef struct iohdlc_thread iohdlc_thread_t;
+
+/**
+ * @brief   Thread entry point signature.
+ * @note    Portable across Linux (void* fn(void*)) and ChibiOS (msg_t fn(void*)).
+ *          Returns void* for compatibility.
+ */
+typedef void* (*iohdlc_thread_fn_t)(void* arg);
+
+/**
+ * @brief   Thread handle structure (ChibiOS implementation).
+ */
+struct iohdlc_thread {
+  thread_t* handle;  /**< ChibiOS thread reference */
+};
+
+/**
+ * @brief   Create and start a new thread.
+ *
+ * @param[in] name          Thread name (for debugging)
+ * @param[in] stack_size    Stack size in bytes (0 = use default 2048)
+ * @param[in] priority      Thread priority offset from NORMALPRIO (0 = NORMALPRIO)
+ * @param[in] entry         Thread entry point function
+ * @param[in] arg           Argument passed to entry point
+ * @return                  Thread handle on success, NULL on failure
+ */
+static inline iohdlc_thread_t* iohdlc_thread_create(
+    const char* name,
+    size_t stack_size,
+    int priority,
+    iohdlc_thread_fn_t entry,
+    void* arg) {
+  
+  /* Allocate thread handle from heap */
+  iohdlc_thread_t* thread = (iohdlc_thread_t*)chHeapAlloc(NULL, sizeof(iohdlc_thread_t));
+  if (thread == NULL) {
+    return NULL;
+  }
+  
+  /* Calculate working area size (includes stack + thread descriptor)
+   * Default to 2048 bytes stack if not specified */
+  size_t wsize = (stack_size > 0) ? 
+                  THD_WORKING_AREA_SIZE(stack_size) : 
+                  THD_WORKING_AREA_SIZE(2048);
+  
+  /* Calculate thread priority (NORMALPRIO + offset) */
+  tprio_t prio = (tprio_t)(NORMALPRIO + priority);
+  
+  /* Suppress cast warning: iohdlc_thread_fn_t returns void* for Linux compatibility,
+   * but ChibiOS tfunc_t returns void. The cast is safe because return value is unused. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+  thread->handle = chThdCreateFromHeap(NULL, wsize, name, prio,
+                                       (tfunc_t)entry, arg);
+#pragma GCC diagnostic pop
+  
+  if (thread->handle == NULL) {
+    chHeapFree(thread);
+    return NULL;
+  }
+  
+  return thread;
+}
+
+/**
+ * @brief   Wait for thread termination and cleanup resources.
+ * @note    Thread handle is freed after join completes.
+ *          Thread stack is automatically freed by ChibiOS after chThdWait().
+ *
+ * @param[in] thread        Thread handle (freed after join)
+ */
+static inline void iohdlc_thread_join(iohdlc_thread_t* thread) {
+  if (thread != NULL && thread->handle != NULL) {
+    /* Wait for thread termination (also frees thread's stack) */
+    chThdWait(thread->handle);
+    
+    /* Free our handle structure */
+    chHeapFree(thread);
+  }
+}
+
 #endif /* IOHDLCOSAL_H_ */

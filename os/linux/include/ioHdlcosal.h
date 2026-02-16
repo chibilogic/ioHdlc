@@ -541,6 +541,98 @@ static inline void ioHdlc_sleep_ms(uint32_t ms) {
   nanosleep(&ts, NULL);
 }
 
+/*===========================================================================*/
+/* Thread Abstraction                                                        */
+/*===========================================================================*/
+
+/**
+ * @brief   Thread handle (opaque OS-specific implementation).
+ */
+typedef struct iohdlc_thread iohdlc_thread_t;
+
+/**
+ * @brief   Thread entry point signature.
+ * @note    Portable across Linux (void* fn(void*)) and ChibiOS (msg_t fn(void*)).
+ *          Returns void* for compatibility.
+ */
+typedef void* (*iohdlc_thread_fn_t)(void* arg);
+
+/**
+ * @brief   Thread handle structure (Linux/POSIX implementation).
+ */
+struct iohdlc_thread {
+  pthread_t handle;  /**< POSIX thread handle */
+};
+
+/**
+ * @brief   Create and start a new thread.
+ *
+ * @param[in] name          Thread name (for debugging, max 15 chars on Linux)
+ * @param[in] stack_size    Stack size in bytes (0 = use default)
+ * @param[in] priority      Thread priority offset from normal (0 = normal, ignored on Linux user-space)
+ * @param[in] entry         Thread entry point function
+ * @param[in] arg           Argument passed to entry point
+ * @return                  Thread handle on success, NULL on failure
+ */
+static inline iohdlc_thread_t* iohdlc_thread_create(
+    const char* name,
+    size_t stack_size,
+    int priority,
+    iohdlc_thread_fn_t entry,
+    void* arg) {
+  
+  iohdlc_thread_t* thread = (iohdlc_thread_t*)malloc(sizeof(iohdlc_thread_t));
+  if (thread == NULL) {
+    return NULL;
+  }
+  
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  
+  /* Set stack size if specified */
+  if (stack_size > 0) {
+    if (pthread_attr_setstacksize(&attr, stack_size) != 0) {
+      pthread_attr_destroy(&attr);
+      free(thread);
+      return NULL;
+    }
+  }
+  
+  /* Note: Linux user-space thread priority requires root or CAP_SYS_NICE.
+   * For simplicity, we ignore priority parameter in user-space.
+   * Production code could use setpriority() or sched_setscheduler() if needed. */
+  (void)priority;
+  
+  /* Create thread */
+  if (pthread_create(&thread->handle, &attr, entry, arg) != 0) {
+    pthread_attr_destroy(&attr);
+    free(thread);
+    return NULL;
+  }
+  
+  pthread_attr_destroy(&attr);
+  
+  /* Set thread name for debugging (Linux-specific, max 15 chars) */
+  if (name != NULL) {
+    pthread_setname_np(thread->handle, name);
+  }
+  
+  return thread;
+}
+
+/**
+ * @brief   Wait for thread termination and cleanup resources.
+ * @note    Thread handle is freed after join completes.
+ *
+ * @param[in] thread        Thread handle (freed after join)
+ */
+static inline void iohdlc_thread_join(iohdlc_thread_t* thread) {
+  if (thread != NULL) {
+    pthread_join(thread->handle, NULL);
+    free(thread);
+  }
+}
+
 #endif /* IOHDLCOSAL_H */
 
 /** @} */
