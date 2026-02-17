@@ -8,7 +8,7 @@ INCLUDE_DIR = $(ROOT_DIR)/include
 OS_LINUX_DIR = $(ROOT_DIR)/os/linux
 TESTS_DIR = ..
 LINUX_DIR = .
-MOCKS_DIR = $(LINUX_DIR)/mocks
+MOCKS_DIR = $(COMMON_DIR)/mocks
 SCENARIOS_DIR = $(LINUX_DIR)/scenarios
 COMMON_DIR = $(TESTS_DIR)/common
 COMMON_SCENARIOS_DIR = $(COMMON_DIR)/scenarios
@@ -41,12 +41,12 @@ CORE_SRCS = \
 	$(SRC_DIR)/ioHdlc_log.c \
 	$(SRC_DIR)/ioHdlcll.c \
 	$(SRC_DIR)/ioHdlcswdriver.c \
-	$(SRC_DIR)/ioHdlcpool_common.c
+	$(SRC_DIR)/ioHdlcpool_common.c \
+	$(SRC_DIR)/ioHdlc_runner.c
 
 OSAL_SRCS = \
 	$(OS_LINUX_DIR)/src/ioHdlcosal.c \
-	$(OS_LINUX_DIR)/src/ioHdlcfmempool.c \
-	$(OS_LINUX_DIR)/src/ioHdlc_runner.c
+	$(OS_LINUX_DIR)/src/ioHdlcfmempool.c
 
 MOCK_SRCS = \
 	$(MOCKS_DIR)/mock_stream.c \
@@ -89,6 +89,9 @@ CORE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
 OSAL_OBJS = $(patsubst $(OS_LINUX_DIR)/src/%.c,$(OBJ_DIR)/osal_%.o,$(OSAL_SRCS))
 MOCK_OBJS = $(patsubst $(MOCKS_DIR)/%.c,$(OBJ_DIR)/mock_%.o,$(MOCK_SRCS))
 COMMON_OBJS = $(patsubst $(COMMON_DIR)/%.c,$(OBJ_DIR)/common_%.o,$(COMMON_SRCS))
+
+# Common test scenario objects (OS-agnostic test logic)
+COMMON_TEST_OBJS = $(patsubst $(COMMON_SCENARIOS_DIR)/%.c,$(OBJ_DIR)/%.o,$(COMMON_TEST_SRCS))
 
 # Minimal OSAL for tests that only need time functions (test_framework dependency)
 OSAL_MINIMAL = $(OBJ_DIR)/osal_ioHdlcosal.o
@@ -154,16 +157,22 @@ $(OBJ_DIR)/test_%.o: $(LINUX_DIR)/test_%.c
 	@echo "CC $< (linux)"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
+# Compile test runners (Linux-specific entry points)
+$(OBJ_DIR)/test_runner_%.o: $(LINUX_DIR)/test_runner_%.c
+	@echo "CC $< (runner)"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
 # Link test binaries
 $(BIN_DIR)/$(TEST_MOCK_STREAM): $(OBJ_DIR)/test_mock_stream.o $(MOCK_OBJS) $(COMMON_OBJS) $(OSAL_MINIMAL)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_BASIC_CONNECTION): $(OBJ_DIR)/test_basic_connection.o $(ALL_OBJS)
+# Link test binaries with runners
+$(BIN_DIR)/$(TEST_BASIC_CONNECTION): $(OBJ_DIR)/test_runner_basic_connection.o $(OBJ_DIR)/test_basic_connection.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA): $(OBJ_DIR)/test_basic_connection_twa.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA): $(OBJ_DIR)/test_runner_basic_connection_twa.o $(OBJ_DIR)/test_basic_connection_twa.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
@@ -171,15 +180,15 @@ $(BIN_DIR)/$(TEST_BASIC_EXCHANGE): $(OBJ_DIR)/test_basic_exchange.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_FRAME_POOL): $(OBJ_DIR)/test_frame_pool.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_FRAME_POOL): $(OBJ_DIR)/test_runner_frame_pool.o $(OBJ_DIR)/test_frame_pool.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_CHECKPOINT_TWS): $(OBJ_DIR)/test_checkpoint_tws.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_CHECKPOINT_TWS): $(OBJ_DIR)/test_runner_checkpoint_tws.o $(OBJ_DIR)/test_checkpoint_tws.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 	
-$(BIN_DIR)/$(TEST_CHECKPOINT_TWA): $(OBJ_DIR)/test_checkpoint_twa.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_CHECKPOINT_TWA): $(OBJ_DIR)/test_runner_checkpoint_twa.o $(OBJ_DIR)/test_checkpoint_twa.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 

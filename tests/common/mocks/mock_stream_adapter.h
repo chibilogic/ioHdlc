@@ -13,23 +13,30 @@
  *
  * See the LICENSE file for details.
  */
+/**
+ * @file    mock_stream_adapter.h
+ * @brief   Adapter to connect mock_stream to ioHdlcstream interface (unified OSAL version).
+ */
+
 #ifndef MOCK_STREAM_ADAPTER_H
 #define MOCK_STREAM_ADAPTER_H
-#include "mock_stream_chibios.h"
-#include "../../../include/ioHdlcstreamport.h"
-#include "ch.h"
+
+#include "mock_stream.h"
+#include "ioHdlcstreamport.h"
+#include "ioHdlcosal.h"
+
 /**
- * @brief   Mock stream adapter structure.
+ * @brief   Mock stream adapter structure (OSAL-based).
  */
 typedef struct {
   mock_stream_t *stream;
   ioHdlcStreamCallbacks callbacks;
-  thread_t *rx_thread;
+  iohdlc_thread_t *rx_thread;
   bool running;
   bool thread_started;
   
   /* RX buffer management */
-  mutex_t rx_lock;
+  iohdlc_mutex_t rx_lock;
   uint8_t *rx_buf;
   size_t rx_len;
   size_t rx_pos;

@@ -15,7 +15,7 @@
  */
 /**
  * @file    ioHdlc_runner.h
- * @brief   ChibiOS runner for HDLC station core.
+ * @brief   Runner for HDLC station core.
  *
  * @details Creates TX/RX threads and maps OS events/timers to core entry points.
  */
@@ -23,7 +23,6 @@
 #ifndef IOHDLC_RUNNER_H_
 #define IOHDLC_RUNNER_H_
 
-#include "ch.h"
 #include "ioHdlctypes.h"
 #include "ioHdlcosal.h"
 

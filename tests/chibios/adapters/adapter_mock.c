@@ -20,7 +20,7 @@
  */
 
 #include "adapter_interface.h"
-#include "../mocks/mock_stream_chibios.h"
+#include "mock_stream.h"
 
 /*===========================================================================*/
 /* Local variables                                                           */

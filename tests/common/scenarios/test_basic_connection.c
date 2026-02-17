@@ -32,17 +32,10 @@
 #include "ioHdlcswdriver.h"
 #include "ioHdlc_runner.h"
 #include "ioHdlcfmempool.h"
+#include "mock_stream.h"
+#include "mock_stream_adapter.h"
 #include <string.h>
 #include <errno.h>
-
-#ifdef IOHDLC_USE_CHIBIOS
-#include "../../chibios/mocks/mock_stream_chibios.h"
-#include "../../chibios/mocks/mock_stream_adapter.h"
-#else
-#include "../../linux/mocks/mock_stream.h"
-#include "../../linux/mocks/mock_stream_adapter.h"
-#include <pthread.h>
-#endif
 
 /*===========================================================================*/
 /* Test Configuration                                                        */
@@ -366,7 +359,7 @@ bool test_snrm_handshake(void) {
  *          - Echo response from secondary to primary
  *          - Complete round-trip data integrity
  */
-static int test_data_exchange(void) {
+bool test_data_exchange(void) {
   int test_result = 0;  /* Success by default, set to 1 on failure */
   
   /* Test message */
@@ -375,7 +368,7 @@ static int test_data_exchange(void) {
   
   /* Setup: same as test_snrm_handshake */
   mock_stream_t *stream_primary, *stream_secondary;
-  mock_stream_adapter_t *adapter_primary, *adapter_secondary;
+  mock_stream_adapter_t *adapter_primary=0, *adapter_secondary=0;
   ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
@@ -550,27 +543,3 @@ test_cleanup:
   
   return test_result;
 }
-
-/*===========================================================================*/
-/* Main Test Runner                                                          */
-/*===========================================================================*/
-
-#ifndef IOHDLC_USE_CHIBIOS
-/* Standalone test main for Linux/POSIX */
-int main(void) {
-  test_printf("\n");
-  test_printf("═══════════════════════════════════════════════\n");
-  test_printf("  ioHdlc Test Suite - Basic Connection\n");
-  test_printf("═══════════════════════════════════════════════\n\n");
-
-  RUN_TEST(test_station_creation);
-  RUN_TEST(test_peer_creation);
-  /* TODO: Fix thread cleanup issue between tests */
-  RUN_TEST(test_snrm_handshake);
-  RUN_TEST(test_data_exchange);
-
-  TEST_SUMMARY();
-
-  return (failed_count == 0) ? 0 : 1;
-}
-#endif /* IOHDLC_USE_CHIBIOS */

@@ -37,19 +37,8 @@
 #include "ioHdlcfmempool.h"
 #include <string.h>
 #include <errno.h>
-
-#ifdef IOHDLC_USE_CHIBIOS
-#include "ch.h"
-#include "chprintf.h"
-#include "../../chibios/mocks/mock_stream_chibios.h"
-#include "../../chibios/mocks/mock_stream_adapter.h"
-#else
-#include <stdio.h>
-#include "../../linux/mocks/mock_stream.h"
-#include "../../linux/mocks/mock_stream_adapter.h"
-#include <pthread.h>
-#include <unistd.h>
-#endif
+#include "mock_stream.h"
+#include "mock_stream_adapter.h"
 
 /*===========================================================================*/
 /* Test Configuration                                                        */
@@ -237,7 +226,7 @@ bool test_A1_1_frame_loss_window_full(void) {
     .error_userdata = NULL
   };
 
-  test_printf("\r\n=== Test A.1.1: Frame Loss + Window Full (TWS, no REJ) ===\r\n");
+  test_printf("=== Test A.1.1: Frame Loss + Window Full (TWS, no REJ) ===\r\n");
 
   /* Create mock streams */
   stream_primary = mock_stream_create(&stream_config);  /* Primary: corrupt I1,0 */
@@ -347,11 +336,7 @@ bool test_A1_1_frame_loss_window_full(void) {
   
   /* Send 8 frames to fill the window (modulo 8, window=7) */
   for (t_sent = 0, i = 0; i < 8; i++) {
-#ifdef IOHDLC_USE_CHIBIOS
-    chsnprintf(test_data, sizeof test_data, "Frame %d data", i);
-#else
-    snprintf(test_data, sizeof test_data, "Frame %d data", i);
-#endif
+    iohdlc_snprintf(test_data, sizeof test_data, "Frame %d data", i);
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
       test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
@@ -574,11 +559,7 @@ bool test_A2_1_multiple_frame_loss(void) {
   
   /* Send 8 frames to fill the window (modulo 8, window=7) */
   for (t_sent = 0, i = 0; i < 8; i++) {
-#ifdef IOHDLC_USE_CHIBIOS
-    chsnprintf(test_data, sizeof test_data, "Frame %d data", i);
-#else
-    snprintf(test_data, sizeof test_data, "Frame %d data", i);
-#endif
+    iohdlc_snprintf(test_data, sizeof test_data, "Frame %d data", i);
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
       test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
@@ -801,11 +782,7 @@ bool test_A2_2_first_and_last_frame_loss(void) {
   
   /* Send 8 frames to fill the window (modulo 8, window=7) */
   for (t_sent = 0, i = 0; i < 8; i++) {
-#ifdef IOHDLC_USE_CHIBIOS
-    chsnprintf(test_data, sizeof test_data, "Frame %d data", i);
-#else
-    snprintf(test_data, sizeof test_data, "Frame %d data", i);
-#endif
+    iohdlc_snprintf(test_data, sizeof test_data, "Frame %d data", i);
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
       test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
@@ -887,35 +864,3 @@ bool test_A2_2_first_and_last_frame_loss(void) {
 
   return 0;
 }
-
-/*===========================================================================*/
-/* Test Suite Entry Point                                                    */
-/*===========================================================================*/
-
-#ifndef IOHDLC_USE_CHIBIOS
-int main(void) {
-  int failures = 0;
-
-  test_printf("\r\n");
-  test_printf("╔════════════════════════════════════════════════════════════╗\r\n");
-  test_printf("║  Checkpoint Retransmission Tests - TWS Mode                ║\r\n");
-  test_printf("╚════════════════════════════════════════════════════════════╝\r\n");
-
-  /* Run tests */
-  if (test_A1_1_frame_loss_window_full()) failures++;
-  if (test_A2_1_multiple_frame_loss()) failures++;
-  if (test_A2_2_first_and_last_frame_loss()) failures++;
-
-  /* Print summary */
-  test_printf("\r\n");
-  test_printf("════════════════════════════════════════════════════════════\r\n");
-  if (failures == 0) {
-    test_printf("✅ All tests PASSED\r\n");
-  } else {
-    test_printf("❌ %d test(s) FAILED\r\n", failures);
-  }
-  test_printf("════════════════════════════════════════════════════════════\r\n");
-
-  return failures;
-}
-#endif /* !IOHDLC_USE_CHIBIOS */

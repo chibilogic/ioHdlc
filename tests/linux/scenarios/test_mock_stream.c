@@ -25,7 +25,7 @@
  */
 
 #include "../../common/test_helpers.h"
-#include "../../linux/mocks/mock_stream.h"
+#include "mock_stream.h"
 #include <string.h>
 
 /*===========================================================================*/

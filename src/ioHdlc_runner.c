@@ -20,12 +20,10 @@
  * @details Manages TX/RX threads and integrates timers/events with core.
  */
 
-#include "ch.h"
-#include "hal.h"
-
-#include "ioHdlc_core.h"
 #include "ioHdlc_runner.h"
+#include "ioHdlc_core.h"
 #include "ioHdlc.h"
+#include "ioHdlcosal.h"
 #include <string.h>
 
 /*===========================================================================*/
@@ -114,9 +112,8 @@ static iohdlc_virtual_timer_t *s_select_timer(iohdlc_station_peer_t *peer,
 }
 
 /* Timer callbacks (OS ISR context) -> wrap common handler. */
-static void s_timer_cb(virtual_timer_t *vt, void *arg) {
+static void s_timer_cb(iohdlc_virtual_timer_t *timer, void *arg) {
   (void) arg;
-  iohdlc_virtual_timer_t *timer = (iohdlc_virtual_timer_t *)vt;
   timer->expired = true;  /* Mark timer as expired. */
   iohdlc_evt_broadcast_flags_isr(timer->esp, timer->evt_flag);
 }

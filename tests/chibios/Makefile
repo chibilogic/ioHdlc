@@ -141,7 +141,8 @@ IOHDLC_CORE_SRCS = \
 	$(SRC_DIR)/ioHdlc_log.c \
 	$(SRC_DIR)/ioHdlcll.c \
 	$(SRC_DIR)/ioHdlcswdriver.c \
-	$(SRC_DIR)/ioHdlcpool_common.c
+	$(SRC_DIR)/ioHdlcpool_common.c \
+	$(SRC_DIR)/ioHdlc_runner.c
 
 # Common test infrastructure
 COMMON_TEST_SRCS = \
@@ -192,6 +193,7 @@ INCDIR = $(CONFDIR) \
          $(INCLUDE_DIR) \
          $(OS_CHIBIOS_DIR)/include \
          $(COMMON_DIR) \
+         $(COMMON_DIR)/mocks \
          $(CHIBIOS_DIR) \
          $(CHIBIOS_DIR)/adapters \
          $(CHIBIOS_DIR)/board_config \
@@ -228,7 +230,7 @@ CPPWARN = -Wall -Wextra -Wundef
 ##############################################################################
 
 # User C defines
-UDEFS = -DIOHDLC_USE_CHIBIOS -DCHPRINTF_USE_FLOAT=1 $(CFLAGS_EXTRA)
+UDEFS = -DCHPRINTF_USE_FLOAT=1 $(CFLAGS_EXTRA)
 
 # Test adapter selection (default: mock)
 # Set USE_UART_ADAPTER=1 to build with hardware UART adapter
@@ -237,8 +239,8 @@ ifdef USE_UART_ADAPTER
   UDEFS += -DUSE_UART_ADAPTER
 else
   TEST_ADAPTER_SRCS = adapters/adapter_mock.c \
-                      mocks/mock_stream_chibios.c \
-                      mocks/mock_stream_adapter_chibios.c
+                      $(COMMON_DIR)/mocks/mock_stream.c \
+                      $(COMMON_DIR)/mocks/mock_stream_adapter.c
   UDEFS += -DUSE_MOCK_ADAPTER
 endif
 

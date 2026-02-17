@@ -30,12 +30,23 @@
 #include <errno.h>
 
 /**
+ * @brief   Signed size type (not standard in ChibiOS/newlib-nano).
+ */
+typedef int ssize_t;
+
+/**
  * @brief   Thread-local errno access.
  * @details ChibiOS uses standard errno (thread-local if newlib configured with reentrant).
  *          This macro provides consistent interface across platforms.
  * @note    Ensure newlib is configured with --enable-newlib-reent-thread-local for TLS errno.
  */
 #define iohdlc_errno errno
+
+/**
+ * @brief   Platform-independent snprintf.
+ * @details Maps to ChibiOS chsnprintf for consistent formatted printing.
+ */
+#define iohdlc_snprintf chsnprintf
 
 #define iohdlc_event_source_t event_source_t
 
@@ -81,12 +92,16 @@ static inline void iohdlc_sem_init(iohdlc_sem_t *sp, cnt_t n) {
   chSemObjectInit(sp, n);
 }
 
-static inline msg_t iohdlc_sem_wait_timeout(iohdlc_sem_t *sp, uint32_t ms) {
-  return chSemWaitTimeout(sp, TIME_MS2I(ms));
+static inline msg_t iohdlc_sem_wait_timeout(iohdlc_sem_t *sp, uint32_t timeout_ms) {
+  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
+                          TIME_INFINITE : TIME_MS2I(timeout_ms);
+  return chSemWaitTimeout(sp, TIME_MS2I(timeout));
 }
 
-static inline bool iohdlc_sem_wait_ok(iohdlc_sem_t *sp, uint32_t ms) {
-  return chSemWaitTimeout(sp, TIME_MS2I(ms)) == MSG_OK;
+static inline bool iohdlc_sem_wait_ok(iohdlc_sem_t *sp, uint32_t timeout_ms) {
+  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
+                          TIME_INFINITE : TIME_MS2I(timeout_ms);
+  return chSemWaitTimeout(sp, TIME_MS2I(timeout)) == MSG_OK;
 }
 
 static inline void iohdlc_sem_signal_i(iohdlc_sem_t *sp) {
@@ -101,7 +116,9 @@ static inline void iohdlc_bsem_init(iohdlc_binary_semaphore_t *bsp, bool taken) 
   chBSemObjectInit(bsp, taken);
 }
 
-static inline msg_t iohdlc_bsem_wait_timeout(iohdlc_binary_semaphore_t *bsp, sysinterval_t timeout) {
+static inline msg_t iohdlc_bsem_wait_timeout(iohdlc_binary_semaphore_t *bsp, uint32_t timeout_ms) {
+  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
+                          TIME_INFINITE : TIME_MS2I(timeout_ms);
   return chBSemWaitTimeout(bsp, timeout);
 }
 
@@ -124,11 +141,6 @@ static inline void iohdlc_bsem_signal_i(iohdlc_binary_semaphore_t *bsp) {
 /*===========================================================================*/
 
 /**
- * @brief   Convert milliseconds to system ticks (ChibiOS TIME_MS2I wrapper).
- */
-#define IOHDLC_TIME_MS2I(ms) TIME_MS2I(ms)
-
-/**
  * @brief   Infinite timeout constant.
  */
 #define IOHDLC_WAIT_FOREVER  0xFFFFFFFFU
@@ -144,7 +156,7 @@ static inline uint32_t iohdlc_time_now_ms(void) {
 /* Virtual Timer                                                             */
 /*===========================================================================*/
 
-typedef void (*iohdlc_vt_callback_t)(virtual_timer_t *vtp, void *par);
+typedef void (*iohdlc_vt_callback_t)(iohdlc_virtual_timer_t *vtp, void *par);
 
 /**
  * @brief   Initialize virtual timer.
@@ -226,8 +238,10 @@ static inline msg_t iohdlc_condvar_wait(iohdlc_condvar_t *cvp, iohdlc_mutex_t *m
  */
 static inline msg_t iohdlc_condvar_wait_timeout(iohdlc_condvar_t *cvp, 
                                                   iohdlc_mutex_t *mtxp,
-                                                  sysinterval_t timeout) {
+                                                  uint32_t timeout_ms) {
   (void)mtxp;  /* ChibiOS chCondWaitTimeout uses implicit mutex */
+  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
+                          TIME_INFINITE : TIME_MS2I(timeout_ms);
   return chCondWaitTimeout(cvp, timeout);
 }
 

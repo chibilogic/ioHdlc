@@ -19,8 +19,8 @@
 #include "ioHdlc_runner.h"
 #include "ioHdlcfmempool.h"
 #include "ioHdlcosal.h"
-#include "../linux/mocks/mock_stream.h"
-#include "../linux/mocks/mock_stream_adapter.h"
+#include "mock_stream.h"
+#include "mock_stream_adapter.h"
 
 #include <stdio.h>
 #include <stdlib.h>

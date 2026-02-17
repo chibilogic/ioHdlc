@@ -21,7 +21,7 @@
  */
 
 #include "adapter_interface.h"
-#include "../board_config/board_config.h"
+#include "board_config.h"
 #include "ioHdlcstream_uart.h"
 
 /*===========================================================================*/

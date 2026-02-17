@@ -108,7 +108,7 @@ void iohdlc_bsem_signal(iohdlc_bsem_t *bsem) {
  * @param[in] timeout   Timeout in milliseconds
  * @return              0 on success, -ETIMEDOUT on timeout
  */
-int iohdlc_bsem_wait_timeout(iohdlc_bsem_t *bsem, iohdlc_systime_t timeout) {
+int iohdlc_bsem_wait_timeout(iohdlc_bsem_t *bsem, uint32_t timeout) {
   int result = 0;
   
   pthread_mutex_lock(&bsem->mutex);
@@ -217,7 +217,7 @@ msg_t iohdlc_condvar_wait(iohdlc_condvar_t *cvp, iohdlc_mutex_t *mtxp) {
  */
 msg_t iohdlc_condvar_wait_timeout(iohdlc_condvar_t *cvp, 
                                    iohdlc_mutex_t *mtxp,
-                                   iohdlc_systime_t timeout) {
+                                   uint32_t timeout) {
   if (timeout == IOHDLC_TIME_INFINITE) {
     pthread_cond_wait(&cvp->cond, &mtxp->mtx);
     return MSG_OK;
@@ -263,25 +263,13 @@ void iohdlc_condvar_broadcast(iohdlc_condvar_t *cvp) {
 }
 
 /*===========================================================================*/
-/* Memory Allocation                                                         */
-/*===========================================================================*/
-
-void* iohdlc_alloc(size_t size) {
-  return malloc(size);
-}
-
-void iohdlc_free(void* ptr) {
-  free(ptr);
-}
-
-/*===========================================================================*/
 /* System Time                                                               */
 /*===========================================================================*/
 
-iohdlc_systime_t iohdlc_get_systime(void) {
+uint32_t iohdlc_get_systime(void) {
   struct timeval tv;
   gettimeofday(&tv, NULL);
-  return (iohdlc_systime_t)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+  return (uint32_t)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
 }
 
 /*===========================================================================*/
@@ -309,11 +297,17 @@ static void timer_signal_handler(union sigval sv) {
   pthread_mutex_unlock(&vtp->lock);
 }
 
-void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp) {
+void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp,
+                    iohdlc_event_source_t *esp,
+                    uint32_t evt_flag) {
   struct sigevent sev;
   pthread_mutexattr_t attr;
   
   memset(vtp, 0, sizeof *vtp);
+  
+  /* Store event source and flag for unified runner */
+  vtp->esp = esp;
+  vtp->evt_flag = evt_flag;
   
   /* Initialize recursive mutex to allow callback to call vt_set/reset */
   pthread_mutexattr_init(&attr);
@@ -421,6 +415,19 @@ void iohdlc_evt_broadcast_flags(iohdlc_event_source_t *esp, eventflags_t flags) 
   }
   
   pthread_mutex_unlock(&esp->lock);
+}
+
+/**
+ * @brief   Broadcast event flags from ISR context.
+ * @note    On Linux, there is no ISR context, so this is an alias.
+ *
+ * @param[in] esp       Event source
+ * @param[in] flags     Event flags to broadcast
+ */
+void iohdlc_evt_broadcast_flags_isr(iohdlc_event_source_t *esp,
+                                    eventflags_t flags) {
+  /* Linux has no ISR context - just call regular version */
+  iohdlc_evt_broadcast_flags(esp, flags);
 }
 
 /*===========================================================================*/
