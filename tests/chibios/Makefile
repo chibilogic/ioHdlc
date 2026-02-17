@@ -145,6 +145,8 @@ IOHDLC_CORE_SRCS = \
 
 # Common test infrastructure
 COMMON_TEST_SRCS = \
+	$(COMMON_DIR)/test_framework.c \
+	$(COMMON_DIR)/test_config_chibios.c \
 	$(COMMON_DIR)/test_helpers.c \
 	$(COMMON_DIR)/test_arenas.c
 

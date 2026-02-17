@@ -27,6 +27,9 @@
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
 
+#define ioHdlcBroadcastFlags(s, flags) iohdlc_evt_broadcast_flags(&(s)->cm_es, (flags))
+#define ioHdlcBroadcastFlagsApp(s, flags) iohdlc_evt_broadcast_flags(&(s)->app_es, flags)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -72,7 +75,6 @@ void ioHdlcStopReplyTimer(iohdlc_station_peer_t *peer,
                           iohdlc_timer_kind_t timer_kind);
 bool ioHdlcIsReplyTimerExpired(iohdlc_station_peer_t *peer,
                                iohdlc_timer_kind_t timer_kind);
-void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags);
 
 
 /* Thread/task entry points (runner creates threads and calls these). */

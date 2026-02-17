@@ -189,6 +189,34 @@ void test_print_statistics(const test_statistics_t *stats);
  */
 void test_dump_station_state(iohdlc_station_t *station, const char *label);
 
+/*===========================================================================*/
+/* Test Control API (OS-agnostic stop mechanism)                            */
+/*===========================================================================*/
+
+/**
+ * @brief   Global test stop flag.
+ * @details Set by test_request_stop() to signal test threads to terminate.
+ *          On Linux: called from SIGINT handler (Ctrl-C).
+ *          On ChibiOS: called from shell command or monitoring thread.
+ */
+extern volatile bool test_stop_requested;
+
+/**
+ * @brief   Request test to stop gracefully.
+ * @note    Thread-safe: can be called from signal handlers or other threads.
+ */
+static inline void test_request_stop(void) {
+  test_stop_requested = true;
+}
+
+/**
+ * @brief   Check if test stop has been requested.
+ * @return  true if stop requested, false otherwise
+ */
+static inline bool test_should_stop(void) {
+  return test_stop_requested;
+}
+
 #ifdef __cplusplus
 }
 #endif

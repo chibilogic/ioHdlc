@@ -25,6 +25,18 @@
 
 #include "ch.h"
 #include "ioHdlctypes.h"
+#include "ioHdlcosal.h"
+
+/*===========================================================================*/
+/* Runner context                                                            */
+/*===========================================================================*/
+
+typedef struct {
+  iohdlc_thread_t *tx_thread;   /* TX thread reference */
+  iohdlc_thread_t *rx_thread;   /* RX thread reference */
+  bool tx_started;       /* TRUE if TX thread created successfully */
+  bool rx_started;       /* TRUE if RX thread created successfully */
+} runner_context_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,16 +46,17 @@ void ioHdlcRunnerStart(iohdlc_station_t *station);
 void ioHdlcRunnerStop(iohdlc_station_t *station);
 
 /* Reply timer control (runner side, maps to OS timers). */
-void ioHdlcRunnerStartReplyTimer(iohdlc_station_peer_t *peer,
-                                 iohdlc_timer_kind_t timer_kind,
-                                 uint32_t timeout_ms);
-void ioHdlcRunnerRestartReplyTimer(iohdlc_station_peer_t *peer,
-                                   iohdlc_timer_kind_t timer_kind,
-                                   uint32_t timeout_ms);
-void ioHdlcRunnerStopReplyTimer(iohdlc_station_peer_t *peer,
-                                iohdlc_timer_kind_t timer_kind);
-bool ioHdlcRunnerIsReplyTimerExpired(iohdlc_station_peer_t *peer,
-                                     iohdlc_timer_kind_t timer_kind);
+void ioHdlcStartReplyTimer(iohdlc_station_peer_t *peer,
+                           iohdlc_timer_kind_t timer_kind,
+                           uint32_t timeout_ms);
+void ioHdlcRestartReplyTimer(iohdlc_station_peer_t *peer,
+                             iohdlc_timer_kind_t timer_kind,
+                             uint32_t timeout_ms);
+void ioHdlcStopReplyTimer(iohdlc_station_peer_t *peer,
+                          iohdlc_timer_kind_t timer_kind);
+bool ioHdlcIsReplyTimerExpired(iohdlc_station_peer_t *peer,
+                               iohdlc_timer_kind_t timer_kind);
+uint32_t ioHdlcWaitEvents(iohdlc_station_t *station);
 
 #ifdef __cplusplus
 }

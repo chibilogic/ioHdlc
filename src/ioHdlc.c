@@ -444,8 +444,8 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   iohdlc_mutex_init(&peer->state_mutex);        /* Mutex for state */
   
   /* Initialize virtual timers (reply and I-frame reply) */
-  iohdlc_vt_init(&peer->reply_tmr);
-  iohdlc_vt_init(&peer->t3_tmr);
+  iohdlc_vt_init(&peer->reply_tmr, &s->cm_es, IOHDLC_EVT_C_RPLYTMO);
+  iohdlc_vt_init(&peer->t3_tmr, &s->cm_es, IOHDLC_EVT_T3_TMO);
   
   /* Initialize partial read state */
   peer->partial_read_frame = NULL;

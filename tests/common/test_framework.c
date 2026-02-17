@@ -15,6 +15,15 @@
 #include <string.h>
 
 /*===========================================================================*/
+/* Test Control (OS-agnostic stop mechanism)                                */
+/*===========================================================================*/
+
+/**
+ * @brief   Global test stop flag (initialized to false).
+ */
+volatile bool test_stop_requested = false;
+
+/*===========================================================================*/
 /* Statistics Functions                                                      */
 /*===========================================================================*/
 
@@ -315,10 +324,10 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     
     test_printf("\nTimer State:\n");
     test_printf("  T1    timer:  %s%s\n",
-           peer->reply_tmr.armed ? "ACTIVE" : "stopped",
+           iohdlc_vt_is_armed(&peer->reply_tmr) ? "ACTIVE" : "stopped",
            peer->reply_tmr.expired ? " (EXPIRED)" : "");
     test_printf("  T3    timer:  %s%s\n",
-           peer->t3_tmr.armed ? "ACTIVE" : "stopped",
+           iohdlc_vt_is_armed(&peer->t3_tmr) ? "ACTIVE" : "stopped",
            peer->t3_tmr.expired ? " (EXPIRED)" : "");
   } else {
     test_printf("\nNo current peer\n");

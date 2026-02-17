@@ -42,14 +42,17 @@
 typedef event_listener_t iohdlc_event_listener_t;
 
 /**
- * @brief Virtual timer wrapper with expiry state tracking.
- * @note  ChibiOS virtual_timer_t doesn't distinguish between "never started"
- *        and "expired". This wrapper adds a flag to track expiry state.
+ * @brief Extends virtual timer with expiry state tracking and event flag.
+ * @note  This object adds a flag to track expiry state.
+ *        It adds also the event flag to broadcast.
  */
 typedef struct {
-  virtual_timer_t vt;       /* ChibiOS virtual timer. */
-  volatile bool expired;    /* True if timer expired (cleared on start/restart/stop).
-                               Volatile: modified from ISR context, read from thread. */
+  virtual_timer_t vt;         /* ChibiOS virtual timer. */
+  uint32_t  evt_flag;         /* Event flag to broadcast when timer expires. */
+  iohdlc_event_source_t *esp; /* Event source the evt_flag is emitted from. */
+  volatile bool expired;      /* True if timer expired (cleared on
+                                 start/restart/stop). Volatile: modified from
+                                 ISR context, read from thread. */
 } iohdlc_virtual_timer_t;
 
 typedef semaphore_t iohdlc_sem_t;
@@ -141,12 +144,39 @@ static inline uint32_t iohdlc_time_now_ms(void) {
 /* Virtual Timer                                                             */
 /*===========================================================================*/
 
+typedef void (*iohdlc_vt_callback_t)(virtual_timer_t *vtp, void *par);
+
 /**
  * @brief   Initialize virtual timer.
  * @note    On ChibiOS, virtual timers are statically initialized,
  *          so this is a no-op. Just clear the expired flag.
  */
-static inline void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp) {
+static inline void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp,
+                      iohdlc_event_source_t *esp, uint32_t evt_flag) {
+  vtp->expired = false;
+  vtp->esp = esp;
+  vtp->evt_flag = evt_flag;
+}
+
+/**
+ * @brief   Check if virtual timer is armed (running).
+ * @note    ChibiOS native API: chVTIsArmed().
+ *
+ * @param[in] vtp       Virtual timer pointer
+ * @return              true if timer is armed, false otherwise
+ */
+static inline bool iohdlc_vt_is_armed(iohdlc_virtual_timer_t *vtp) {
+  return chVTIsArmed(&vtp->vt);
+}
+
+static inline void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp,
+                    uint32_t delay_ms, iohdlc_vt_callback_t callback,
+                    void *par) {
+  chVTSet(&vtp->vt, TIME_MS2I(delay_ms), (vtfunc_t)callback, par);
+}
+
+static inline void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp) {
+  chVTReset(&vtp->vt);
   vtp->expired = false;
 }
 
@@ -219,7 +249,6 @@ static inline void iohdlc_condvar_broadcast(iohdlc_condvar_t *cvp) {
   chCondBroadcast(cvp);
 }
 
-/* Event source/listener wrappers */
 static inline void iohdlc_evt_init(iohdlc_event_source_t *esp) {
   chEvtObjectInit(esp);
 }
@@ -245,6 +274,18 @@ static inline eventmask_t iohdlc_evt_wait_any_timeout(eventmask_t events,
 
 static inline eventflags_t iohdlc_evt_get_and_clear_flags(iohdlc_event_listener_t *elp) {
   return chEvtGetAndClearFlags(elp);
+}
+
+static inline void iohdlc_evt_broadcast_flags(iohdlc_event_source_t *esp,
+                                    eventflags_t flags) {
+  chEvtBroadcastFlags(esp, flags);
+}
+
+static inline void iohdlc_evt_broadcast_flags_isr(iohdlc_event_source_t *esp,
+                                    eventflags_t flags) {
+  chSysLockFromISR();
+  chEvtBroadcastFlagsI(esp, flags);
+  chSysUnlockFromISR();
 }
 
 static inline void iohdlc_sys_lock_isr(void) { chSysLockFromISR(); }
@@ -329,7 +370,7 @@ typedef struct iohdlc_thread iohdlc_thread_t;
 
 /**
  * @brief   Thread entry point signature.
- * @note    Portable across Linux (void* fn(void*)) and ChibiOS (msg_t fn(void*)).
+ * @note    Portable across different platforms.
  *          Returns void* for compatibility.
  */
 typedef void* (*iohdlc_thread_fn_t)(void* arg);
@@ -405,5 +446,12 @@ static inline void iohdlc_thread_join(iohdlc_thread_t* thread) {
     chHeapFree(thread);
   }
 }
+
+/*===========================================================================*/
+/* Memory allocation                                                         */
+/*===========================================================================*/
+
+#define IOHDLC_MALLOC(size) chHeapAlloc(NULL, size)
+#define IOHDLC_FREE(obj)    chHeapFree(obj)
 
 #endif /* IOHDLCOSAL_H_ */

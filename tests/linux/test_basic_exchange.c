@@ -25,7 +25,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Signal handling (Linux-only) */
+#ifdef __linux__
 #include <signal.h>
+#endif
 
 static iohdlc_station_t *st_pri, *st_sec;
 /*===========================================================================*/
@@ -42,14 +46,17 @@ static iohdlc_station_t *st_pri, *st_sec;
 static volatile bool test_running_global = true;
 
 /*===========================================================================*/
-/* Signal Handler                                                            */
+/* Signal Handler (Linux-only)                                              */
 /*===========================================================================*/
 
+#ifdef __linux__
 static void sigint_handler(int sig) {
   (void)sig;
   test_running_global = false;
+  test_request_stop();  /* Signal stop via OS-agnostic API */
   printf("\n\nTest interrupted. Stopping...\n");
 }
+#endif
 
 /*===========================================================================*/
 /* Thread Functions                                                          */
@@ -80,7 +87,7 @@ static void *writer_thread(void *arg) {
     return NULL;  /* Thread not needed for this direction */
   }
   
-  while (test_running) {
+  while (test_running && !test_should_stop()) {
     /* Check duration */
     if (ctx->config->duration_type == TEST_BY_TIME) {
       uint32_t elapsed = (iohdlc_time_now_ms() - start_time) / 1000;
@@ -147,7 +154,7 @@ static void *reader_thread(void *arg) {
     return NULL;  /* Thread not needed for this direction */
   }
   
-  while (test_running) {
+  while (test_running && !test_should_stop()) {
    
     ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, RTMO);
 
@@ -233,8 +240,10 @@ int main(int argc, char **argv) {
   iohdlc_mutex_init(&stats_mutex_primary);
   iohdlc_mutex_init(&stats_mutex_secondary);
   
-  /* Setup signal handler */
+  /* Setup signal handler (Linux-only) */
+#ifdef __linux__
   signal(SIGINT, sigint_handler);
+#endif
   
   printf("\n");
   printf("========================================\n");
@@ -407,7 +416,7 @@ int main(int argc, char **argv) {
   thread_sec_reader = iohdlc_thread_create("sec_reader", 0, 0, reader_thread, &ctx_sec_reader);
   
   /* Monitor progress */
-  while (test_running_global) {
+  while (test_running_global && !test_should_stop()) {
     ioHdlc_sleep_ms(config.progress_interval_ms);
     elapsed_time = (iohdlc_time_now_ms() - start_time) / 1000;
     

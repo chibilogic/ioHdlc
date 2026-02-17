@@ -22,7 +22,6 @@
  *          - Sequence number validation (N(S), N(R))
  *          - Checkpoint retransmission (ISO 13239 5.6.2.1)
  *          - REJ exception handling with overlap detection
- *          - Runner-ops integration for OS abstraction
  */
 
 #include "ioHdlc_core.h"
@@ -32,9 +31,6 @@
 #include "ioHdlclist.h"
 #include "ioHdlcosal.h"
 #include <errno.h>
-
-/* Runner ops pointer */
-static const ioHdlcRunnerOps *s_runner_ops = NULL;
 
 /* Forward declarations for U-frame handler */
 static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
@@ -67,18 +63,6 @@ static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p) {
 static void ioHdlcSetConnected(iohdlc_station_peer_t *p) {
   p->ss_state |= IOHDLC_SS_ST_CONN;
   iohdlc_condvar_broadcast(&p->tx_cv);  
-}
-
-
-/* Broadcast event flags to station event source. */
-void ioHdlcBroadcastFlags(iohdlc_station_t *s, uint32_t flags) {
-  if (s_runner_ops && s_runner_ops->broadcast_flags)
-    s_runner_ops->broadcast_flags(s, flags);
-}
-
-static void ioHdlcBroadcastFlagsApp(iohdlc_station_t *s, uint32_t flags) {
-  if (s_runner_ops && s_runner_ops->broadcast_flags)
-    s_runner_ops->broadcast_flags_app(s, flags);
 }
 
 /* Clear and release all frames in a queue. */
@@ -369,7 +353,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_ST_CHG);
       
       /* Notify application: DM means link refused or link down. */
-      s_runner_ops->broadcast_flags_app(s, (p->um_state & IOHDLC_UM_SENT) ? 
+      ioHdlcBroadcastFlagsApp(s, (p->um_state & IOHDLC_UM_SENT) ? 
                             IOHDLC_APP_LINK_REFUSED : IOHDLC_APP_LINK_LOST);
       
     } else if (u_cmd == IOHDLC_U_FRMR) {
@@ -1135,7 +1119,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
     /* Poll for new events before sending each I-frame.
        This allows interrupting the burst if "urgent" events occur. */
-    cm_flags |= s_runner_ops->get_events_flags(s);
+    cm_flags |= iohdlc_evt_get_and_clear_flags(&s->cm_listener);
     
     /* Check for urgent events requiring attention:
        - IOHDLC_EVT_LINK_DOWN: Link failure detected */
@@ -1246,7 +1230,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   iohdlc_mutex_lock(&p->state_mutex);
 
   /* Check cm_flags again after re-acquiring the mutex. */
-  cm_flags |= s_runner_ops->get_events_flags(s);
+  cm_flags |= iohdlc_evt_get_and_clear_flags(&s->cm_listener);
 
   iohdlc_frame_t *sframe_to_send = NULL;
   if (p->ss_state & IOHDLC_SS_REJPEND) {
@@ -1340,15 +1324,12 @@ void ioHdlcTxEntry(void *stationp) {
 
   for (;;) {
     p = s->c_peer;
-    if (!cm_flags) {
-      /* if (s_runner_ops && s_runner_ops->wait_events) TODO: change to asserts */
-      cm_flags = s_runner_ops->wait_events(s, 0);
-    }
+    if (!cm_flags)
+      cm_flags = ioHdlcWaitEvents(s);
 
     /* Check if stop requested */
-    if (s->stop_requested) {
+    if (s->stop_requested)
       break;
-    }
     
     if (NULL == p) { cm_flags = 0; continue; }
 
@@ -1475,33 +1456,4 @@ void ioHdlcTxEntry(void *stationp) {
   iohdlc_evt_unregister(&s->cm_es, &s->cm_listener);
   ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_REPLY);
   ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_T3);
-}
-
-void ioHdlcRegisterRunnerOps(const ioHdlcRunnerOps *ops) {
-  s_runner_ops = ops;
-}
-
-void ioHdlcStartReplyTimer(iohdlc_station_peer_t *peer,
-    iohdlc_timer_kind_t timer_kind, uint32_t timeout_ms) {
-  if (s_runner_ops && s_runner_ops->start_reply_timer)
-    s_runner_ops->start_reply_timer(peer, timer_kind, timeout_ms);
-}
-
-void ioHdlcRestartReplyTimer(iohdlc_station_peer_t *peer,
-    iohdlc_timer_kind_t timer_kind, uint32_t timeout_ms) {
-  if (s_runner_ops && s_runner_ops->restart_reply_timer)
-    s_runner_ops->restart_reply_timer(peer, timer_kind, timeout_ms);
-}
-
-void ioHdlcStopReplyTimer(iohdlc_station_peer_t *peer,
-    iohdlc_timer_kind_t timer_kind) {
-  if (s_runner_ops && s_runner_ops->stop_reply_timer)
-    s_runner_ops->stop_reply_timer(peer, timer_kind);
-}
-
-bool ioHdlcIsReplyTimerExpired(iohdlc_station_peer_t *peer,
-    iohdlc_timer_kind_t timer_kind) {
-  if (s_runner_ops && s_runner_ops->is_reply_timer_expired)
-    return s_runner_ops->is_reply_timer_expired(peer, timer_kind);
-  return false;
 }

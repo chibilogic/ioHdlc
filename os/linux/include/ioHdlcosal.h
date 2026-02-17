@@ -467,6 +467,8 @@ bool iohdlc_vt_is_armed(iohdlc_virtual_timer_t *vtp);
 
 void iohdlc_evt_init(iohdlc_event_source_t *esp);
 void iohdlc_evt_broadcast_flags(iohdlc_event_source_t *esp, eventflags_t flags);
+void iohdlc_evt_broadcast_flags_isr(iohdlc_event_source_t *esp,
+                                    eventflags_t flags);
 
 /*===========================================================================*/
 /* Event Listener Operations                                                 */
