@@ -93,7 +93,7 @@ typedef struct iohdlc_virtual_timer {
 } iohdlc_virtual_timer_t;
 
 /**
- * @brief   Thread event state (per-thread events like ChibiOS).
+ * @brief   Thread event state.
  */
 typedef struct {
   pthread_mutex_t lock;
@@ -139,7 +139,7 @@ typedef int32_t msg_t;
 /**
  * @brief   Message return codes.
  */
-#define MSG_OK      0
+#define MSG_OK       0
 #define MSG_TIMEOUT -1
 #define MSG_RESET   -2
 
@@ -298,11 +298,13 @@ static inline void iohdlc_sem_init(iohdlc_sem_t *sp, int32_t n) {
 }
 
 /**
- * @brief   Wait on semaphore with timeout (bool return).
+ * @brief   Wait on semaphore with timeout.
+ *
+ * @return  MSG_OK (0) if no errors.
  */
-static inline bool iohdlc_sem_wait_ok(iohdlc_sem_t *sp, uint32_t ms) {
+static inline bool iohdlc_sem_wait_timeout(iohdlc_sem_t *sp, uint32_t ms) {
   if (ms == IOHDLC_TIME_INFINITE) {
-    return (sem_wait(&sp->sem) == 0);
+    return sem_wait(&sp->sem);
   } else {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
@@ -312,7 +314,7 @@ static inline bool iohdlc_sem_wait_ok(iohdlc_sem_t *sp, uint32_t ms) {
       ts.tv_sec++;
       ts.tv_nsec -= 1000000000L;
     }
-    return (sem_timedwait(&sp->sem, &ts) == 0);
+    return sem_timedwait(&sp->sem, &ts);
   }
 }
 

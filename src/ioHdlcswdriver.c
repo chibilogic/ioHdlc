@@ -194,7 +194,7 @@ static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo) {
   for (;;) {
     /* Wait for RX frame or timeout */
     fp = NULL;
-    if (iohdlc_sem_wait_ok(&drv->raw_recept_sem, tmo)) {
+    if (iohdlc_sem_wait_timeout(&drv->raw_recept_sem, tmo) == MSG_OK) {
       IOHDLC_RAWQ_LOCK(drv->raw_recept_mtx);
       if (!ioHdlc_frameq_isempty(&drv->raw_recept_q))
         fp = ioHdlc_frameq_remove(&drv->raw_recept_q);

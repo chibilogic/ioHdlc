@@ -906,7 +906,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       }
       
       /* Wait for next frame with remaining timeout (counting semaphore) */
-      if (!iohdlc_sem_wait_ok(&peer->i_recept_sem, (iohdlc_timeout_t)remaining_ms)) {
+      if (iohdlc_sem_wait_timeout(&peer->i_recept_sem, remaining_ms) != MSG_OK) {
         /* Timeout: return bytes read so far, or -1 if nothing read yet */
         if (total_bytes_read > 0) {
           break;  /* POSIX: return partial read on timeout */

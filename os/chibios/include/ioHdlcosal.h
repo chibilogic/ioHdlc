@@ -98,12 +98,6 @@ static inline msg_t iohdlc_sem_wait_timeout(iohdlc_sem_t *sp, uint32_t timeout_m
   return chSemWaitTimeout(sp, timeout);
 }
 
-static inline bool iohdlc_sem_wait_ok(iohdlc_sem_t *sp, uint32_t timeout_ms) {
-  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
-                          TIME_INFINITE : TIME_MS2I(timeout_ms);
-  return chSemWaitTimeout(sp, timeout) == MSG_OK;
-}
-
 static inline void iohdlc_sem_signal_i(iohdlc_sem_t *sp) {
   chSemSignalI(sp);
 }

@@ -49,14 +49,14 @@
  * @brief   Number of exchanges per iteration
  */
 #ifndef TEST_EXCHANGES
-#define TEST_EXCHANGES 10
+#define TEST_EXCHANGES 97
 #endif
 
 /**
  * @brief   Packet size in bytes (max 120 for TYPE0 FFF)
  */
 #ifndef TEST_PACKET_SIZE
-#define TEST_PACKET_SIZE 64
+#define TEST_PACKET_SIZE 120
 #endif
 
 /**
