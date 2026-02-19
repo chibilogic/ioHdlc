@@ -22,15 +22,15 @@
 #define TEST_OUTPUT_SD    SD2
 /*
  * Test endpoints for HDLC protocol
- * UARTD2:  UART2 - Endpoint A (Primary station)
- * FUARTD1: FLEXCOM1 UART - Endpoint B (Secondary station)
+ * UARTD1: UART1 - Endpoint A (Primary station)
+ * UARTD6: UART6 - Endpoint B (Secondary station)
  * 
  * Physical connections required:
- *   UARTD2_TX  <-->  FUARTD1_RX
- *   UARTD2_RX  <-->  FUARTD1_TX
+ *   UARTD1_TX  <-->  UARTD6_RX
+ *   UARTD1_RX  <-->  UARTD6_TX
  * 
  * Pin mappings are defined in:
  */
-#define TEST_ENDPOINT_A   UARTD2
-#define TEST_ENDPOINT_B   FUARTD1
+#define TEST_ENDPOINT_A   UARTD1
+#define TEST_ENDPOINT_B   UARTD6
 #endif /* BOARD_NUCLEOF411_H */

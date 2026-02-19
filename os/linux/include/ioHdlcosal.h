@@ -544,6 +544,16 @@ static inline void ioHdlc_sleep_ms(uint32_t ms) {
   nanosleep(&ts, NULL);
 }
 
+/**
+ * @brief   Sleep for microseconds (Linux).
+ */
+static inline void ioHdlc_sleep_us(uint32_t us) {
+  struct timespec ts;
+  ts.tv_sec = us / 1000000;
+  ts.tv_nsec = (us % 1000000) * 1000L;
+  nanosleep(&ts, NULL);
+}
+
 /*===========================================================================*/
 /* Thread Abstraction                                                        */
 /*===========================================================================*/

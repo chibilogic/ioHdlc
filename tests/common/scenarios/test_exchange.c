@@ -1,17 +1,17 @@
 /*
- * ioHdlc Basic Exchange Test - Parametrized Version
+ * ioHdlc Exchange Test - Parametrized Version
  * Copyright (C) 2024 Isidoro Orabona
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 /**
- * @file    test_basic_exchange.c
+ * @file    test_exchange.c
  * @brief   Parametrized HDLC test with real traffic and statistics.
  */
 
-#include "../common/test_framework.h"
-#include "../common/test_helpers.h"
-#include "../common/test_arenas.h"
+#include "../test_framework.h"
+#include "../test_helpers.h"
+#include "../test_arenas.h"
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
 #include "ioHdlcqueue.h"
@@ -134,8 +134,6 @@ static void *writer_thread(void *arg) {
       packets_sent = 0;
       iterations++;
     }
-    
-    ioHdlc_sleep_ms(1);  /* Small yield (was 1us, now 1ms min granularity) */
   }
   fprintf(stderr, "Writer %u Data written (iters %d)!\n", ctx->station->addr, iterations);
   test_running_global = false;

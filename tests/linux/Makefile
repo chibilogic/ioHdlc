@@ -20,7 +20,7 @@ BIN_DIR = $(BUILD_DIR)/bin
 
 # Compiler (force native, not cross-compiler)
 CC = /usr/bin/gcc
-CFLAGS = -Wall -Wextra -std=c11 -g3 -O0
+CFLAGS = -Wall -Wextra -std=c11 -g3 -O2
 CFLAGS += -D_XOPEN_SOURCE=600 -D_GNU_SOURCE
 CFLAGS += -pthread
 CFLAGS += -I$(INCLUDE_DIR)
@@ -71,13 +71,13 @@ LINUX_TEST_SRCS = \
 	$(SCENARIOS_DIR)/test_mock_stream.c \
 	$(SCENARIOS_DIR)/test_osal_bsem.c \
 	$(SCENARIOS_DIR)/test_osal_events.c \
-	$(LINUX_DIR)/test_basic_exchange.c
+	$(COMMON_SCENARIOS_DIR)/test_exchange.c
 
 # Test scenarios
 TEST_MOCK_STREAM = test_mock_stream
 TEST_BASIC_CONNECTION = test_basic_connection
 TEST_BASIC_CONNECTION_TWA = test_basic_connection_twa
-TEST_BASIC_EXCHANGE = test_basic_exchange
+TEST_EXCHANGE = test_exchange
 TEST_FRAME_POOL = test_frame_pool
 TEST_CHECKPOINT_TWS = test_checkpoint_tws
 TEST_CHECKPOINT_TWA = test_checkpoint_twa
@@ -109,7 +109,7 @@ AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
 
 # Manual test tools (require command-line parameters)
-MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_BASIC_EXCHANGE)
+MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_EXCHANGE)
 
 # All test binaries
 TEST_BINS = $(AUTO_TEST_BINS) $(MANUAL_TEST_BINS)
@@ -176,7 +176,7 @@ $(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA): $(OBJ_DIR)/test_runner_basic_connection
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_BASIC_EXCHANGE): $(OBJ_DIR)/test_basic_exchange.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_EXCHANGE): $(OBJ_DIR)/test_exchange.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
@@ -259,7 +259,7 @@ help:
 	@echo "  make CFLAGS_EXTRA=\"-DIOHDLC_LOG_LEVEL=1\"     # Enable frame logging"
 	@echo ""
 	@echo "Manual test tools (require command-line parameters):"
-	@echo "  build/bin/test_basic_exchange --help         # Parametrized HDLC testing"
+	@echo "  build/bin/test_exchange --help               # Parametrized HDLC testing"
 	@echo ""
 	@echo "Logging levels (IOHDLC_LOG_LEVEL):"
 	@echo "  0 - OFF (default, zero overhead)"

@@ -367,6 +367,13 @@ static inline void ioHdlc_sleep_ms(uint32_t ms) {
   chThdSleepMilliseconds(ms);
 }
 
+/**
+ * @brief   Sleep for microseconds (ChibiOS).
+ */
+static inline void ioHdlc_sleep_us(uint32_t us) {
+  chThdSleepMicroseconds(us);
+}
+
 /*===========================================================================*/
 /* Thread Abstraction                                                        */
 /*===========================================================================*/
