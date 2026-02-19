@@ -238,6 +238,8 @@ msg_t iohdlc_condvar_wait_timeout(iohdlc_condvar_t *cvp,
   
   /* Wait with timeout */
   int ret = pthread_cond_timedwait(&cvp->cond, &mtxp->mtx, &ts);
+  if (ret == ETIMEDOUT)
+    pthread_mutex_unlock(&mtxp->mtx);
   
   return (ret == ETIMEDOUT) ? MSG_TIMEOUT : MSG_OK;
 }

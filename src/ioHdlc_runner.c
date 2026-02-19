@@ -52,7 +52,7 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
   station->stop_requested = false;
   
   /* Create TX thread and save reference (joinable) */
-  ctx->tx_thread = iohdlc_thread_create("HDLC-TX", 2048, NORMALPRIO + 1,
+  ctx->tx_thread = iohdlc_thread_create("HDLC-TX", 2048, NORMALPRIO + 2,
                                          HdlcTxThread, station);
   if (ctx->tx_thread == NULL) {
     /* TX thread creation failed - cleanup and abort */

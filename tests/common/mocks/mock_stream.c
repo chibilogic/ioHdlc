@@ -74,10 +74,8 @@ static size_t buffer_write(mock_buffer_t *buf, const uint8_t *data, size_t size,
       
       msg_t result = iohdlc_condvar_wait_timeout(&buf->not_full, &buf->lock, 
           timeout_ms);
-      if (result == MSG_TIMEOUT) {
-        iohdlc_mutex_unlock(&buf->lock);
+      if (result == MSG_TIMEOUT)
         return written;
-      }
     }
     
     /* Write one byte */
@@ -116,10 +114,8 @@ static size_t buffer_read(mock_buffer_t *buf, uint8_t *data, size_t size,
     
     msg_t result = iohdlc_condvar_wait_timeout(&buf->not_empty, &buf->lock, 
         timeout_ms);
-    if (result == MSG_TIMEOUT) {
-      iohdlc_mutex_unlock(&buf->lock);
+    if (result == MSG_TIMEOUT)
       return 0;
-    }
   }
   
   /* Read available bytes (up to size) */
