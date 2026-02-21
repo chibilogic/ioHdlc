@@ -30,6 +30,7 @@
 
 /* ioHdlcDriver VMT implementation */
 static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFramePool *fpp);
+static void drv_stop(void *instance);
 static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp);
 static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo);
 static const ioHdlcDriverCapabilities* drv_get_capabilities(void *instance);
@@ -68,6 +69,7 @@ static const ioHdlcDriverCapabilities s_swdriver_caps = {
 
 static const struct _iohdlc_driver_vmt s_vmt = {
   .start                 = drv_start,
+  .stop                  = drv_stop,
   .send_frame            = drv_send_frame,
   .recv_frame            = drv_recv_frame,
   .get_capabilities      = drv_get_capabilities,
@@ -123,6 +125,27 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   (void)drv->port.ops->rx_submit(drv->port.ctx, drv->rx_stagep, 1);
   
   drv->started = true;
+}
+
+static void drv_stop(void *instance) {
+  ioHdlcSwDriver *drv = (ioHdlcSwDriver *)instance;
+  
+  if (!drv || !drv->started) {
+    return;
+  }
+  
+  /* Stop port (terminates RX thread) */
+  if (drv->port.ops && drv->port.ops->stop) {
+    drv->port.ops->stop(drv->port.ctx);
+  }
+  
+  /* Free staging buffer */
+  if (drv->rx_stagep) {
+    iohdlc_dma_free(drv->rx_stagep);
+    drv->rx_stagep = NULL;
+  }
+  
+  drv->started = false;
 }
 
 static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {

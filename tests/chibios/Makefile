@@ -144,10 +144,13 @@ IOHDLC_CORE_SRCS = \
 	$(SRC_DIR)/ioHdlcpool_common.c \
 	$(SRC_DIR)/ioHdlc_runner.c
 
+# ChibiOS platform-specific config
+CHIBIOS_CONFIG_SRCS = \
+	$(CHIBIOS_DIR)/test_config_chibios.c
+
 # Common test infrastructure
 COMMON_TEST_SRCS = \
 	$(COMMON_DIR)/test_framework.c \
-	$(COMMON_DIR)/test_config_chibios.c \
 	$(COMMON_DIR)/test_helpers.c \
 	$(COMMON_DIR)/test_arenas.c
 
@@ -168,6 +171,7 @@ TEST_MAIN_SRC = main_tests.c
 # All C sources
 CSRC = $(ALLCSRC) \
        $(IOHDLC_CORE_SRCS) \
+       $(CHIBIOS_CONFIG_SRCS) \
        $(COMMON_TEST_SRCS) \
        $(TEST_ADAPTER_SRCS) \
        $(COMMON_TEST_SCENARIOS) \
@@ -194,6 +198,7 @@ INCDIR = $(CONFDIR) \
          $(OS_CHIBIOS_DIR)/include \
          $(COMMON_DIR) \
          $(COMMON_DIR)/mocks \
+         $(COMMON_DIR)/adapters \
          $(CHIBIOS_DIR) \
          $(CHIBIOS_DIR)/adapters \
          $(CHIBIOS_DIR)/board_config \
@@ -238,7 +243,7 @@ ifdef USE_UART_ADAPTER
   TEST_ADAPTER_SRCS = adapters/adapter_uart.c
   UDEFS += -DUSE_UART_ADAPTER
 else
-  TEST_ADAPTER_SRCS = adapters/adapter_mock.c \
+  TEST_ADAPTER_SRCS = $(COMMON_DIR)/adapters/adapter_mock.c \
                       $(COMMON_DIR)/mocks/mock_stream.c \
                       $(COMMON_DIR)/mocks/mock_stream_adapter.c
   UDEFS += -DUSE_MOCK_ADAPTER

@@ -43,17 +43,30 @@ typedef struct {
 } mock_stream_adapter_t;
 
 /**
- * @brief   Create mock stream adapter.
+ * @brief   Create mock stream adapter (dynamic allocation).
  * @param[in] stream    Mock stream instance
  * @return              Initialized adapter
  */
 mock_stream_adapter_t* mock_stream_adapter_create(mock_stream_t *stream);
 
 /**
- * @brief   Destroy mock stream adapter.
+ * @brief   Destroy mock stream adapter (frees memory).
  * @param[in] adapter   Adapter to destroy
  */
 void mock_stream_adapter_destroy(mock_stream_adapter_t *adapter);
+
+/**
+ * @brief   Initialize mock stream adapter (static allocation).
+ * @param[in] adapter   Pre-allocated adapter structure
+ * @param[in] stream    Mock stream instance
+ */
+void mock_stream_adapter_init(mock_stream_adapter_t *adapter, mock_stream_t *stream);
+
+/**
+ * @brief   Deinitialize mock stream adapter (does not free memory).
+ * @param[in] adapter   Adapter to deinitialize
+ */
+void mock_stream_adapter_deinit(mock_stream_adapter_t *adapter);
 
 /**
  * @brief   Get ioHdlcStreamPort for adapter.

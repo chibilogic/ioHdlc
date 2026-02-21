@@ -21,16 +21,15 @@
  *          - Data exexchange in Two-Way Alternate (TWA) mode
  */
 
-#include "../../common/test_helpers.h"
-#include "../../common/test_arenas.h"
+#include "test_helpers.h"
+#include "test_arenas.h"
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
 #include "ioHdlcqueue.h"
 #include "ioHdlcswdriver.h"
 #include "ioHdlc_runner.h"
 #include "ioHdlcfmempool.h"
-#include "mock_stream.h"
-#include "mock_stream_adapter.h"
+#include "adapter_interface.h"
 #include <string.h>
 #include <errno.h>
 
@@ -59,7 +58,7 @@
  *          - Echo response from secondary to primary
  *          - Complete round-trip data integrity
  */
-bool test_data_exchange_twa(void) {
+bool test_data_exchange_twa(const test_adapter_t *adapter) {
   int test_result = 0;  /* Success by default, set to 1 on failure */
   
   /* Test message */
@@ -67,41 +66,22 @@ bool test_data_exchange_twa(void) {
   size_t msg_len = strlen(test_msg);
   
   /* Setup: same as test_snrm_handshake */
-  mock_stream_t *stream_primary, *stream_secondary;
-  mock_stream_adapter_t *adapter_primary=0, *adapter_secondary=0;
   ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t config;
   int32_t result;
   
-  /* Create mock streams */
-  mock_stream_config_t stream_config = {
-    .loopback = false,
-    .inject_errors = false,
-    .error_rate = 0,
-    .delay_us = 100
-  };
-  
-  stream_primary = mock_stream_create(&stream_config);
-  stream_secondary = mock_stream_create(&stream_config);
-  TEST_ASSERT_GOTO(stream_primary != NULL && stream_secondary != NULL, "Stream creation failed");
-  mock_stream_connect(stream_primary, stream_secondary);
-  
-  /* Create adapters */
-  adapter_primary = mock_stream_adapter_create(stream_primary);
-  adapter_secondary = mock_stream_adapter_create(stream_secondary);
-  TEST_ASSERT_GOTO(adapter_primary != NULL && adapter_secondary != NULL, "Adapter creation failed");
-  
-  /* Get ports */
-  ioHdlcStreamPort port_primary = mock_stream_adapter_get_port(adapter_primary);
-  ioHdlcStreamPort port_secondary = mock_stream_adapter_get_port(adapter_secondary);
+  /* Get stream ports from adapter */
+  ioHdlcStreamPort port_primary = adapter->get_port_a();
+  ioHdlcStreamPort port_secondary = adapter->get_port_b();
   
   /* Initialize stream drivers */
   ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
   
   /* Configure primary station */
+  memset(&config, 0, sizeof config);
   config.mode = IOHDLC_OM_NRM;
   config.flags = IOHDLC_FLG_PRI | IOHDLC_FLG_TWA;
   config.log2mod = 3;
@@ -115,6 +95,7 @@ bool test_data_exchange_twa(void) {
   config.optfuncs = NULL;
   config.phydriver = &port_primary;
   config.phydriver_config = NULL;
+  config.reply_timeout_ms = 0;  /* Use default (100ms) */
   
   memset(&station_primary, 0, sizeof station_primary);
   result = ioHdlcStationInit(&station_primary, &config);
@@ -135,6 +116,7 @@ bool test_data_exchange_twa(void) {
   config.optfuncs = NULL;
   config.phydriver = &port_secondary;
   config.phydriver_config = NULL;
+  config.reply_timeout_ms = 0;  /* Use default (100ms) */
   
   memset(&station_secondary, 0, sizeof station_secondary);
   result = ioHdlcStationInit(&station_secondary, &config);
@@ -236,11 +218,9 @@ test_cleanup:
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);
   
-  /* Cleanup */
-  mock_stream_adapter_destroy(adapter_primary);
-  mock_stream_adapter_destroy(adapter_secondary);
-  mock_stream_destroy(stream_primary);
-  mock_stream_destroy(stream_secondary);
+  /* Stop drivers (terminate RX threads) */
+  ioHdlcSwDriverStop(&driver_primary);
+  ioHdlcSwDriverStop(&driver_secondary);
   
   return test_result;
 }

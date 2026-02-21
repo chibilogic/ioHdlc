@@ -23,6 +23,7 @@
 
 #include "../common/test_helpers.h"
 #include "../common/test_scenarios.h"
+#include "adapter_mock.h"
 
 /**
  * @brief   Main test runner entry point.
@@ -36,8 +37,15 @@ int main(void) {
 
   RUN_TEST(test_station_creation);
   RUN_TEST(test_peer_creation);
-  RUN_TEST(test_snrm_handshake);
-  RUN_TEST(test_data_exchange);
+  
+  /* Each adapter test gets fresh streams to avoid cross-test contamination */
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_snrm_handshake, &mock_adapter);
+  mock_adapter.deinit();
+  
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_data_exchange, &mock_adapter);
+  mock_adapter.deinit();
 
   TEST_SUMMARY();
 

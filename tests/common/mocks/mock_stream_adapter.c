@@ -65,6 +65,15 @@ mock_stream_adapter_t* mock_stream_adapter_create(mock_stream_t *stream) {
     return NULL;
   }
   
+  mock_stream_adapter_init(adapter, stream);
+  return adapter;
+}
+
+void mock_stream_adapter_init(mock_stream_adapter_t *adapter, mock_stream_t *stream) {
+  if (!adapter || !stream) {
+    return;
+  }
+  
   memset(adapter, 0, sizeof(*adapter));
   adapter->stream = stream;
   adapter->running = false;
@@ -73,11 +82,18 @@ mock_stream_adapter_t* mock_stream_adapter_create(mock_stream_t *stream) {
   adapter->rx_buf = NULL;
   adapter->rx_len = 0;
   adapter->rx_pos = 0;
-  
-  return adapter;
 }
 
 void mock_stream_adapter_destroy(mock_stream_adapter_t *adapter) {
+  if (!adapter) {
+    return;
+  }
+  
+  mock_stream_adapter_deinit(adapter);
+  IOHDLC_FREE(adapter);
+}
+
+void mock_stream_adapter_deinit(mock_stream_adapter_t *adapter) {
   if (!adapter) {
     return;
   }
@@ -88,8 +104,6 @@ void mock_stream_adapter_destroy(mock_stream_adapter_t *adapter) {
     iohdlc_thread_join(adapter->rx_thread);
     adapter->thread_started = false;
   }
-  
-  IOHDLC_FREE(adapter);
 }
 
 ioHdlcStreamPort mock_stream_adapter_get_port(mock_stream_adapter_t *adapter) {
@@ -107,13 +121,18 @@ ioHdlcStreamPort mock_stream_adapter_get_port(mock_stream_adapter_t *adapter) {
 static void port_start(void *ctx, const ioHdlcStreamCallbacks *cbs) {
   mock_stream_adapter_t *adapter = (mock_stream_adapter_t *)ctx;
   
-  if (!adapter || adapter->running) {
+  if (!adapter) {
     return;
   }
   
-  /* Save callbacks */
+  /* Always update callbacks (they may contain new cb_ctx pointers after LinkUp) */
   if (cbs) {
     adapter->callbacks = *cbs;
+  }
+  
+  /* If already running, don't restart RX thread */
+  if (adapter->running) {
+    return;
   }
   
   /* Start RX thread */

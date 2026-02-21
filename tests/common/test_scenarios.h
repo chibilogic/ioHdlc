@@ -25,6 +25,7 @@
 #define TEST_SCENARIOS_H_
 
 #include <stdbool.h>
+#include "adapter_interface.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,32 +47,32 @@ int test_exhaust_pool(void);
 
 bool test_station_creation(void);
 bool test_peer_creation(void);
-bool test_snrm_handshake(void);
-bool test_data_exchange(void);
+bool test_snrm_handshake(const test_adapter_t *adapter);
+bool test_data_exchange(const test_adapter_t *adapter);
 
 /*===========================================================================*/
 /* Test: Basic Connection TWA                                                */
 /*===========================================================================*/
 
-bool test_data_exchange_twa(void);
+bool test_data_exchange_twa(const test_adapter_t *adapter);
 
-bool test_data_exchange_twa(void);
+bool test_data_exchange_twa(const test_adapter_t *adapter);
 
 /*===========================================================================*/
 /* Test: Checkpoint TWS                                                      */
 /*===========================================================================*/
 
-bool test_A1_1_frame_loss_window_full(void);
-bool test_A2_1_multiple_frame_loss(void);
-bool test_A2_2_first_and_last_frame_loss(void);
+bool test_A1_1_frame_loss_window_full(const test_adapter_t *adapter);
+bool test_A2_1_multiple_frame_loss(const test_adapter_t *adapter);
+bool test_A2_2_first_and_last_frame_loss(const test_adapter_t *adapter);
 
 /*===========================================================================*/
 /* Test: Checkpoint TWA                                                      */
 /*===========================================================================*/
 
-bool test_A1_1_frame_loss_window_full_twa(void);
-bool test_A2_1_multiple_frame_loss_twa(void);
-bool test_A2_2_first_and_last_frame_loss_twa(void);
+bool test_A1_1_frame_loss_window_full_twa(const test_adapter_t *adapter);
+bool test_A2_1_multiple_frame_loss_twa(const test_adapter_t *adapter);
+bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter);
 bool test_checkpoint_with_rej_twa(void);
 bool test_checkpoint_window_full_twa(void);
 

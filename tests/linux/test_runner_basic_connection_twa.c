@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include "../common/test_helpers.h"
 #include "../common/test_scenarios.h"
+#include "adapter_mock.h"
 
 /*===========================================================================*/
 /* Main Test Runner                                                          */
@@ -20,7 +21,13 @@ int main(void) {
   test_printf("  ioHdlc Test Suite - Basic Connection (TWA Mode)\n");
   test_printf("═══════════════════════════════════════════════════════════════\n\n");
 
-  RUN_TEST(test_data_exchange_twa);
+  /* Initialize adapter */
+  mock_adapter.init();
+
+  RUN_TEST_ADAPTER(test_data_exchange_twa, &mock_adapter);
+
+  /* Deinitialize adapter */
+  mock_adapter.deinit();
 
   TEST_SUMMARY();
 

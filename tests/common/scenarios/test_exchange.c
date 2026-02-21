@@ -568,6 +568,10 @@ cleanup:
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);
   
+  /* Stop drivers (terminate RX threads) */
+  ioHdlcSwDriverStop(&driver_primary);
+  ioHdlcSwDriverStop(&driver_secondary);
+  
   /* Cleanup */
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);

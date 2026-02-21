@@ -27,6 +27,7 @@ CFLAGS += -I$(INCLUDE_DIR)
 CFLAGS += -I$(OS_LINUX_DIR)/include
 CFLAGS += -I$(MOCKS_DIR)
 CFLAGS += -I$(COMMON_DIR)
+CFLAGS += -I$(COMMON_DIR)/adapters
 CFLAGS += -I$(LINUX_DIR)
 CFLAGS += -DIOHDLC_USE_POSIX
 CFLAGS += $(CFLAGS_EXTRA)
@@ -52,11 +53,16 @@ MOCK_SRCS = \
 	$(MOCKS_DIR)/mock_stream.c \
 	$(MOCKS_DIR)/mock_stream_adapter.c
 
+ADAPTER_SRCS = \
+	$(COMMON_DIR)/adapters/adapter_mock.c
+
+LINUX_CONFIG_SRCS = \
+	$(LINUX_DIR)/test_config_linux.c
+
 COMMON_SRCS = \
 	$(COMMON_DIR)/test_helpers.c \
 	$(COMMON_DIR)/test_arenas.c \
-	$(COMMON_DIR)/test_framework.c \
-	$(COMMON_DIR)/test_config_linux.c
+	$(COMMON_DIR)/test_framework.c
 
 # OS-agnostic test scenarios (shared across all platforms)
 COMMON_TEST_SRCS = \
@@ -88,6 +94,8 @@ TEST_OSAL_EVENTS = test_osal_events
 CORE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
 OSAL_OBJS = $(patsubst $(OS_LINUX_DIR)/src/%.c,$(OBJ_DIR)/osal_%.o,$(OSAL_SRCS))
 MOCK_OBJS = $(patsubst $(MOCKS_DIR)/%.c,$(OBJ_DIR)/mock_%.o,$(MOCK_SRCS))
+ADAPTER_OBJS = $(patsubst $(COMMON_DIR)/adapters/%.c,$(OBJ_DIR)/%.o,$(ADAPTER_SRCS))
+LINUX_CONFIG_OBJS = $(patsubst $(LINUX_DIR)/%.c,$(OBJ_DIR)/%.o,$(LINUX_CONFIG_SRCS))
 COMMON_OBJS = $(patsubst $(COMMON_DIR)/%.c,$(OBJ_DIR)/common_%.o,$(COMMON_SRCS))
 
 # Common test scenario objects (OS-agnostic test logic)
@@ -96,7 +104,7 @@ COMMON_TEST_OBJS = $(patsubst $(COMMON_SCENARIOS_DIR)/%.c,$(OBJ_DIR)/%.o,$(COMMO
 # Minimal OSAL for tests that only need time functions (test_framework dependency)
 OSAL_MINIMAL = $(OBJ_DIR)/osal_ioHdlcosal.o
 
-ALL_OBJS = $(CORE_OBJS) $(OSAL_OBJS) $(MOCK_OBJS) $(COMMON_OBJS)
+ALL_OBJS = $(CORE_OBJS) $(OSAL_OBJS) $(MOCK_OBJS) $(ADAPTER_OBJS) $(LINUX_CONFIG_OBJS) $(COMMON_OBJS)
 
 # Test binaries
 AUTO_TEST_BINS = $(BIN_DIR)/$(TEST_MOCK_STREAM)
@@ -135,6 +143,16 @@ $(OBJ_DIR)/osal_%.o: $(OS_LINUX_DIR)/src/%.c
 # Compile mock sources
 $(OBJ_DIR)/mock_%.o: $(MOCKS_DIR)/%.c
 	@echo "CC $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile adapter sources (from common/adapters)
+$(OBJ_DIR)/adapter_%.o: $(COMMON_DIR)/adapters/adapter_%.c
+	@echo "CC $< (adapter)"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile platform config sources
+$(OBJ_DIR)/test_config_%.o: $(LINUX_DIR)/test_config_%.c
+	@echo "CC $< (config)"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 # Compile common sources

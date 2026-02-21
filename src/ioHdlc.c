@@ -350,10 +350,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
 
   /* Start driver if physical device provided */
   if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
-    ioHdlcsp->driver->vmt->start(ioHdlcsp->driver, 
-                                  ioHdlcsconfp->phydriver,
-                                  ioHdlcsconfp->phydriver_config,
-                                  (ioHdlcFramePool *)&ioHdlcsp->frame_pool);
+    hdlcStart(ioHdlcsp->driver,
+              ioHdlcsconfp->phydriver,
+              ioHdlcsconfp->phydriver_config,
+              (ioHdlcFramePool *)&ioHdlcsp->frame_pool);
   }
 
   iohdlc_errno = 0;

@@ -43,6 +43,13 @@ typedef struct {
   void (*deinit)(void);
   
   /**
+   * @brief Reset adapter state (clear buffers) between tests.
+   * @details Optional: If NULL, no reset is performed.
+   *          Clears TX/RX buffers without destroying threads/state.
+   */
+  void (*reset)(void);
+  
+  /**
    * @brief Get ioHdlcStreamPort for endpoint A (Primary station).
    * @return Port structure with ctx and ops configured.
    */
@@ -53,6 +60,15 @@ typedef struct {
    * @return Port structure with ctx and ops configured.
    */
   ioHdlcStreamPort (*get_port_b)(void);
+  
+  /**
+   * @brief Configure error injection (optional, mock adapters only).
+   * @param[in] error_rate_percent  Error rate 0-100% (0=disabled).
+   * @return 0 on success, -1 if not supported.
+   * @note This function may be NULL for adapters that don't support error injection.
+   *       Hardware adapters (UART) typically set this to NULL.
+   */
+  int (*configure_error_injection)(unsigned int error_rate_percent);
   
 } test_adapter_t;
 

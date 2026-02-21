@@ -99,6 +99,8 @@ const test_adapter_t uart_adapter = {
   .name = "UART Hardware",
   .init = adapter_uart_init,
   .deinit = adapter_uart_deinit,
+  .reset = NULL,  /* Not needed for hardware */
   .get_port_a = adapter_uart_get_port_a,
-  .get_port_b = adapter_uart_get_port_b
+  .get_port_b = adapter_uart_get_port_b,
+  .configure_error_injection = NULL  /* Not supported on hardware */
 };

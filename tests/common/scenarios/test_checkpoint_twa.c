@@ -27,8 +27,8 @@
  *          These tests disable REJ to validate checkpoint-only recovery.
  */
 
-#include "../../common/test_helpers.h"
-#include "../../common/test_arenas.h"
+#include "test_helpers.h"
+#include "test_arenas.h"
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
 #include "ioHdlcqueue.h"
@@ -37,6 +37,7 @@
 #include "ioHdlcfmempool.h"
 #include <string.h>
 #include <errno.h>
+#include "adapter_interface.h"
 #include "mock_stream.h"
 #include "mock_stream_adapter.h"
 
@@ -193,7 +194,7 @@ static bool wait_for_condition(bool (*condition)(void *), void *arg, uint32_t ti
  * @note    This test validates checkpoint retransmission (ISO 13239 5.6.2.1).
  * @return  0 on success, 1 on failure
  */
-bool test_A1_1_frame_loss_window_full_twa(void) {
+bool test_A1_1_frame_loss_window_full_twa(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -202,6 +203,13 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   iohdlc_station_config_t config;
   int32_t result;
+  
+  /* Verify adapter supports error injection */
+  if (!adapter || !adapter->configure_error_injection) {
+    test_printf("❌ FAIL: This test requires an adapter with error injection support\r\n");
+    test_failures++;
+    return 1;
+  }
   
   /* Configure mock stream for primary: inject errors when writing to secondary */
   mock_stream_config_t stream_config = {
@@ -404,6 +412,8 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   /* Cleanup */
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);
+  ioHdlcSwDriverStop(&driver_primary);
+  ioHdlcSwDriverStop(&driver_secondary);
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);
   mock_stream_destroy(stream_primary);
@@ -416,7 +426,7 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
  * @brief   Test A.2.1: Multiple frame loss (N(S)=1 and N(S)=3).
  * @details Same as A.1.1 but with two non-consecutive frames lost.
  */
-bool test_A2_1_multiple_frame_loss_twa(void) {
+bool test_A2_1_multiple_frame_loss_twa(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -425,6 +435,13 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   iohdlc_station_config_t config;
   int32_t result;
+  
+  /* Verify adapter supports error injection */
+  if (!adapter || !adapter->configure_error_injection) {
+    test_printf("❌ FAIL: This test requires an adapter with error injection support\r\n");
+    test_failures++;
+    return 1;
+  }
   
   /* Configure mock stream for primary: inject errors when writing to secondary */
   mock_stream_config_t stream_config = {
@@ -621,6 +638,8 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   /* Cleanup */
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);
+  ioHdlcSwDriverStop(&driver_primary);
+  ioHdlcSwDriverStop(&driver_secondary);
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);
   mock_stream_destroy(stream_primary);
@@ -633,7 +652,7 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
  * @brief   Test A.2.2: First and last frame loss (N(S)=0 and N(S)=7).
  * @details Same as A.1.1 but first and last frames are lost.
  */
-bool test_A2_2_first_and_last_frame_loss_twa(void) {
+bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -642,6 +661,13 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   iohdlc_station_config_t config;
   int32_t result;
+  
+  /* Verify adapter supports error injection */
+  if (!adapter || !adapter->configure_error_injection) {
+    test_printf("❌ FAIL: This test requires an adapter with error injection support\r\n");
+    test_failures++;
+    return 1;
+  }
   
   /* Configure mock stream for primary: inject errors when writing to secondary */
   mock_stream_config_t stream_config = {
@@ -838,6 +864,8 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   /* Cleanup */
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);
+  ioHdlcSwDriverStop(&driver_primary);
+  ioHdlcSwDriverStop(&driver_secondary);
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);
   mock_stream_destroy(stream_primary);
