@@ -339,8 +339,10 @@ int main(int argc, char **argv) {
   
   /* Start runners */
   printf("Starting HDLC protocol runners...\n");
-  ioHdlcRunnerStart(&station_primary);
-  ioHdlcRunnerStart(&station_secondary);
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT(result == 0, "Failed to start secondary runner");
   ioHdlc_sleep_ms(50);
   
   /* Establish connection */

@@ -164,26 +164,6 @@ static bool drop_frames_0_and_7_filter(uint32_t write_count, const uint8_t *data
 /* Test Helpers                                                              */
 /*===========================================================================*/
 
-/**
- * @brief   Wait for condition with timeout.
- * @param   condition   Condition to wait for
- * @param   timeout_ms  Timeout in milliseconds
- * @return  true if condition met, false if timeout
- */
-static bool wait_for_condition(bool (*condition)(void *), void *arg, uint32_t timeout_ms) {
-  uint32_t elapsed = 0;
-  const uint32_t poll_interval = 10;  /* ms */
-  
-  while (elapsed < timeout_ms) {
-    if (condition(arg)) {
-      return true;
-    }
-    ioHdlc_sleep_ms(poll_interval);
-    elapsed += poll_interval;
-  }
-  return false;
-}
-
 /*===========================================================================*/
 /* Test: Scenario A.1.1 - Frame Loss with Window Full (TWS without REJ)    */
 /*===========================================================================*/
@@ -317,8 +297,10 @@ bool test_A1_1_frame_loss_window_full(const test_adapter_t *adapter) {
   
   /* Start runner threads for both stations */
   test_printf("Starting runner threads...\r\n");
-  ioHdlcRunnerStart(&station_primary);
-  ioHdlcRunnerStart(&station_secondary);
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
   /* Wait for threads to be ready */
   ioHdlc_sleep_ms(100);
@@ -549,8 +531,10 @@ bool test_A2_1_multiple_frame_loss(const test_adapter_t *adapter) {
   
   /* Start runner threads for both stations */
   test_printf("Starting runner threads...\r\n");
-  ioHdlcRunnerStart(&station_primary);
-  ioHdlcRunnerStart(&station_secondary);
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
   /* Wait for threads to be ready */
   ioHdlc_sleep_ms(100);
@@ -781,8 +765,10 @@ bool test_A2_2_first_and_last_frame_loss(const test_adapter_t *adapter) {
   
   /* Start runner threads for both stations */
   test_printf("Starting runner threads...\r\n");
-  ioHdlcRunnerStart(&station_primary);
-  ioHdlcRunnerStart(&station_secondary);
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
   /* Wait for threads to be ready */
   ioHdlc_sleep_ms(100);

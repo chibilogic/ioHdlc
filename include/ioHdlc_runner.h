@@ -41,8 +41,21 @@ typedef struct {
 extern "C" {
 #endif
 
-void ioHdlcRunnerStart(iohdlc_station_t *station);
-void ioHdlcRunnerStop(iohdlc_station_t *station);
+/**
+ * @brief   Start HDLC runner (TX/RX threads).
+ * @param[in] station   Station to start runner for
+ * @return              0 on success, -1 on failure (check iohdlc_errno)
+ * @retval 0            Success
+ * @retval -1           Failure (errno: ENOMEM=out of memory, EAGAIN=thread creation failed)
+ */
+int32_t ioHdlcRunnerStart(iohdlc_station_t *station);
+
+/**
+ * @brief   Stop HDLC runner (join TX/RX threads).
+ * @param[in] station   Station to stop runner for
+ * @return              0 on success (always succeeds)
+ */
+int32_t ioHdlcRunnerStop(iohdlc_station_t *station);
 
 /* Reply timer control (runner side, maps to OS timers). */
 void ioHdlcStartReplyTimer(iohdlc_station_peer_t *peer,

@@ -25,6 +25,7 @@
 #include "ioHdlc.h"
 #include "ioHdlcosal.h"
 #include <string.h>
+#include <errno.h>
 
 /*===========================================================================*/
 /* Forward declarations for runner ops                                       */
@@ -40,12 +41,13 @@ static void *HdlcRxThread(void *arg) {
   return 0;
 }
 
-void ioHdlcRunnerStart(iohdlc_station_t *station) {
+int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
   
   /* Allocate and initialize runner context */
   runner_context_t *ctx = IOHDLC_MALLOC(sizeof *ctx);
   if (!ctx) {
-    return;  /* Out of memory - abort runner start */
+    iohdlc_errno = ENOMEM;
+    return -1;  /* Out of memory - abort runner start */
   }
   memset(ctx, 0, sizeof *ctx);
   station->runner_context = ctx;
@@ -58,7 +60,8 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
     /* TX thread creation failed - cleanup and abort */
     IOHDLC_FREE(ctx);
     station->runner_context = NULL;
-    return;
+    iohdlc_errno = EAGAIN;  /* Resource temporarily unavailable */
+    return -1;
   }
   ctx->tx_started = true;
   
@@ -72,16 +75,22 @@ void ioHdlcRunnerStart(iohdlc_station_t *station) {
     iohdlc_thread_join((iohdlc_thread_t *)ctx->tx_thread);  /* Wait for TX termination */
     IOHDLC_FREE(ctx);
     station->runner_context = NULL;
-    return;
+    iohdlc_errno = EAGAIN;  /* Resource temporarily unavailable */
+    return -1;
   }
   ctx->rx_started = true;
+  
+  /* Success */
+  iohdlc_errno = 0;
+  return 0;
 }
 
-void ioHdlcRunnerStop(iohdlc_station_t *station) {
+int32_t ioHdlcRunnerStop(iohdlc_station_t *station) {
   runner_context_t *ctx = station->runner_context;
   
   if (!ctx) {
-    return;  /* Runner not started or already stopped */
+    iohdlc_errno = 0;
+    return 0;  /* Runner not started or already stopped - not an error */
   }
   
   /* Request threads to stop */
@@ -104,6 +113,9 @@ void ioHdlcRunnerStop(iohdlc_station_t *station) {
   /* Free context */
   IOHDLC_FREE(ctx);
   station->runner_context = NULL;
+  
+  iohdlc_errno = 0;
+  return 0;
 }
 
 static iohdlc_virtual_timer_t *s_select_timer(iohdlc_station_peer_t *peer,

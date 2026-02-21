@@ -289,8 +289,10 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   
   /* Start runner threads for both stations */
   test_printf("Starting runner threads...\n");
-  ioHdlcRunnerStart(&station_primary);
-  ioHdlcRunnerStart(&station_secondary);
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
   /* Allow time for threads to initialize and register listeners */
   ioHdlc_sleep_ms(50);  /* 50 ms */
@@ -409,8 +411,10 @@ bool test_data_exchange(const test_adapter_t *adapter) {
   TEST_ASSERT(result == 0, "Add peer to secondary failed");
   
   /* Start runner threads */
-  ioHdlcRunnerStart(&station_primary);
-  ioHdlcRunnerStart(&station_secondary);
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
   ioHdlc_sleep_ms(50);
   
