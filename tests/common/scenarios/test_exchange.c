@@ -9,9 +9,9 @@
  * @brief   Parametrized HDLC test with real traffic and statistics.
  */
 
-#include "../test_framework.h"
-#include "../test_helpers.h"
-#include "../test_arenas.h"
+#include "test_framework.h"
+#include "test_helpers.h"
+#include "test_arenas.h"
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
 #include "ioHdlcqueue.h"
@@ -26,11 +26,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Signal handling (Linux-only) */
-#ifdef __linux__
-#include <signal.h>
-#endif
-
 static iohdlc_station_t *st_pri, *st_sec;
 /*===========================================================================*/
 /* Configuration                                                             */
@@ -44,19 +39,6 @@ static iohdlc_station_t *st_pri, *st_sec;
 #define RTMO 2200
 
 static volatile bool test_running_global = true;
-
-/*===========================================================================*/
-/* Signal Handler (Linux-only)                                              */
-/*===========================================================================*/
-
-#ifdef __linux__
-static void sigint_handler(int sig) {
-  (void)sig;
-  test_running_global = false;
-  test_request_stop();  /* Signal stop via OS-agnostic API */
-  printf("\n\nTest interrupted. Stopping...\n");
-}
-#endif
 
 /*===========================================================================*/
 /* Thread Functions                                                          */
@@ -121,9 +103,9 @@ static void *writer_thread(void *arg) {
         test_dump_station_state(st_sec, "Sec At writer error");
 
         if (iohdlc_errno == ETIMEDOUT)
-          fprintf(stderr, "Writer %u Timeout!\n", ctx->station->addr);
+          test_printf("Writer %u Timeout!\r\n", ctx->station->addr);
         else
-          fprintf(stderr, "Writer %u Error %d!\n", ctx->station->addr,
+          test_printf("Writer %u Error %d!\r\n", ctx->station->addr,
             iohdlc_errno);
         test_running = false;
         break;
@@ -135,7 +117,7 @@ static void *writer_thread(void *arg) {
       iterations++;
     }
   }
-  fprintf(stderr, "Writer %u Data written (iters %d)!\n", ctx->station->addr, iterations);
+  test_printf("Writer %u Data written (iters %d)!\r\n", ctx->station->addr, iterations);
   test_running_global = false;
   return NULL;
 }
@@ -165,21 +147,21 @@ static void *reader_thread(void *arg) {
       test_validate_packet(buffer, received, &ctx->seq, ctx->stats);
       iohdlc_mutex_unlock(ctx->stats_mutex);
     } else if (received > 0) {
-      fprintf(stderr, "Warning: received short packet (%zd bytes)\n", received);
+      test_printf("Warning: received short packet (%zd bytes)\r\n", received);
     } else if (received == 0) {
-      fprintf(stderr, "Reader %u zero read!\n", ctx->station->addr);
+      test_printf("Reader %u zero read!\r\n", ctx->station->addr);
       test_running = false;  /* No data received, assume test end */
     } else {
       test_dump_station_state(ctx->station, "Pri At reader error");
       test_dump_station_state(st_sec, "Sec At writer error");
 
-      fprintf(stderr, "Reader %u Error %d!\n", ctx->station->addr, iohdlc_errno);
+      test_printf("Reader %u Error %d!\r\n", ctx->station->addr, iohdlc_errno);
       test_running = false;
     }
     if (ctx->stats->packets_received >=
         ctx->config->exchanges_per_iteration * ctx->config->duration_value &&
         ctx->config->duration_type == TEST_BY_COUNT) {
-      fprintf(stderr, "Reader %u All data read\n", ctx->station->addr);
+      test_printf("Reader %u All data read\r\n", ctx->station->addr);
       test_running = false;  /* All data received, assume test end */
       break;
     }
@@ -225,7 +207,7 @@ int main(int argc, char **argv) {
 #endif
   
   /* Print configuration */
-  printf("\n");
+  test_printf("\r\n");
   test_print_config(&config);
   
   /* Initialize statistics */
@@ -238,15 +220,10 @@ int main(int argc, char **argv) {
   iohdlc_mutex_init(&stats_mutex_primary);
   iohdlc_mutex_init(&stats_mutex_secondary);
   
-  /* Setup signal handler (Linux-only) */
-#ifdef __linux__
-  signal(SIGINT, sigint_handler);
-#endif
-  
-  printf("\n");
-  printf("========================================\n");
-  printf("Initializing HDLC stations...\n");
-  printf("========================================\n\n");
+  test_printf("\r\n");
+  test_printf("========================================\r\n");
+  test_printf("Initializing HDLC stations...\r\n");
+  test_printf("========================================\r\n\r\n");
   
   /* Create mock streams */
   mock_stream_config_t stream_config = {
@@ -259,7 +236,7 @@ int main(int argc, char **argv) {
   stream_primary = mock_stream_create(&stream_config);
   stream_secondary = mock_stream_create(&stream_config);
   if (stream_primary == NULL || stream_secondary == NULL) {
-    fprintf(stderr, "Failed to create mock streams\n");
+    test_printf("Failed to create mock streams\r\n");
     return 1;
   }
   mock_stream_connect(stream_primary, stream_secondary);
@@ -268,7 +245,7 @@ int main(int argc, char **argv) {
   adapter_primary = mock_stream_adapter_create(stream_primary);
   adapter_secondary = mock_stream_adapter_create(stream_secondary);
   if (adapter_primary == NULL || adapter_secondary == NULL) {
-    fprintf(stderr, "Failed to create adapters\n");
+    test_printf("Failed to create adapters\r\n");
     return 1;
   }
   
@@ -300,7 +277,7 @@ int main(int argc, char **argv) {
   memset(&station_primary, 0, sizeof station_primary);
   result = ioHdlcStationInit(&station_primary, &station_config);
   if (result != 0) {
-    fprintf(stderr, "Primary station init failed: %d\n", result);
+    test_printf("Primary station init failed: %d\r\n", result);
     return 1;
   }
   
@@ -320,25 +297,25 @@ int main(int argc, char **argv) {
   memset(&station_secondary, 0, sizeof station_secondary);
   result = ioHdlcStationInit(&station_secondary, &station_config);
   if (result != 0) {
-    fprintf(stderr, "Secondary station init failed: %d\n", result);
+    test_printf("Secondary station init failed: %d\r\n", result);
     return 1;
   }
   
   /* Add peers */
   result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
   if (result != 0) {
-    fprintf(stderr, "Add peer to primary failed: %d\n", result);
+    test_printf("Add peer to primary failed: %d\r\n", result);
     return 1;
   }
   
   result = ioHdlcAddPeer(&station_secondary, &peer_at_secondary, PRIMARY_ADDR);
   if (result != 0) {
-    fprintf(stderr, "Add peer to secondary failed: %d\n", result);
+    test_printf("Add peer to secondary failed: %d\r\n", result);
     return 1;
   }
   
   /* Start runners */
-  printf("Starting HDLC protocol runners...\n");
+  test_printf("Starting HDLC protocol runners...\r\n");
   result = ioHdlcRunnerStart(&station_primary);
   TEST_ASSERT(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&station_secondary);
@@ -346,21 +323,21 @@ int main(int argc, char **argv) {
   ioHdlc_sleep_ms(50);
   
   /* Establish connection */
-  printf("Establishing connection...\n");
+  test_printf("Establishing connection...\r\n");
   result = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, config.mode);
   if (result != 0) {
-    fprintf(stderr, "Link up failed: %d\n", result);
+    test_printf("Link up failed: %d\r\n", result);
     goto cleanup;
   }
   
   ioHdlc_sleep_ms(100);
   
   if (IOHDLC_PEER_DISC(&peer_at_primary) || IOHDLC_PEER_DISC(&peer_at_secondary)) {
-    fprintf(stderr, "Connection not established\n");
+    test_printf("Connection not established\r\n");
     goto cleanup;
   }
   
-  printf("✅ Connection established\n\n");
+  test_printf("✅ Connection established\r\n\r\n");
   
   /* Prepare thread contexts - 4 threads: writer and reader for each station */
   
@@ -404,9 +381,9 @@ int main(int argc, char **argv) {
   ctx_sec_reader.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
                             config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
   
-  printf("========================================\n");
-  printf("Starting data exchange...\n");
-  printf("========================================\n\n");
+  test_printf("========================================\r\n");
+  test_printf("Starting data exchange...\r\n");
+  test_printf("========================================\r\n\r\n");
   
   /* Start 4 threads */
   start_time = iohdlc_time_now_ms();
@@ -424,7 +401,7 @@ int main(int argc, char **argv) {
       if (elapsed_time >= config.duration_value) {
         test_running_global = false;
       }
-      printf("Elapsed: %u/%u seconds | PRI: %u sent, %u rcv | SEC: %u sent, %u rcv\n",
+      test_printf("Elapsed: %u/%u seconds | PRI: %u sent, %u rcv | SEC: %u sent, %u rcv\r\n",
              elapsed_time, config.duration_value,
              stats_primary.packets_sent, stats_primary.packets_received,
              stats_secondary.packets_sent, stats_secondary.packets_received);
@@ -446,12 +423,12 @@ int main(int argc, char **argv) {
         expected_total *= 2;  /* Both directions */
       }
       
-      printf("Progress: %u/%u packets sent, %u rcv | PRI: %u/%u | SEC: %u/%u\n",
+      test_printf("Progress: %u/%u packets sent, %u rcv | PRI: %u/%u | SEC: %u/%u\r\n",
              current_sent, expected_total, current_rcv,
              stats_primary.packets_sent, stats_primary.packets_received,
              stats_secondary.packets_sent, stats_secondary.packets_received);
     } else if (config.duration_type == TEST_INFINITE) {
-      printf("Elapsed: %u seconds | PRI: %u sent, %u rcv | SEC: %u sent, %u rcv\n",
+      test_printf("Elapsed: %u seconds | PRI: %u sent, %u rcv | SEC: %u sent, %u rcv\r\n",
              elapsed_time,
              stats_primary.packets_sent, stats_primary.packets_received,
              stats_secondary.packets_sent, stats_secondary.packets_received);
@@ -463,7 +440,7 @@ int main(int argc, char **argv) {
   stats_secondary.end_time_ms = iohdlc_time_now_ms();
   
   /* Wait for threads */
-  printf("\nStopping threads...\n");
+  test_printf("\r\nStopping threads...\r\n");
   iohdlc_thread_join(thread_pri_writer);
   iohdlc_thread_join(thread_pri_reader);
   iohdlc_thread_join(thread_sec_writer);
@@ -472,29 +449,29 @@ int main(int argc, char **argv) {
   ioHdlcStationLinkDown(&station_primary, station_primary.c_peer->addr);
 
   /* Print results */
-  printf("\n");
-  printf("========================================\n");
-  printf("TEST COMPLETED\n");
-  printf("========================================\n\n");
+  test_printf("\r\n");
+  test_printf("========================================\r\n");
+  test_printf("TEST COMPLETED\r\n");
+  test_printf("========================================\r\n\r\n");
   
-  printf("Total elapsed time: %u seconds\n\n", elapsed_time);
+  test_printf("Total elapsed time: %u seconds\r\n\r\n", elapsed_time);
   
   /* Print station statistics */
-  printf("Primary Station:\n");
-  printf("  Packets sent:     %u\n", stats_primary.packets_sent);
-  printf("  Packets received: %u\n", stats_primary.packets_received);
-  printf("  Seq errors:       %u\n", stats_primary.packets_reordered);
-  printf("  Bytes sent:       %lu\n", stats_primary.total_bytes_sent);
-  printf("  Bytes received:   %lu\n", stats_primary.total_bytes_received);
-  printf("\n");
+  test_printf("Primary Station:\r\n");
+  test_printf("  Packets sent:     %u\r\n", stats_primary.packets_sent);
+  test_printf("  Packets received: %u\r\n", stats_primary.packets_received);
+  test_printf("  Seq errors:       %u\r\n", stats_primary.packets_reordered);
+  test_printf("  Bytes sent:       %lu\r\n", stats_primary.total_bytes_sent);
+  test_printf("  Bytes received:   %lu\r\n", stats_primary.total_bytes_received);
+  test_printf("\r\n");
   
-  printf("Secondary Station:\n");
-  printf("  Packets sent:     %u\n", stats_secondary.packets_sent);
-  printf("  Packets received: %u\n", stats_secondary.packets_received);
-  printf("  Seq errors:       %u\n", stats_secondary.packets_reordered);
-  printf("  Bytes sent:       %lu\n", stats_secondary.total_bytes_sent);
-  printf("  Bytes received:   %lu\n", stats_secondary.total_bytes_received);
-  printf("\n");
+  test_printf("Secondary Station:\r\n");
+  test_printf("  Packets sent:     %u\r\n", stats_secondary.packets_sent);
+  test_printf("  Packets received: %u\r\n", stats_secondary.packets_received);
+  test_printf("  Seq errors:       %u\r\n", stats_secondary.packets_reordered);
+  test_printf("  Bytes sent:       %lu\r\n", stats_secondary.total_bytes_sent);
+  test_printf("  Bytes received:   %lu\r\n", stats_secondary.total_bytes_received);
+  test_printf("\r\n");
   
   /* Calculate and print traffic statistics based on direction */
   if (config.traffic_direction == TRAFFIC_PRI_TO_SEC) {
@@ -505,14 +482,14 @@ int main(int argc, char **argv) {
     float throughput = (elapsed_time > 0) ?
                         ((float)stats_secondary.total_bytes_received / elapsed_time) : 0.0f;
     
-    printf("Primary → Secondary Traffic:\n");
-    printf("  Sent:       %u packets (%lu bytes)\n",
+    test_printf("Primary → Secondary Traffic:\r\n");
+    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
            stats_primary.packets_sent, stats_primary.total_bytes_sent);
-    printf("  Received:   %u packets (%lu bytes)\n",
+    test_printf("  Received:   %u packets (%lu bytes)\r\n",
            stats_secondary.packets_received, stats_secondary.total_bytes_received);
-    printf("  Lost:       %u packets (%.2f%%)\n", lost, loss_percent);
-    printf("  Throughput: %.2f bytes/s (%.2f KB/s)\n", throughput, throughput / 1024.0f);
-    printf("\n");
+    test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
+    test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput, throughput / 1024.0f);
+    test_printf("\r\n");
   } else if (config.traffic_direction == TRAFFIC_SEC_TO_PRI) {
     uint32_t lost = (stats_secondary.packets_sent > stats_primary.packets_received) ?
                      (stats_secondary.packets_sent - stats_primary.packets_received) : 0;
@@ -521,14 +498,14 @@ int main(int argc, char **argv) {
     float throughput = (elapsed_time > 0) ?
                         ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
     
-    printf("Secondary → Primary Traffic:\n");
-    printf("  Sent:       %u packets (%lu bytes)\n",
+    test_printf("Secondary → Primary Traffic:\r\n");
+    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
            stats_secondary.packets_sent, stats_secondary.total_bytes_sent);
-    printf("  Received:   %u packets (%lu bytes)\n",
+    test_printf("  Received:   %u packets (%lu bytes)\r\n",
            stats_primary.packets_received, stats_primary.total_bytes_received);
-    printf("  Lost:       %u packets (%.2f%%)\n", lost, loss_percent);
-    printf("  Throughput: %.2f bytes/s (%.2f KB/s)\n", throughput, throughput / 1024.0f);
-    printf("\n");
+    test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
+    test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput, throughput / 1024.0f);
+    test_printf("\r\n");
   } else if (config.traffic_direction == TRAFFIC_BIDIRECTIONAL) {
     /* Primary → Secondary */
     uint32_t lost_p2s = (stats_primary.packets_sent > stats_secondary.packets_received) ?
@@ -546,23 +523,23 @@ int main(int argc, char **argv) {
     float throughput_s2p = (elapsed_time > 0) ?
                             ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
     
-    printf("Primary → Secondary Traffic:\n");
-    printf("  Sent:       %u packets (%lu bytes)\n",
+    test_printf("Primary → Secondary Traffic:\r\n");
+    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
            stats_primary.packets_sent, stats_primary.total_bytes_sent);
-    printf("  Received:   %u packets (%lu bytes)\n",
+    test_printf("  Received:   %u packets (%lu bytes)\r\n",
            stats_secondary.packets_received, stats_secondary.total_bytes_received);
-    printf("  Lost:       %u packets (%.2f%%)\n", lost_p2s, loss_percent_p2s);
-    printf("  Throughput: %.2f bytes/s (%.2f KB/s)\n", throughput_p2s, throughput_p2s / 1024.0f);
-    printf("\n");
+    test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost_p2s, loss_percent_p2s);
+    test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput_p2s, throughput_p2s / 1024.0f);
+    test_printf("\r\n");
     
-    printf("Secondary → Primary Traffic:\n");
-    printf("  Sent:       %u packets (%lu bytes)\n",
+    test_printf("Secondary → Primary Traffic:\r\n");
+    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
            stats_secondary.packets_sent, stats_secondary.total_bytes_sent);
-    printf("  Received:   %u packets (%lu bytes)\n",
+    test_printf("  Received:   %u packets (%lu bytes)\r\n",
            stats_primary.packets_received, stats_primary.total_bytes_received);
-    printf("  Lost:       %u packets (%.2f%%)\n", lost_s2p, loss_percent_s2p);
-    printf("  Throughput: %.2f bytes/s (%.2f KB/s)\n", throughput_s2p, throughput_s2p / 1024.0f);
-    printf("\n");
+    test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost_s2p, loss_percent_s2p);
+    test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput_s2p, throughput_s2p / 1024.0f);
+    test_printf("\r\n");
   }
   
 cleanup:
