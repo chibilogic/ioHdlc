@@ -27,8 +27,8 @@
  *          These tests disable REJ to validate checkpoint-only recovery.
  */
 
-#include "../../common/test_helpers.h"
-#include "../../common/test_arenas.h"
+#include "test_helpers.h"
+#include "test_arenas.h"
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
 #include "ioHdlcqueue.h"
@@ -37,19 +37,9 @@
 #include "ioHdlcfmempool.h"
 #include <string.h>
 #include <errno.h>
-
-#ifdef IOHDLC_USE_CHIBIOS
-#include "ch.h"
-#include "chprintf.h"
-#include "../../chibios/mocks/mock_stream_chibios.h"
-#include "../../chibios/mocks/mock_stream_adapter.h"
-#else
-#include <stdio.h>
-#include "../../linux/mocks/mock_stream.h"
-#include "../../linux/mocks/mock_stream_adapter.h"
-#include <pthread.h>
-#include <unistd.h>
-#endif
+#include "adapter_interface.h"
+#include "mock_stream.h"
+#include "mock_stream_adapter.h"
 
 /*===========================================================================*/
 /* Test Configuration                                                        */
@@ -174,26 +164,6 @@ static bool drop_frames_0_and_7_filter(uint32_t write_count, const uint8_t *data
 /* Test Helpers                                                              */
 /*===========================================================================*/
 
-/**
- * @brief   Wait for condition with timeout.
- * @param   condition   Condition to wait for
- * @param   timeout_ms  Timeout in milliseconds
- * @return  true if condition met, false if timeout
- */
-static bool wait_for_condition(bool (*condition)(void *), void *arg, uint32_t timeout_ms) {
-  uint32_t elapsed = 0;
-  const uint32_t poll_interval = 10;  /* ms */
-  
-  while (elapsed < timeout_ms) {
-    if (condition(arg)) {
-      return true;
-    }
-    ioHdlc_sleep_ms(poll_interval);
-    elapsed += poll_interval;
-  }
-  return false;
-}
-
 /*===========================================================================*/
 /* Test: Scenario A.1.1 - Frame Loss with Window Full (TWA without REJ)    */
 /*===========================================================================*/
@@ -204,7 +174,7 @@ static bool wait_for_condition(bool (*condition)(void *), void *arg, uint32_t ti
  * @note    This test validates checkpoint retransmission (ISO 13239 5.6.2.1).
  * @return  0 on success, 1 on failure
  */
-bool test_A1_1_frame_loss_window_full_twa(void) {
+bool test_A1_1_frame_loss_window_full_twa(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -213,6 +183,13 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   iohdlc_station_config_t config;
   int32_t result;
+  
+  /* Verify adapter supports error injection */
+  if (!adapter || !adapter->configure_error_injection) {
+    test_printf("❌ FAIL: This test requires an adapter with error injection support\r\n");
+    test_failures++;
+    return 1;
+  }
   
   /* Configure mock stream for primary: inject errors when writing to secondary */
   mock_stream_config_t stream_config = {
@@ -313,8 +290,10 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   
   /* Start runner threads for both stations */
   test_printf("Starting runner threads...\r\n");
-  ioHdlcRunnerStart(&station_primary);
-  ioHdlcRunnerStart(&station_secondary);
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
   /* Wait for threads to be ready */
   ioHdlc_sleep_ms(100);
@@ -340,11 +319,7 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   
   /* Send 8 frames to fill the window (modulo 8, window=7) */
   for (t_sent = 0, i = 0; i < 8; i++) {
-#ifdef IOHDLC_USE_CHIBIOS
-    chsnprintf(test_data, sizeof test_data, "Frame %d data", i);
-#else
-    snprintf(test_data, sizeof test_data, "Frame %d data", i);
-#endif
+    iohdlc_snprintf(test_data, sizeof test_data, "Frame %d data", i);
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
       test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
@@ -419,6 +394,8 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
   /* Cleanup */
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);
+  ioHdlcSwDriverStop(&driver_primary);
+  ioHdlcSwDriverStop(&driver_secondary);
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);
   mock_stream_destroy(stream_primary);
@@ -431,7 +408,7 @@ bool test_A1_1_frame_loss_window_full_twa(void) {
  * @brief   Test A.2.1: Multiple frame loss (N(S)=1 and N(S)=3).
  * @details Same as A.1.1 but with two non-consecutive frames lost.
  */
-bool test_A2_1_multiple_frame_loss_twa(void) {
+bool test_A2_1_multiple_frame_loss_twa(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -440,6 +417,13 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   iohdlc_station_config_t config;
   int32_t result;
+  
+  /* Verify adapter supports error injection */
+  if (!adapter || !adapter->configure_error_injection) {
+    test_printf("❌ FAIL: This test requires an adapter with error injection support\r\n");
+    test_failures++;
+    return 1;
+  }
   
   /* Configure mock stream for primary: inject errors when writing to secondary */
   mock_stream_config_t stream_config = {
@@ -534,8 +518,10 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   
   /* Start runner threads for both stations */
   test_printf("Starting runner threads...\r\n");
-  ioHdlcRunnerStart(&station_primary);
-  ioHdlcRunnerStart(&station_secondary);
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
   /* Wait for threads to be ready */
   ioHdlc_sleep_ms(100);
@@ -561,11 +547,7 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   
   /* Send 8 frames to fill the window (modulo 8, window=7) */
   for (t_sent = 0, i = 0; i < 8; i++) {
-#ifdef IOHDLC_USE_CHIBIOS
-    chsnprintf(test_data, sizeof test_data, "Frame %d data", i);
-#else
-    snprintf(test_data, sizeof test_data, "Frame %d data", i);
-#endif
+    iohdlc_snprintf(test_data, sizeof test_data, "Frame %d data", i);
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
       test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
@@ -640,6 +622,8 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
   /* Cleanup */
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);
+  ioHdlcSwDriverStop(&driver_primary);
+  ioHdlcSwDriverStop(&driver_secondary);
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);
   mock_stream_destroy(stream_primary);
@@ -652,7 +636,7 @@ bool test_A2_1_multiple_frame_loss_twa(void) {
  * @brief   Test A.2.2: First and last frame loss (N(S)=0 and N(S)=7).
  * @details Same as A.1.1 but first and last frames are lost.
  */
-bool test_A2_2_first_and_last_frame_loss_twa(void) {
+bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
@@ -661,6 +645,13 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   iohdlc_station_config_t config;
   int32_t result;
+  
+  /* Verify adapter supports error injection */
+  if (!adapter || !adapter->configure_error_injection) {
+    test_printf("❌ FAIL: This test requires an adapter with error injection support\r\n");
+    test_failures++;
+    return 1;
+  }
   
   /* Configure mock stream for primary: inject errors when writing to secondary */
   mock_stream_config_t stream_config = {
@@ -755,8 +746,10 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   
   /* Start runner threads for both stations */
   test_printf("Starting runner threads...\r\n");
-  ioHdlcRunnerStart(&station_primary);
-  ioHdlcRunnerStart(&station_secondary);
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
   /* Wait for threads to be ready */
   ioHdlc_sleep_ms(100);
@@ -782,11 +775,7 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   
   /* Send 8 frames to fill the window (modulo 8, window=7) */
   for (t_sent = 0, i = 0; i < 8; i++) {
-#ifdef IOHDLC_USE_CHIBIOS
-    chsnprintf(test_data, sizeof test_data, "Frame %d data", i);
-#else
-    snprintf(test_data, sizeof test_data, "Frame %d data", i);
-#endif
+    iohdlc_snprintf(test_data, sizeof test_data, "Frame %d data", i);
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
       test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
@@ -861,6 +850,8 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
   /* Cleanup */
   ioHdlcRunnerStop(&station_primary);
   ioHdlcRunnerStop(&station_secondary);
+  ioHdlcSwDriverStop(&driver_primary);
+  ioHdlcSwDriverStop(&driver_secondary);
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);
   mock_stream_destroy(stream_primary);
@@ -868,35 +859,3 @@ bool test_A2_2_first_and_last_frame_loss_twa(void) {
 
   return 0;
 }
-
-/*===========================================================================*/
-/* Test Suite Entry Point                                                    */
-/*===========================================================================*/
-
-#ifndef IOHDLC_USE_CHIBIOS
-int main(void) {
-  int failures = 0;
-
-  test_printf("\r\n");
-  test_printf("╔════════════════════════════════════════════════════════════╗\r\n");
-  test_printf("║  Checkpoint Retransmission Tests - TWA Mode                ║\r\n");
-  test_printf("╚════════════════════════════════════════════════════════════╝\r\n");
-
-  /* Run tests */
-  if (test_A1_1_frame_loss_window_full_twa()) failures++;
-  if (test_A2_1_multiple_frame_loss_twa()) failures++;
-  if (test_A2_2_first_and_last_frame_loss_twa()) failures++;
-
-  /* Print summary */
-  test_printf("\r\n");
-  test_printf("════════════════════════════════════════════════════════════\r\n");
-  if (failures == 0) {
-    test_printf("✅ All tests PASSED\r\n");
-  } else {
-    test_printf("❌ %d test(s) FAILED\r\n", failures);
-  }
-  test_printf("════════════════════════════════════════════════════════════\r\n");
-
-  return failures;
-}
-#endif /* !IOHDLC_USE_CHIBIOS */

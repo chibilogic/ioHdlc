@@ -52,6 +52,12 @@
  */
 #define iohdlc_errno errno
 
+/**
+ * @brief   Platform-independent snprintf.
+ * @details Maps to standard snprintf on POSIX systems.
+ */
+#define iohdlc_snprintf snprintf
+
 /*===========================================================================*/
 /* Event Types                                                               */
 /*===========================================================================*/
@@ -61,16 +67,19 @@
  */
 typedef uint32_t eventmask_t;
 typedef uint32_t eventflags_t;
+typedef struct iohdlc_virtual_timer iohdlc_virtual_timer_t;
 
 /**
  * @brief   Virtual timer callback type.
  */
-typedef void (*iohdlc_vt_callback_t)(void *vtp, void *par);
+typedef void (*iohdlc_vt_callback_t)(iohdlc_virtual_timer_t *vtp, void *par);
 
 /**
  * @brief   Virtual timer structure (POSIX implementation).
  */
-typedef struct {
+typedef struct iohdlc_event_source iohdlc_event_source_t;
+
+typedef struct iohdlc_virtual_timer {
   timer_t timer_id;             /**< POSIX timer ID */
   iohdlc_vt_callback_t callback;/**< Callback function */
   void *par;                    /**< User parameter */
@@ -78,12 +87,13 @@ typedef struct {
   volatile bool expired;        /**< Timer expired flag (volatile for consistency) */
   pthread_mutex_t lock;         /**< Protect state */
   
-  /* Timer kind (for event broadcasting in runner) */
-  uint32_t kind;                /**< Timer kind (REPLY or I_REPLY) */
+  /* Event broadcasting (for unified runner) */
+  uint32_t evt_flag;            /**< Event flag to broadcast when timer expires */
+  iohdlc_event_source_t *esp;   /**< Event source target for broadcasting */
 } iohdlc_virtual_timer_t;
 
 /**
- * @brief   Thread event state (per-thread events like ChibiOS).
+ * @brief   Thread event state.
  */
 typedef struct {
   pthread_mutex_t lock;
@@ -107,10 +117,10 @@ typedef struct iohdlc_event_listener {
 /**
  * @brief   Event source structure.
  */
-typedef struct {
+struct iohdlc_event_source {
   iohdlc_event_listener_t *listeners;  /**< Listener chain */
   pthread_mutex_t lock;                 /**< Protect list */
-} iohdlc_event_source_t;
+};
 
 /*===========================================================================*/
 /* Time Conversion                                                           */
@@ -129,29 +139,19 @@ typedef int32_t msg_t;
 /**
  * @brief   Message return codes.
  */
-#define MSG_OK      0
+#define MSG_OK       0
 #define MSG_TIMEOUT -1
 #define MSG_RESET   -2
 
 /**
- * @brief   System time type (milliseconds).
- */
-typedef uint32_t iohdlc_systime_t;
-
-/**
- * @brief   Convert milliseconds to system time.
- */
-#define IOHDLC_TIME_MS2I(ms) ((iohdlc_systime_t)(ms))
-
-/**
  * @brief   Infinite timeout.
  */
-#define IOHDLC_TIME_INFINITE ((iohdlc_systime_t)-1)
+#define IOHDLC_TIME_INFINITE ((uint32_t)-1)
 
 /**
  * @brief   Immediate timeout (non-blocking).
  */
-#define IOHDLC_TIME_IMMEDIATE ((iohdlc_systime_t)0)
+#define IOHDLC_TIME_IMMEDIATE ((uint32_t)0)
 
 /*===========================================================================*/
 /* Binary Semaphore                                                          */
@@ -200,16 +200,7 @@ void iohdlc_bsem_init(iohdlc_bsem_t *bsem, bool taken);
  * @brief   Wait on binary semaphore with timeout.
  * @return  0 on success, -ETIMEDOUT on timeout.
  */
-int iohdlc_bsem_wait_timeout(iohdlc_bsem_t *bsem, iohdlc_systime_t timeout);
-
-/**
- * @brief   Wait on binary semaphore with timeout (milliseconds).
- * @return  MSG_OK on success, MSG_TIMEOUT on timeout.
- */
-static inline msg_t iohdlc_bsem_wait_timeout_ms(iohdlc_bsem_t *bsem, uint32_t timeout_ms) {
-  int result = iohdlc_bsem_wait_timeout(bsem, IOHDLC_TIME_MS2I(timeout_ms));
-  return (result == 0) ? MSG_OK : MSG_TIMEOUT;
-}
+int iohdlc_bsem_wait_timeout(iohdlc_bsem_t *bsem, uint32_t timeout);
 
 /**
  * @brief   Signal binary semaphore.
@@ -272,12 +263,12 @@ msg_t iohdlc_condvar_wait(iohdlc_condvar_t *cvp, iohdlc_mutex_t *mtxp);
  * 
  * @param[in] cvp       Condition variable
  * @param[in] mtxp      Associated mutex (must be locked by caller)
- * @param[in] timeout   Timeout in system ticks (use IOHDLC_TIME_MS2I for ms)
+ * @param[in] timeout   Timeout in ms
  * @return              MSG_OK on success, MSG_TIMEOUT on timeout
  */
 msg_t iohdlc_condvar_wait_timeout(iohdlc_condvar_t *cvp, 
                                    iohdlc_mutex_t *mtxp,
-                                   iohdlc_systime_t timeout);
+                                   uint32_t timeout);
 
 /**
  * @brief   Signal condition variable (wake one waiting thread).
@@ -307,11 +298,13 @@ static inline void iohdlc_sem_init(iohdlc_sem_t *sp, int32_t n) {
 }
 
 /**
- * @brief   Wait on semaphore with timeout (bool return).
+ * @brief   Wait on semaphore with timeout.
+ *
+ * @return  MSG_OK (0) if no errors.
  */
-static inline bool iohdlc_sem_wait_ok(iohdlc_sem_t *sp, uint32_t ms) {
+static inline bool iohdlc_sem_wait_timeout(iohdlc_sem_t *sp, uint32_t ms) {
   if (ms == IOHDLC_TIME_INFINITE) {
-    return (sem_wait(&sp->sem) == 0);
+    return sem_wait(&sp->sem);
   } else {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
@@ -321,7 +314,7 @@ static inline bool iohdlc_sem_wait_ok(iohdlc_sem_t *sp, uint32_t ms) {
       ts.tv_sec++;
       ts.tv_nsec -= 1000000000L;
     }
-    return (sem_timedwait(&sp->sem, &ts) == 0);
+    return sem_timedwait(&sp->sem, &ts);
   }
 }
 
@@ -400,15 +393,21 @@ void iohdlc_free(void* ptr);
  */
 static inline void* iohdlc_dma_alloc(size_t size, size_t align) {
   (void)align;  /* Alignment ignored on Linux */
-  return iohdlc_alloc(size);
+  return malloc(size);
 }
 
 /**
  * @brief   Free DMA memory.
  */
 static inline void iohdlc_dma_free(void* ptr) {
-  iohdlc_free(ptr);
+  free(ptr);
 }
+
+/**
+ * @brief   Generic memory allocation macros (OS-agnostic interface).
+ */
+#define IOHDLC_MALLOC(size) malloc(size)
+#define IOHDLC_FREE(ptr)    free(ptr)
 
 /*===========================================================================*/
 /* System Time                                                               */
@@ -417,7 +416,7 @@ static inline void iohdlc_dma_free(void* ptr) {
 /**
  * @brief   Get current system time in milliseconds.
  */
-iohdlc_systime_t iohdlc_get_systime(void);
+uint32_t iohdlc_get_systime(void);
 
 /**
  * @brief   Get current time in milliseconds (alias for compatibility).
@@ -455,7 +454,9 @@ static inline void iohdlc_thread_yield(void) { sched_yield(); }
 /* Virtual Timer Operations                                                  */
 /*===========================================================================*/
 
-void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp);
+void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp,
+                    iohdlc_event_source_t *esp,
+                    uint32_t evt_flag);
 void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp, uint32_t delay_ms,
                    iohdlc_vt_callback_t callback, void *par);
 void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp);
@@ -467,6 +468,8 @@ bool iohdlc_vt_is_armed(iohdlc_virtual_timer_t *vtp);
 
 void iohdlc_evt_init(iohdlc_event_source_t *esp);
 void iohdlc_evt_broadcast_flags(iohdlc_event_source_t *esp, eventflags_t flags);
+void iohdlc_evt_broadcast_flags_isr(iohdlc_event_source_t *esp,
+                                    eventflags_t flags);
 
 /*===========================================================================*/
 /* Event Listener Operations                                                 */
@@ -539,6 +542,107 @@ static inline void ioHdlc_sleep_ms(uint32_t ms) {
   ts.tv_sec = ms / 1000;
   ts.tv_nsec = (ms % 1000) * 1000000L;
   nanosleep(&ts, NULL);
+}
+
+/**
+ * @brief   Sleep for microseconds (Linux).
+ */
+static inline void ioHdlc_sleep_us(uint32_t us) {
+  struct timespec ts;
+  ts.tv_sec = us / 1000000;
+  ts.tv_nsec = (us % 1000000) * 1000L;
+  nanosleep(&ts, NULL);
+}
+
+/*===========================================================================*/
+/* Thread Abstraction                                                        */
+/*===========================================================================*/
+
+/**
+ * @brief   Normal thread priority.
+ * @note    On Linux, this is just 0 (default priority offset).
+ */
+#define NORMALPRIO 0
+
+/**
+ * @brief   Thread handle (opaque OS-specific implementation).
+ */
+typedef struct iohdlc_thread iohdlc_thread_t;
+
+/**
+ * @brief   Thread entry point signature.
+ * @note    Portable across Linux (void* fn(void*)) and ChibiOS (msg_t fn(void*)).
+ *          Returns void* for compatibility.
+ */
+typedef void* (*iohdlc_thread_fn_t)(void* arg);
+
+/**
+ * @brief   Thread handle structure (Linux/POSIX implementation).
+ */
+struct iohdlc_thread {
+  pthread_t handle;  /**< POSIX thread handle */
+};
+
+/**
+ * @brief   Create and start a new thread.
+ *
+ * @param[in] name          Thread name (for debugging, max 15 chars on Linux)
+ * @param[in] stack_size    Stack size in bytes (0 = use default)
+ * @param[in] priority      Thread priority offset from normal (0 = normal, ignored on Linux user-space)
+ * @param[in] entry         Thread entry point function
+ * @param[in] arg           Argument passed to entry point
+ * @return                  Thread handle on success, NULL on failure
+ */
+static inline iohdlc_thread_t* iohdlc_thread_create(
+    const char* name,
+    size_t stack_size,
+    int priority,
+    iohdlc_thread_fn_t entry,
+    void* arg) {
+  
+  iohdlc_thread_t* thread = (iohdlc_thread_t*)malloc(sizeof(iohdlc_thread_t));
+  if (thread == NULL) {
+    return NULL;
+  }
+  
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+
+  (void)stack_size;
+  
+  /* Note: Linux user-space thread priority requires root or CAP_SYS_NICE.
+   * For simplicity, we ignore priority parameter in user-space.
+   * Production code could use setpriority() or sched_setscheduler() if needed. */
+  (void)priority;
+  
+  /* Create thread */
+  if (pthread_create(&thread->handle, &attr, entry, arg) != 0) {
+    pthread_attr_destroy(&attr);
+    free(thread);
+    return NULL;
+  }
+  
+  pthread_attr_destroy(&attr);
+  
+  /* Set thread name for debugging (Linux-specific, max 15 chars) */
+  if (name != NULL) {
+    pthread_setname_np(thread->handle, name);
+  }
+  
+  return thread;
+}
+
+/**
+ * @brief   Wait for thread termination and cleanup resources.
+ * @note    Thread handle is freed after join completes.
+ *
+ * @param[in] thread        Thread handle (freed after join)
+ */
+static inline void iohdlc_thread_join(iohdlc_thread_t* thread) {
+  if (thread != NULL) {
+    pthread_join(thread->handle, NULL);
+    free(thread);
+  }
 }
 
 #endif /* IOHDLCOSAL_H */

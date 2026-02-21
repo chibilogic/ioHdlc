@@ -88,10 +88,10 @@
             "miDebuggerPath": "/usr/bin/gdb"
         },
         {
-            "name": "Debug test_basic_exchange",
+            "name": "Debug test_exchange",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/tests/linux/build/bin/test_basic_exchange",
+            "program": "${workspaceFolder}/tests/linux/build/bin/test_exchange",
             "args": ["--time=5", "--direction=pri2sec"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/tests/linux",
@@ -114,10 +114,10 @@
             "miDebuggerPath": "/usr/bin/gdb"
         },
         {
-            "name": "Debug test_basic_exchange (no build)",
+            "name": "Debug test_exchange (no build)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/tests/linux/build/bin/test_basic_exchange",
+            "program": "${workspaceFolder}/tests/linux/build/bin/test_exchange",
             "args": ["--count=10", "--direction=both", "--exchanges=97"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/tests/linux",

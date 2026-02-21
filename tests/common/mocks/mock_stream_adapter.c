@@ -15,14 +15,13 @@
  */
 /**
  * @file    mock_stream_adapter.c
- * @brief   Mock stream adapter implementation.
+ * @brief   Mock stream adapter implementation (unified OSAL version).
  * @details Connects mock_stream to ioHdlcSwDriver via ioHdlcStreamPort.
  */
 
 #include "mock_stream_adapter.h"
-#include "../../../include/ioHdlcstreamport.h"
-#include "../../../os/linux/include/ioHdlcosal.h"
-#include <stdlib.h>
+#include "ioHdlcstreamport.h"
+#include "ioHdlcosal.h"
 #include <string.h>
 
 /*===========================================================================*/
@@ -57,44 +56,54 @@ static const ioHdlcStreamPortOps s_port_ops = {
 /*===========================================================================*/
 
 mock_stream_adapter_t* mock_stream_adapter_create(mock_stream_t *stream) {
-  pthread_mutexattr_t Attr;
-
   if (!stream) {
     return NULL;
   }
-
-  mock_stream_adapter_t *adapter = calloc(1, sizeof *adapter);
+  
+  mock_stream_adapter_t *adapter = IOHDLC_MALLOC(sizeof(mock_stream_adapter_t));
   if (!adapter) {
     return NULL;
   }
+  
+  mock_stream_adapter_init(adapter, stream);
+  return adapter;
+}
 
+void mock_stream_adapter_init(mock_stream_adapter_t *adapter, mock_stream_t *stream) {
+  if (!adapter || !stream) {
+    return;
+  }
+  
+  memset(adapter, 0, sizeof(*adapter));
   adapter->stream = stream;
   adapter->running = false;
   adapter->thread_started = false;
-  pthread_mutexattr_init(&Attr);
-  pthread_mutexattr_settype(&Attr, PTHREAD_MUTEX_RECURSIVE);
-  pthread_mutex_init(&adapter->rx_lock, &Attr);
+  iohdlc_mutex_init(&adapter->rx_lock);
   adapter->rx_buf = NULL;
   adapter->rx_len = 0;
   adapter->rx_pos = 0;
-
-  return adapter;
 }
 
 void mock_stream_adapter_destroy(mock_stream_adapter_t *adapter) {
   if (!adapter) {
     return;
   }
+  
+  mock_stream_adapter_deinit(adapter);
+  IOHDLC_FREE(adapter);
+}
 
+void mock_stream_adapter_deinit(mock_stream_adapter_t *adapter) {
+  if (!adapter) {
+    return;
+  }
+  
   /* Stop RX thread if running */
   if (adapter->thread_started) {
     adapter->running = false;
-    pthread_join(adapter->rx_thread, NULL);
+    iohdlc_thread_join(adapter->rx_thread);
     adapter->thread_started = false;
   }
-
-  pthread_mutex_destroy(&adapter->rx_lock);
-  free(adapter);
 }
 
 ioHdlcStreamPort mock_stream_adapter_get_port(mock_stream_adapter_t *adapter) {
@@ -112,19 +121,34 @@ ioHdlcStreamPort mock_stream_adapter_get_port(mock_stream_adapter_t *adapter) {
 static void port_start(void *ctx, const ioHdlcStreamCallbacks *cbs) {
   mock_stream_adapter_t *adapter = (mock_stream_adapter_t *)ctx;
   
-  if (!adapter || adapter->running) {
+  if (!adapter) {
     return;
   }
-
-  /* Save callbacks */
+  
+  /* Always update callbacks (they may contain new cb_ctx pointers after LinkUp) */
   if (cbs) {
     adapter->callbacks = *cbs;
   }
-
+  
+  /* If already running, don't restart RX thread */
+  if (adapter->running) {
+    return;
+  }
+  
   /* Start RX thread */
   adapter->running = true;
-  if (pthread_create(&adapter->rx_thread, NULL, adapter_rx_thread, adapter) == 0) {
+  
+  /* Thread configuration */
+  const char *thread_name = "mock_rx";
+  size_t stack_size = 2048;
+  uint32_t priority = 0;  /* Default priority */
+  
+  adapter->rx_thread = iohdlc_thread_create(thread_name, stack_size, priority,
+                                             adapter_rx_thread, adapter);
+  if (adapter->rx_thread) {
     adapter->thread_started = true;
+  } else {
+    adapter->running = false;
   }
 }
 
@@ -134,11 +158,11 @@ static void port_stop(void *ctx) {
   if (!adapter || !adapter->running) {
     return;
   }
-
+  
   /* Stop RX thread */
   adapter->running = false;
   if (adapter->thread_started) {
-    pthread_join(adapter->rx_thread, NULL);
+    iohdlc_thread_join(adapter->rx_thread);
     adapter->thread_started = false;
   }
 }
@@ -149,7 +173,7 @@ static bool port_tx_submit(void *ctx, const uint8_t *ptr, size_t len, void *fram
   if (!adapter || !ptr || len == 0) {
     return false;
   }
-
+  
   /* Non-blocking write to mock stream */
   ssize_t written = mock_stream_write(adapter->stream, ptr, len, 0);
   
@@ -160,7 +184,7 @@ static bool port_tx_submit(void *ctx, const uint8_t *ptr, size_t len, void *fram
     }
     return true;
   }
-
+  
   return false;
 }
 
@@ -176,19 +200,29 @@ static bool port_rx_submit(void *ctx, uint8_t *ptr, size_t len) {
   if (!adapter || !ptr || len == 0) {
     return false;
   }
-
-  pthread_mutex_lock(&adapter->rx_lock);
+  
+  iohdlc_mutex_lock(&adapter->rx_lock);
   adapter->rx_buf = ptr;
   adapter->rx_len = len;
   adapter->rx_pos = 0;
-  pthread_mutex_unlock(&adapter->rx_lock);
+  iohdlc_mutex_unlock(&adapter->rx_lock);
   
   return true;
 }
 
 static void port_rx_cancel(void *ctx) {
-  /* Not implemented for mock adapter */
-  (void)ctx;
+  mock_stream_adapter_t *adapter = (mock_stream_adapter_t *)ctx;
+  
+  if (!adapter) {
+    return;
+  }
+  
+  /* Clear RX buffer registration */
+  iohdlc_mutex_lock(&adapter->rx_lock);
+  adapter->rx_buf = NULL;
+  adapter->rx_len = 0;
+  adapter->rx_pos = 0;
+  iohdlc_mutex_unlock(&adapter->rx_lock);
 }
 
 /*===========================================================================*/
@@ -197,24 +231,24 @@ static void port_rx_cancel(void *ctx) {
 
 static void* adapter_rx_thread(void *arg) {
   mock_stream_adapter_t *adapter = (mock_stream_adapter_t *)arg;
-
+  
   while (adapter->running) {
-    pthread_mutex_lock(&adapter->rx_lock);
+    iohdlc_mutex_lock(&adapter->rx_lock);
     
     /* Check if we have a buffer to fill */
     if (adapter->rx_buf && adapter->rx_pos < adapter->rx_len) {
       uint8_t *target = &adapter->rx_buf[adapter->rx_pos];
       size_t remaining = adapter->rx_len - adapter->rx_pos;
-      pthread_mutex_unlock(&adapter->rx_lock);
+      iohdlc_mutex_unlock(&adapter->rx_lock);
       
-      /* Read remaining bytes into the buffer */
+      /* Read remaining bytes into the buffer (200ms timeout) */
       ssize_t result = mock_stream_read(adapter->stream, target, remaining, 200);
       
       if (result >= 1) {
         /* Bytes received, update position */
-        pthread_mutex_lock(&adapter->rx_lock);
+        iohdlc_mutex_lock(&adapter->rx_lock);
         if (adapter->rx_buf && adapter->rx_pos < adapter->rx_len) {
-          adapter->rx_pos += result;
+          adapter->rx_pos += (size_t)result;
           
           /* Notify when request is complete */
           if (adapter->rx_pos >= adapter->rx_len) {
@@ -223,21 +257,21 @@ static void* adapter_rx_thread(void *arg) {
             }
           }
         }
-        pthread_mutex_unlock(&adapter->rx_lock);
+        iohdlc_mutex_unlock(&adapter->rx_lock);
       } else if (result < 0) {
         /* Error - notify with lock held */
-        pthread_mutex_lock(&adapter->rx_lock);
+        iohdlc_mutex_lock(&adapter->rx_lock);
         if (adapter->callbacks.on_rx_error) {
           adapter->callbacks.on_rx_error(adapter->callbacks.cb_ctx, IOHDLC_STREAM_ERR_OVERRUN);
         }
-        pthread_mutex_unlock(&adapter->rx_lock);
+        iohdlc_mutex_unlock(&adapter->rx_lock);
       }
-      /* else timeout - continue accumulating */
+      /* else timeout (result == 0) - continue accumulating */
     } else {
-      pthread_mutex_unlock(&adapter->rx_lock);
+      iohdlc_mutex_unlock(&adapter->rx_lock);
       ioHdlc_sleep_ms(1);  /* Wait 1ms before checking again */
     }
   }
-
+  
   return NULL;
 }

@@ -76,6 +76,7 @@ typedef struct {
 #define _iohdlc_driver_methods                                      \
   void (*start)(void *ip, void *phydrvp, void *phyconfigp,          \
       ioHdlcFramePool *fpp);                                        \
+  void (*stop)(void *ip);                                            \
   size_t (*send_frame)(void *ip, iohdlc_frame_t *fp);               \
   iohdlc_frame_t * (*recv_frame)(void *ip, iohdlc_timeout_t tmo);   \
   const ioHdlcDriverCapabilities* (*get_capabilities)(void *ip);     \
@@ -110,6 +111,16 @@ typedef struct {
  */
 #define hdlcStart(ip, phyp, phyconfp, fpp)  ((ip)->vmt->start(ip, phyp, \
                   phyconfp, fpp))                                       \
+
+/**
+ * @brief   Hdlc driver stop.
+ * @details The station uses this method to stop the hdlc driver instance
+ *          @p ip, releasing resources and terminating background threads.
+ * @note    Can be called multiple times safely (idempotent).
+ *
+ * @param[in]   ip        ioHdlcDriver instance pointer
+ */
+#define hdlcStop(ip)  ((ip)->vmt->stop(ip))
 
 /**
  * @brief   Hdlc send frame method.

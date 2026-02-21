@@ -72,6 +72,16 @@ typedef struct ioHdlcSwDriver {
  */
 void ioHdlcSwDriverInit(ioHdlcSwDriver *drv);
 
+/**
+ * @brief   Stop software HDLC driver.
+ * @details Stops port operations (terminates RX thread) and releases resources.
+ *          Safe to call multiple times (idempotent).
+ * @param[in] drv   Driver instance to stop
+ */
+static inline void ioHdlcSwDriverStop(ioHdlcSwDriver *drv) {
+  hdlcStop((ioHdlcDriver *)drv);
+}
+
 #ifdef __cplusplus
 }
 #endif

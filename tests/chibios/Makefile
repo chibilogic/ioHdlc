@@ -83,8 +83,17 @@ endif
 # Project, sources and paths
 ##############################################################################
 
-# Define project name
-PROJECT = iohdlc_tests
+# Define project name (changes based on EXCHANGE_TEST or SHELL_TARGET variable)
+ifeq ($(SHELL_TARGET),1)
+  PROJECT = iohdlc_shell
+  TEST_MAIN_SRC = main_shell.c
+else ifeq ($(EXCHANGE_TEST),1)
+  PROJECT = iohdlc_exchange
+  TEST_MAIN_SRC = main_exchange.c
+else
+  PROJECT = iohdlc_tests
+  TEST_MAIN_SRC = main_tests.c
+endif
 
 # Paths
 ROOT_DIR = ../..
@@ -124,6 +133,11 @@ include $(CHIBIOS)/tools/mk/autobuild.mk
 # Other files (optional).
 include $(CHIBIOS)/os/hal/lib/streams/streams.mk
 
+# Shell (optional, needed for shell target)
+ifeq ($(SHELL_TARGET),1)
+  include $(CHIBIOS)/os/various/shell/shell.mk
+endif
+
 # ioHdlc ChibiOS binding
 include $(OS_CHIBIOS_DIR)/ioHdlcBinding.mk
 
@@ -141,10 +155,23 @@ IOHDLC_CORE_SRCS = \
 	$(SRC_DIR)/ioHdlc_log.c \
 	$(SRC_DIR)/ioHdlcll.c \
 	$(SRC_DIR)/ioHdlcswdriver.c \
-	$(SRC_DIR)/ioHdlcpool_common.c
+	$(SRC_DIR)/ioHdlcpool_common.c \
+	$(SRC_DIR)/ioHdlc_runner.c
+
+# ChibiOS platform-specific config
+ifeq ($(SHELL_TARGET),1)
+  # Shell: use runtime CLI parameter parsing
+  CHIBIOS_CONFIG_SRCS = \
+	$(CHIBIOS_DIR)/test_config_shell.c
+else
+  # Tests/Exchange: use compile-time configuration
+  CHIBIOS_CONFIG_SRCS = \
+	$(CHIBIOS_DIR)/test_config_chibios.c
+endif
 
 # Common test infrastructure
 COMMON_TEST_SRCS = \
+	$(COMMON_DIR)/test_framework.c \
 	$(COMMON_DIR)/test_helpers.c \
 	$(COMMON_DIR)/test_arenas.c
 
@@ -152,19 +179,33 @@ COMMON_TEST_SRCS = \
 TEST_ADAPTER_SRCS =
 
 # OS-agnostic test scenarios (shared with Linux)
-COMMON_TEST_SCENARIOS = \
+ifeq ($(SHELL_TARGET),1)
+  # Shell target needs all test scenarios for interactive commands
+  COMMON_TEST_SCENARIOS = \
+	$(COMMON_SCENARIOS_DIR)/test_frame_pool.c \
+	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c \
+	$(COMMON_SCENARIOS_DIR)/test_basic_connection_twa.c \
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c \
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c \
+	$(COMMON_SCENARIOS_DIR)/test_exchange.c
+else ifeq ($(EXCHANGE_TEST),1)
+  # Exchange test only needs test_exchange.c
+  COMMON_TEST_SCENARIOS = \
+	$(COMMON_SCENARIOS_DIR)/test_exchange.c
+else
+  # Unit tests use all test scenarios
+  COMMON_TEST_SCENARIOS = \
 	$(COMMON_SCENARIOS_DIR)/test_frame_pool.c \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection_twa.c \
 	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c \
 	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c
-
-# Test main (combines all tests)
-TEST_MAIN_SRC = main_tests.c
+endif
 
 # All C sources
 CSRC = $(ALLCSRC) \
        $(IOHDLC_CORE_SRCS) \
+       $(CHIBIOS_CONFIG_SRCS) \
        $(COMMON_TEST_SRCS) \
        $(TEST_ADAPTER_SRCS) \
        $(COMMON_TEST_SCENARIOS) \
@@ -190,6 +231,8 @@ INCDIR = $(CONFDIR) \
          $(INCLUDE_DIR) \
          $(OS_CHIBIOS_DIR)/include \
          $(COMMON_DIR) \
+         $(COMMON_DIR)/mocks \
+         $(COMMON_DIR)/adapters \
          $(CHIBIOS_DIR) \
          $(CHIBIOS_DIR)/adapters \
          $(CHIBIOS_DIR)/board_config \
@@ -226,7 +269,14 @@ CPPWARN = -Wall -Wextra -Wundef
 ##############################################################################
 
 # User C defines
-UDEFS = -DIOHDLC_USE_CHIBIOS -DCHPRINTF_USE_FLOAT=1 $(CFLAGS_EXTRA)
+UDEFS = -DCHPRINTF_USE_FLOAT=1 $(CFLAGS_EXTRA)
+
+# Shell command configuration (when building shell target)
+ifeq ($(SHELL_TARGET),1)
+  UDEFS += -DSHELL_CMD_TEST_ENABLED=FALSE
+  UDEFS += -DSHELL_CMD_FILES_ENABLED=FALSE
+  UDEFS += -DSHELL_CONFIG_FILE
+endif
 
 # Test adapter selection (default: mock)
 # Set USE_UART_ADAPTER=1 to build with hardware UART adapter
@@ -234,9 +284,9 @@ ifdef USE_UART_ADAPTER
   TEST_ADAPTER_SRCS = adapters/adapter_uart.c
   UDEFS += -DUSE_UART_ADAPTER
 else
-  TEST_ADAPTER_SRCS = adapters/adapter_mock.c \
-                      mocks/mock_stream_chibios.c \
-                      mocks/mock_stream_adapter_chibios.c
+  TEST_ADAPTER_SRCS = $(COMMON_DIR)/adapters/adapter_mock.c \
+                      $(COMMON_DIR)/mocks/mock_stream.c \
+                      $(COMMON_DIR)/mocks/mock_stream_adapter.c
   UDEFS += -DUSE_MOCK_ADAPTER
 endif
 
@@ -290,17 +340,52 @@ clean-all: clean
 	@rm -rf .dep build lst
 
 ##############################################################################
-# Convenience targets for different test configurations
+# Convenience targets for different configurations
 ##############################################################################
 
-.PHONY: test-mock test-uart
+.PHONY: tests exchange shell test-mock test-uart shell-mock shell-uart
+
+# Build unit tests suite (main_tests.c)
+tests:
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Building ioHdlc Unit Tests Suite"
+	@echo "════════════════════════════════════════════════════════"
+	@$(MAKE) EXCHANGE_TEST=0 SHELL_TARGET=0 all
+
+# Build exchange test (main_exchange.c)
+exchange:
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Building ioHdlc Exchange Test"
+	@echo "════════════════════════════════════════════════════════"
+	@$(MAKE) EXCHANGE_TEST=1 SHELL_TARGET=0 all
+
+# Build interactive shell (main_shell.c)
+shell:
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Building ioHdlc Interactive Shell"
+	@echo "════════════════════════════════════════════════════════"
+	@$(MAKE) USE_PROCESS_STACKSIZE=0x2000 SHELL_TARGET=1 all
 
 # Build with mock stream adapter (default, no hardware required)
 test-mock:
-	@echo "Building with MOCK adapter (memory-based)..."
-	$(MAKE) all
+	@echo "Building tests with MOCK adapter (memory-based)..."
+	@$(MAKE) tests
 
 # Build with UART hardware adapter (requires physical connections)
 test-uart:
-	@echo "Building with UART adapter (UARTD2 + FUARTD1)..."
-	$(MAKE) all USE_UART_ADAPTER=1
+	@echo "Building tests with UART adapter (UARTD2 + FUART D1)..."
+	@$(MAKE) tests USE_UART_ADAPTER=1
+
+# Build shell with mock stream adapter (default)
+shell-mock:
+	@echo "Building shell with MOCK adapter (memory-based)..."
+	@$(MAKE) shell
+
+# Build shell with UART hardware adapter
+shell-uart:
+	@echo "Building shell with UART adapter (UARTD2 + FUART D1)..."
+	@$(MAKE) shell USE_UART_ADAPTER=1
+

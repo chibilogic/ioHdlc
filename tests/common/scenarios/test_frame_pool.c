@@ -140,19 +140,3 @@ int test_exhaust_pool(void) {
     TEST_ASSERT(frame_pool.allocated == 0, "Pool should be empty");
     return 0;
 }
-/*===========================================================================*/
-/* Test runner                                                               */
-/*===========================================================================*/
-#ifndef IOHDLC_USE_CHIBIOS
-/* Standalone test main for Linux/POSIX */
-int main(void) {
-    test_printf("\n=== Frame Pool Tests ===\n\n");
-    RUN_TEST(test_pool_init);
-    RUN_TEST(test_take_release);
-    RUN_TEST(test_addref);
-    RUN_TEST(test_watermark);
-    RUN_TEST(test_exhaust_pool);
-    TEST_SUMMARY();
-    return (failed_count > 0) ? 1 : 0;
-}
-#endif /* IOHDLC_USE_CHIBIOS */

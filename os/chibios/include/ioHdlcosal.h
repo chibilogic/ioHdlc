@@ -30,6 +30,11 @@
 #include <errno.h>
 
 /**
+ * @brief   Signed size type (not standard in ChibiOS/newlib-nano).
+ */
+typedef int ssize_t;
+
+/**
  * @brief   Thread-local errno access.
  * @details ChibiOS uses standard errno (thread-local if newlib configured with reentrant).
  *          This macro provides consistent interface across platforms.
@@ -37,19 +42,28 @@
  */
 #define iohdlc_errno errno
 
+/**
+ * @brief   Platform-independent snprintf.
+ * @details Maps to ChibiOS chsnprintf for consistent formatted printing.
+ */
+#define iohdlc_snprintf chsnprintf
+
 #define iohdlc_event_source_t event_source_t
 
 typedef event_listener_t iohdlc_event_listener_t;
 
 /**
- * @brief Virtual timer wrapper with expiry state tracking.
- * @note  ChibiOS virtual_timer_t doesn't distinguish between "never started"
- *        and "expired". This wrapper adds a flag to track expiry state.
+ * @brief Extends virtual timer with expiry state tracking and event flag.
+ * @note  This object adds a flag to track expiry state.
+ *        It adds also the event flag to broadcast.
  */
 typedef struct {
-  virtual_timer_t vt;       /* ChibiOS virtual timer. */
-  volatile bool expired;    /* True if timer expired (cleared on start/restart/stop).
-                               Volatile: modified from ISR context, read from thread. */
+  virtual_timer_t vt;         /* ChibiOS virtual timer. */
+  uint32_t  evt_flag;         /* Event flag to broadcast when timer expires. */
+  iohdlc_event_source_t *esp; /* Event source the evt_flag is emitted from. */
+  volatile bool expired;      /* True if timer expired (cleared on
+                                 start/restart/stop). Volatile: modified from
+                                 ISR context, read from thread. */
 } iohdlc_virtual_timer_t;
 
 typedef semaphore_t iohdlc_sem_t;
@@ -78,12 +92,10 @@ static inline void iohdlc_sem_init(iohdlc_sem_t *sp, cnt_t n) {
   chSemObjectInit(sp, n);
 }
 
-static inline msg_t iohdlc_sem_wait_timeout(iohdlc_sem_t *sp, uint32_t ms) {
-  return chSemWaitTimeout(sp, TIME_MS2I(ms));
-}
-
-static inline bool iohdlc_sem_wait_ok(iohdlc_sem_t *sp, uint32_t ms) {
-  return chSemWaitTimeout(sp, TIME_MS2I(ms)) == MSG_OK;
+static inline msg_t iohdlc_sem_wait_timeout(iohdlc_sem_t *sp, uint32_t timeout_ms) {
+  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
+                          TIME_INFINITE : TIME_MS2I(timeout_ms);
+  return chSemWaitTimeout(sp, timeout);
 }
 
 static inline void iohdlc_sem_signal_i(iohdlc_sem_t *sp) {
@@ -98,7 +110,9 @@ static inline void iohdlc_bsem_init(iohdlc_binary_semaphore_t *bsp, bool taken) 
   chBSemObjectInit(bsp, taken);
 }
 
-static inline msg_t iohdlc_bsem_wait_timeout(iohdlc_binary_semaphore_t *bsp, sysinterval_t timeout) {
+static inline msg_t iohdlc_bsem_wait_timeout(iohdlc_binary_semaphore_t *bsp, uint32_t timeout_ms) {
+  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
+                          TIME_INFINITE : TIME_MS2I(timeout_ms);
   return chBSemWaitTimeout(bsp, timeout);
 }
 
@@ -121,11 +135,6 @@ static inline void iohdlc_bsem_signal_i(iohdlc_binary_semaphore_t *bsp) {
 /*===========================================================================*/
 
 /**
- * @brief   Convert milliseconds to system ticks (ChibiOS TIME_MS2I wrapper).
- */
-#define IOHDLC_TIME_MS2I(ms) TIME_MS2I(ms)
-
-/**
  * @brief   Infinite timeout constant.
  */
 #define IOHDLC_WAIT_FOREVER  0xFFFFFFFFU
@@ -141,12 +150,39 @@ static inline uint32_t iohdlc_time_now_ms(void) {
 /* Virtual Timer                                                             */
 /*===========================================================================*/
 
+typedef void (*iohdlc_vt_callback_t)(iohdlc_virtual_timer_t *vtp, void *par);
+
 /**
  * @brief   Initialize virtual timer.
  * @note    On ChibiOS, virtual timers are statically initialized,
  *          so this is a no-op. Just clear the expired flag.
  */
-static inline void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp) {
+static inline void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp,
+                      iohdlc_event_source_t *esp, uint32_t evt_flag) {
+  vtp->expired = false;
+  vtp->esp = esp;
+  vtp->evt_flag = evt_flag;
+}
+
+/**
+ * @brief   Check if virtual timer is armed (running).
+ * @note    ChibiOS native API: chVTIsArmed().
+ *
+ * @param[in] vtp       Virtual timer pointer
+ * @return              true if timer is armed, false otherwise
+ */
+static inline bool iohdlc_vt_is_armed(iohdlc_virtual_timer_t *vtp) {
+  return chVTIsArmed(&vtp->vt);
+}
+
+static inline void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp,
+                    uint32_t delay_ms, iohdlc_vt_callback_t callback,
+                    void *par) {
+  chVTSet(&vtp->vt, TIME_MS2I(delay_ms), (vtfunc_t)callback, par);
+}
+
+static inline void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp) {
+  chVTReset(&vtp->vt);
   vtp->expired = false;
 }
 
@@ -196,8 +232,10 @@ static inline msg_t iohdlc_condvar_wait(iohdlc_condvar_t *cvp, iohdlc_mutex_t *m
  */
 static inline msg_t iohdlc_condvar_wait_timeout(iohdlc_condvar_t *cvp, 
                                                   iohdlc_mutex_t *mtxp,
-                                                  sysinterval_t timeout) {
+                                                  uint32_t timeout_ms) {
   (void)mtxp;  /* ChibiOS chCondWaitTimeout uses implicit mutex */
+  sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
+                          TIME_INFINITE : TIME_MS2I(timeout_ms);
   return chCondWaitTimeout(cvp, timeout);
 }
 
@@ -219,7 +257,6 @@ static inline void iohdlc_condvar_broadcast(iohdlc_condvar_t *cvp) {
   chCondBroadcast(cvp);
 }
 
-/* Event source/listener wrappers */
 static inline void iohdlc_evt_init(iohdlc_event_source_t *esp) {
   chEvtObjectInit(esp);
 }
@@ -245,6 +282,18 @@ static inline eventmask_t iohdlc_evt_wait_any_timeout(eventmask_t events,
 
 static inline eventflags_t iohdlc_evt_get_and_clear_flags(iohdlc_event_listener_t *elp) {
   return chEvtGetAndClearFlags(elp);
+}
+
+static inline void iohdlc_evt_broadcast_flags(iohdlc_event_source_t *esp,
+                                    eventflags_t flags) {
+  chEvtBroadcastFlags(esp, flags);
+}
+
+static inline void iohdlc_evt_broadcast_flags_isr(iohdlc_event_source_t *esp,
+                                    eventflags_t flags) {
+  chSysLockFromISR();
+  chEvtBroadcastFlagsI(esp, flags);
+  chSysUnlockFromISR();
 }
 
 static inline void iohdlc_sys_lock_isr(void) { chSysLockFromISR(); }
@@ -317,5 +366,107 @@ int locked_chprintf(BaseSequentialStream *chp, const char *fmt, ...);
 static inline void ioHdlc_sleep_ms(uint32_t ms) {
   chThdSleepMilliseconds(ms);
 }
+
+/**
+ * @brief   Sleep for microseconds (ChibiOS).
+ */
+static inline void ioHdlc_sleep_us(uint32_t us) {
+  chThdSleepMicroseconds(us);
+}
+
+/*===========================================================================*/
+/* Thread Abstraction                                                        */
+/*===========================================================================*/
+
+/**
+ * @brief   Thread handle (opaque OS-specific implementation).
+ */
+typedef struct iohdlc_thread iohdlc_thread_t;
+
+/**
+ * @brief   Thread entry point signature.
+ * @note    Portable across different platforms.
+ *          Returns void* for compatibility.
+ */
+typedef void* (*iohdlc_thread_fn_t)(void* arg);
+
+/**
+ * @brief   Thread handle structure (ChibiOS implementation).
+ */
+struct iohdlc_thread {
+  thread_t* handle;  /**< ChibiOS thread reference */
+};
+
+/**
+ * @brief   Create and start a new thread.
+ *
+ * @param[in] name          Thread name (for debugging)
+ * @param[in] stack_size    Stack size in bytes (0 = use default 2048)
+ * @param[in] priority      Thread priority offset from NORMALPRIO (0 = NORMALPRIO)
+ * @param[in] entry         Thread entry point function
+ * @param[in] arg           Argument passed to entry point
+ * @return                  Thread handle on success, NULL on failure
+ */
+static inline iohdlc_thread_t* iohdlc_thread_create(
+    const char* name,
+    size_t stack_size,
+    int priority,
+    iohdlc_thread_fn_t entry,
+    void* arg) {
+  
+  /* Allocate thread handle from heap */
+  iohdlc_thread_t* thread = (iohdlc_thread_t*)chHeapAlloc(NULL, sizeof(iohdlc_thread_t));
+  if (thread == NULL) {
+    return NULL;
+  }
+  
+  /* Calculate working area size (includes stack + thread descriptor)
+   * Default to 2048 bytes stack if not specified */
+  size_t wsize = (stack_size > 0) ? 
+                  THD_WORKING_AREA_SIZE(stack_size) : 
+                  THD_WORKING_AREA_SIZE(2048);
+  
+  /* Calculate thread priority (NORMALPRIO + offset) */
+  tprio_t prio = (tprio_t)(NORMALPRIO + priority);
+  
+  /* Suppress cast warning: iohdlc_thread_fn_t returns void* for Linux compatibility,
+   * but ChibiOS tfunc_t returns void. The cast is safe because return value is unused. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+  thread->handle = chThdCreateFromHeap(NULL, wsize, name, prio,
+                                       (tfunc_t)entry, arg);
+#pragma GCC diagnostic pop
+  
+  if (thread->handle == NULL) {
+    chHeapFree(thread);
+    return NULL;
+  }
+  
+  return thread;
+}
+
+/**
+ * @brief   Wait for thread termination and cleanup resources.
+ * @note    Thread handle is freed after join completes.
+ *          Thread stack is automatically freed by ChibiOS after chThdWait().
+ *
+ * @param[in] thread        Thread handle (freed after join)
+ */
+static inline void iohdlc_thread_join(iohdlc_thread_t* thread) {
+  if (thread != NULL && thread->handle != NULL) {
+    /* Wait for thread termination (also frees thread's stack) */
+    chThdWait(thread->handle);
+    
+    /* Free our handle structure */
+    chHeapFree(thread);
+  }
+}
+
+/*===========================================================================*/
+/* Memory allocation                                                         */
+/*===========================================================================*/
+
+#define IOHDLC_MALLOC(size) chHeapAlloc(NULL, size)
+#define IOHDLC_FREE(obj)    chHeapFree(obj)
 
 #endif /* IOHDLCOSAL_H_ */

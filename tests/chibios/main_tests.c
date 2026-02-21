@@ -37,19 +37,19 @@ extern int test_exhaust_pool(void);
 /* Basic connection tests */
 extern int test_station_creation(void);
 extern int test_peer_creation(void);
-extern bool test_snrm_handshake(void);
+extern bool test_snrm_handshake(const test_adapter_t *adapter);
 extern int test_connection_timeout(void);
 /* TWA mode basic tests */
-extern int test_data_exchange_twa(void);
+extern int test_data_exchange_twa(const test_adapter_t *adapter);
 /* Checkpoint retransmission tests - TWS */
-extern bool test_A1_1_frame_loss_window_full(void);
-extern bool test_A2_1_multiple_frame_loss(void);
-extern bool test_A2_2_first_and_last_frame_loss(void);
+extern bool test_A1_1_frame_loss_window_full(const test_adapter_t *adapter);
+extern bool test_A2_1_multiple_frame_loss(const test_adapter_t *adapter);
+extern bool test_A2_2_first_and_last_frame_loss(const test_adapter_t *adapter);
 
 /* Checkpoint retransmission tests - TWA mode */
-extern bool test_A1_1_frame_loss_window_full_twa(void);
-extern bool test_A2_1_multiple_frame_loss_twa(void);
-extern bool test_A2_2_first_and_last_frame_loss_twa(void);
+extern bool test_A1_1_frame_loss_window_full_twa(const test_adapter_t *adapter);
+extern bool test_A2_1_multiple_frame_loss_twa(const test_adapter_t *adapter);
+extern bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter);
 
 /*
  * Serial configuration for test output console.
@@ -129,7 +129,7 @@ static THD_FUNCTION(TestRunner, arg) {
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
   RUN_TEST(test_station_creation);
   RUN_TEST(test_peer_creation);
-  RUN_TEST(test_snrm_handshake);
+  RUN_TEST_ADAPTER(test_snrm_handshake, TEST_ADAPTER);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
 
   /* Basic Connection Tests - TWA Mode */
@@ -141,7 +141,7 @@ static THD_FUNCTION(TestRunner, arg) {
            "═══════════════════════════════════════════════\r\n");
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
 
-  RUN_TEST(test_data_exchange_twa);
+  RUN_TEST_ADAPTER(test_data_exchange_twa, TEST_ADAPTER);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
 
   /* Checkpoint Retransmission Tests */
@@ -152,9 +152,9 @@ static THD_FUNCTION(TestRunner, arg) {
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "═══════════════════════════════════════════════\r\n");
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
-  RUN_TEST(test_A1_1_frame_loss_window_full);
-  RUN_TEST(test_A2_1_multiple_frame_loss);
-  RUN_TEST(test_A2_2_first_and_last_frame_loss);
+  RUN_TEST_ADAPTER(test_A1_1_frame_loss_window_full, TEST_ADAPTER);
+  RUN_TEST_ADAPTER(test_A2_1_multiple_frame_loss, TEST_ADAPTER);
+  RUN_TEST_ADAPTER(test_A2_2_first_and_last_frame_loss, TEST_ADAPTER);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
 
   /* Checkpoint Retransmission Tests - TWA */
@@ -166,9 +166,9 @@ static THD_FUNCTION(TestRunner, arg) {
            "═══════════════════════════════════════════════\r\n");
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
 
-  RUN_TEST(test_A1_1_frame_loss_window_full_twa);
-  RUN_TEST(test_A2_1_multiple_frame_loss_twa);
-  RUN_TEST(test_A2_2_first_and_last_frame_loss_twa);
+  RUN_TEST_ADAPTER(test_A1_1_frame_loss_window_full_twa, TEST_ADAPTER);
+  RUN_TEST_ADAPTER(test_A2_1_multiple_frame_loss_twa, TEST_ADAPTER);
+  RUN_TEST_ADAPTER(test_A2_2_first_and_last_frame_loss_twa, TEST_ADAPTER);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
 
   /* Final summary */
@@ -223,13 +223,13 @@ int main(void) {
   /*
    * Creates the blinker thread.
    */
-  chThdCreateStatic(waThread1, sizeof(waThread1), NORMALPRIO, Thread1, NULL);
+  chThdCreateStatic(waThread1, sizeof(waThread1), NORMALPRIO-1, Thread1, NULL);
 
   /*
    * Creates the test runner thread.
    */
   chThdCreateStatic(waTestRunner, sizeof(waTestRunner), 
-                    NORMALPRIO + 1, TestRunner, NULL);
+                    NORMALPRIO, TestRunner, NULL);
   /*
    * Normal main() thread activity - idle loop.
    */

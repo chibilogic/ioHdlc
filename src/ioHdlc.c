@@ -350,10 +350,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
 
   /* Start driver if physical device provided */
   if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
-    ioHdlcsp->driver->vmt->start(ioHdlcsp->driver, 
-                                  ioHdlcsconfp->phydriver,
-                                  ioHdlcsconfp->phydriver_config,
-                                  (ioHdlcFramePool *)&ioHdlcsp->frame_pool);
+    hdlcStart(ioHdlcsp->driver,
+              ioHdlcsconfp->phydriver,
+              ioHdlcsconfp->phydriver_config,
+              (ioHdlcFramePool *)&ioHdlcsp->frame_pool);
   }
 
   iohdlc_errno = 0;
@@ -444,8 +444,8 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   iohdlc_mutex_init(&peer->state_mutex);        /* Mutex for state */
   
   /* Initialize virtual timers (reply and I-frame reply) */
-  iohdlc_vt_init(&peer->reply_tmr);
-  iohdlc_vt_init(&peer->t3_tmr);
+  iohdlc_vt_init(&peer->reply_tmr, &s->cm_es, IOHDLC_EVT_C_RPLYTMO);
+  iohdlc_vt_init(&peer->t3_tmr, &s->cm_es, IOHDLC_EVT_T3_TMO);
   
   /* Initialize partial read state */
   peer->partial_read_frame = NULL;
@@ -741,14 +741,15 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
       }
       msg_t result = iohdlc_condvar_wait_timeout(&peer->tx_cv,
                                                   &peer->state_mutex,
-                                                  IOHDLC_TIME_MS2I(timeout_ms));
+                                                  timeout_ms);
       if ((result == MSG_TIMEOUT) && W_WAIT_COND(s, peer)) {
          /* Timeout occurred and condition still not satisfied */
-        iohdlc_mutex_unlock(&peer->state_mutex);
         iohdlc_errno = ETIMEDOUT;
         ssize_t t = count -remaining;
         return t != 0 ? t : -1;  /* Return bytes written so far */
       }
+      if (result == MSG_TIMEOUT)
+        iohdlc_mutex_lock(&peer->state_mutex);
     }
 
     if (IOHDLC_PEER_DISC(peer)) {
@@ -905,7 +906,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       }
       
       /* Wait for next frame with remaining timeout (counting semaphore) */
-      if (!iohdlc_sem_wait_ok(&peer->i_recept_sem, (iohdlc_timeout_t)remaining_ms)) {
+      if (iohdlc_sem_wait_timeout(&peer->i_recept_sem, remaining_ms) != MSG_OK) {
         /* Timeout: return bytes read so far, or -1 if nothing read yet */
         if (total_bytes_read > 0) {
           break;  /* POSIX: return partial read on timeout */

@@ -16,12 +16,14 @@
 /**
  * @file    adapter_uart.c
  * @brief   Hardware UART adapter for integration testing.
- * @details Uses real UART drivers (UARTD2, FUARTD1) for on-target testing.
+ * @details Uses real UART drivers (UARTD1, UARTD6) for on-target testing.
  *          Requires physical TX/RX cross-connection between endpoints.
  */
 
+#include "ch.h"
+#include "hal.h"
 #include "adapter_interface.h"
-#include "../board_config/board_config.h"
+#include "board_config.h"
 #include "ioHdlcstream_uart.h"
 
 /*===========================================================================*/
@@ -37,9 +39,6 @@ static UARTConfig uart_cfg_a = {
   .rxerr_cb = NULL,
   .timeout_cb = NULL,
   .speed = 115200,
-  .cr = 0,
-  .mr = UART_MR_PAR_NO,
-  .timeout = 0
 };
 
 static UARTConfig uart_cfg_b = {
@@ -50,9 +49,6 @@ static UARTConfig uart_cfg_b = {
   .rxerr_cb = NULL,
   .timeout_cb = NULL,
   .speed = 115200,
-  .cr = 0,
-  .mr = UART_MR_PAR_NO,
-  .timeout = 0
 };
 
 /* ioHdlcStream UART context objects */
@@ -100,9 +96,11 @@ static ioHdlcStreamPort adapter_uart_get_port_b(void) {
 /*===========================================================================*/
 
 const test_adapter_t uart_adapter = {
-  .name = "UART Hardware (UARTD2 + FUARTD1)",
+  .name = "UART Hardware",
   .init = adapter_uart_init,
   .deinit = adapter_uart_deinit,
+  .reset = NULL,  /* Not needed for hardware */
   .get_port_a = adapter_uart_get_port_a,
-  .get_port_b = adapter_uart_get_port_b
+  .get_port_b = adapter_uart_get_port_b,
+  .configure_error_injection = NULL  /* Not supported on hardware */
 };

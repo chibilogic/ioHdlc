@@ -8,7 +8,7 @@ INCLUDE_DIR = $(ROOT_DIR)/include
 OS_LINUX_DIR = $(ROOT_DIR)/os/linux
 TESTS_DIR = ..
 LINUX_DIR = .
-MOCKS_DIR = $(LINUX_DIR)/mocks
+MOCKS_DIR = $(COMMON_DIR)/mocks
 SCENARIOS_DIR = $(LINUX_DIR)/scenarios
 COMMON_DIR = $(TESTS_DIR)/common
 COMMON_SCENARIOS_DIR = $(COMMON_DIR)/scenarios
@@ -20,13 +20,14 @@ BIN_DIR = $(BUILD_DIR)/bin
 
 # Compiler (force native, not cross-compiler)
 CC = /usr/bin/gcc
-CFLAGS = -Wall -Wextra -std=c11 -g3 -O0
+CFLAGS = -Wall -Wextra -std=c11 -g3 -O2
 CFLAGS += -D_XOPEN_SOURCE=600 -D_GNU_SOURCE
 CFLAGS += -pthread
 CFLAGS += -I$(INCLUDE_DIR)
 CFLAGS += -I$(OS_LINUX_DIR)/include
 CFLAGS += -I$(MOCKS_DIR)
 CFLAGS += -I$(COMMON_DIR)
+CFLAGS += -I$(COMMON_DIR)/adapters
 CFLAGS += -I$(LINUX_DIR)
 CFLAGS += -DIOHDLC_USE_POSIX
 CFLAGS += $(CFLAGS_EXTRA)
@@ -41,22 +42,27 @@ CORE_SRCS = \
 	$(SRC_DIR)/ioHdlc_log.c \
 	$(SRC_DIR)/ioHdlcll.c \
 	$(SRC_DIR)/ioHdlcswdriver.c \
-	$(SRC_DIR)/ioHdlcpool_common.c
+	$(SRC_DIR)/ioHdlcpool_common.c \
+	$(SRC_DIR)/ioHdlc_runner.c
 
 OSAL_SRCS = \
 	$(OS_LINUX_DIR)/src/ioHdlcosal.c \
-	$(OS_LINUX_DIR)/src/ioHdlcfmempool.c \
-	$(OS_LINUX_DIR)/src/ioHdlc_runner.c
+	$(OS_LINUX_DIR)/src/ioHdlcfmempool.c
 
 MOCK_SRCS = \
 	$(MOCKS_DIR)/mock_stream.c \
 	$(MOCKS_DIR)/mock_stream_adapter.c
 
+ADAPTER_SRCS = \
+	$(COMMON_DIR)/adapters/adapter_mock.c
+
+LINUX_CONFIG_SRCS = \
+	$(LINUX_DIR)/test_config_linux.c
+
 COMMON_SRCS = \
 	$(COMMON_DIR)/test_helpers.c \
 	$(COMMON_DIR)/test_arenas.c \
-	$(COMMON_DIR)/test_framework.c \
-	$(COMMON_DIR)/test_config_linux.c
+	$(COMMON_DIR)/test_framework.c
 
 # OS-agnostic test scenarios (shared across all platforms)
 COMMON_TEST_SRCS = \
@@ -64,20 +70,20 @@ COMMON_TEST_SRCS = \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection_twa.c \
 	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c \
-	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c \
+	$(COMMON_SCENARIOS_DIR)/test_exchange.c
 
 # Linux-specific test scenarios
 LINUX_TEST_SRCS = \
 	$(SCENARIOS_DIR)/test_mock_stream.c \
 	$(SCENARIOS_DIR)/test_osal_bsem.c \
-	$(SCENARIOS_DIR)/test_osal_events.c \
-	$(LINUX_DIR)/test_basic_exchange.c
+	$(SCENARIOS_DIR)/test_osal_events.c
 
 # Test scenarios
 TEST_MOCK_STREAM = test_mock_stream
 TEST_BASIC_CONNECTION = test_basic_connection
 TEST_BASIC_CONNECTION_TWA = test_basic_connection_twa
-TEST_BASIC_EXCHANGE = test_basic_exchange
+TEST_EXCHANGE = test_exchange
 TEST_FRAME_POOL = test_frame_pool
 TEST_CHECKPOINT_TWS = test_checkpoint_tws
 TEST_CHECKPOINT_TWA = test_checkpoint_twa
@@ -88,12 +94,17 @@ TEST_OSAL_EVENTS = test_osal_events
 CORE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
 OSAL_OBJS = $(patsubst $(OS_LINUX_DIR)/src/%.c,$(OBJ_DIR)/osal_%.o,$(OSAL_SRCS))
 MOCK_OBJS = $(patsubst $(MOCKS_DIR)/%.c,$(OBJ_DIR)/mock_%.o,$(MOCK_SRCS))
+ADAPTER_OBJS = $(patsubst $(COMMON_DIR)/adapters/%.c,$(OBJ_DIR)/%.o,$(ADAPTER_SRCS))
+LINUX_CONFIG_OBJS = $(patsubst $(LINUX_DIR)/%.c,$(OBJ_DIR)/%.o,$(LINUX_CONFIG_SRCS))
 COMMON_OBJS = $(patsubst $(COMMON_DIR)/%.c,$(OBJ_DIR)/common_%.o,$(COMMON_SRCS))
+
+# Common test scenario objects (OS-agnostic test logic)
+COMMON_TEST_OBJS = $(patsubst $(COMMON_SCENARIOS_DIR)/%.c,$(OBJ_DIR)/%.o,$(COMMON_TEST_SRCS))
 
 # Minimal OSAL for tests that only need time functions (test_framework dependency)
 OSAL_MINIMAL = $(OBJ_DIR)/osal_ioHdlcosal.o
 
-ALL_OBJS = $(CORE_OBJS) $(OSAL_OBJS) $(MOCK_OBJS) $(COMMON_OBJS)
+ALL_OBJS = $(CORE_OBJS) $(OSAL_OBJS) $(MOCK_OBJS) $(ADAPTER_OBJS) $(LINUX_CONFIG_OBJS) $(COMMON_OBJS)
 
 # Test binaries
 AUTO_TEST_BINS = $(BIN_DIR)/$(TEST_MOCK_STREAM)
@@ -106,7 +117,7 @@ AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
 
 # Manual test tools (require command-line parameters)
-MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_BASIC_EXCHANGE)
+MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_EXCHANGE)
 
 # All test binaries
 TEST_BINS = $(AUTO_TEST_BINS) $(MANUAL_TEST_BINS)
@@ -134,6 +145,16 @@ $(OBJ_DIR)/mock_%.o: $(MOCKS_DIR)/%.c
 	@echo "CC $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
+# Compile adapter sources (from common/adapters)
+$(OBJ_DIR)/adapter_%.o: $(COMMON_DIR)/adapters/adapter_%.c
+	@echo "CC $< (adapter)"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile platform config sources
+$(OBJ_DIR)/test_config_%.o: $(LINUX_DIR)/test_config_%.c
+	@echo "CC $< (config)"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
 # Compile common sources
 $(OBJ_DIR)/common_%.o: $(COMMON_DIR)/%.c
 	@echo "CC $<"
@@ -154,32 +175,38 @@ $(OBJ_DIR)/test_%.o: $(LINUX_DIR)/test_%.c
 	@echo "CC $< (linux)"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
+# Compile test runners (Linux-specific entry points)
+$(OBJ_DIR)/test_runner_%.o: $(LINUX_DIR)/test_runner_%.c
+	@echo "CC $< (runner)"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
 # Link test binaries
 $(BIN_DIR)/$(TEST_MOCK_STREAM): $(OBJ_DIR)/test_mock_stream.o $(MOCK_OBJS) $(COMMON_OBJS) $(OSAL_MINIMAL)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_BASIC_CONNECTION): $(OBJ_DIR)/test_basic_connection.o $(ALL_OBJS)
+# Link test binaries with runners
+$(BIN_DIR)/$(TEST_BASIC_CONNECTION): $(OBJ_DIR)/test_runner_basic_connection.o $(OBJ_DIR)/test_basic_connection.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA): $(OBJ_DIR)/test_basic_connection_twa.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA): $(OBJ_DIR)/test_runner_basic_connection_twa.o $(OBJ_DIR)/test_basic_connection_twa.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_BASIC_EXCHANGE): $(OBJ_DIR)/test_basic_exchange.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_EXCHANGE): $(OBJ_DIR)/test_runner_exchange.o $(OBJ_DIR)/test_exchange.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_FRAME_POOL): $(OBJ_DIR)/test_frame_pool.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_FRAME_POOL): $(OBJ_DIR)/test_runner_frame_pool.o $(OBJ_DIR)/test_frame_pool.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_CHECKPOINT_TWS): $(OBJ_DIR)/test_checkpoint_tws.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_CHECKPOINT_TWS): $(OBJ_DIR)/test_runner_checkpoint_tws.o $(OBJ_DIR)/test_checkpoint_tws.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 	
-$(BIN_DIR)/$(TEST_CHECKPOINT_TWA): $(OBJ_DIR)/test_checkpoint_twa.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_CHECKPOINT_TWA): $(OBJ_DIR)/test_runner_checkpoint_twa.o $(OBJ_DIR)/test_checkpoint_twa.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
@@ -250,7 +277,7 @@ help:
 	@echo "  make CFLAGS_EXTRA=\"-DIOHDLC_LOG_LEVEL=1\"     # Enable frame logging"
 	@echo ""
 	@echo "Manual test tools (require command-line parameters):"
-	@echo "  build/bin/test_basic_exchange --help         # Parametrized HDLC testing"
+	@echo "  build/bin/test_exchange --help               # Parametrized HDLC testing"
 	@echo ""
 	@echo "Logging levels (IOHDLC_LOG_LEVEL):"
 	@echo "  0 - OFF (default, zero overhead)"

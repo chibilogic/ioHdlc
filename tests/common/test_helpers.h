@@ -181,6 +181,23 @@ extern int passed_count;   /* Alias for compatibility */
     failed_count = test_failures; \
   } while(0)
 
+#define RUN_TEST_ADAPTER(test_func, adapter) \
+  do { \
+    test_printf("🧪 Running %s...\r\n", #test_func); \
+    int result = test_func(adapter); \
+    if (result == 0) { \
+      test_printf("✅ PASS: %s\r\n\r\n", #test_func); \
+    } else { \
+      test_printf("❌ FAIL: %s\r\n\r\n", #test_func); \
+    } \
+    /* TEMPORARILY DISABLED for debugging deadlock */ \
+    /* if ((adapter)->reset) { */ \
+    /*   (adapter)->reset(); */ \
+    /* } */ \
+    passed_count = test_successes; \
+    failed_count = test_failures; \
+  } while(0)
+
 #define TEST_SUITE_START(name) \
   do { \
     test_printf("\r\n════════════════════════════════════════════════════════\r\n"); \

@@ -32,6 +32,7 @@
 #include "ioHdlcdriver.h"
 #include "ioHdlcqueue.h"
 #include "ioHdlcosal.h"
+#include "ioHdlc_runner.h"
 
 /*===========================================================================*/
 /* Module constants.                                                         */
@@ -366,7 +367,7 @@ struct iohdlc_station {
 
   /* runner context (OS-specific). */
   volatile bool stop_requested;  /* Flag to request thread termination. */
-  void *runner_context;          /* OS-specific runner data (thread handles, etc). */
+  runner_context_t *runner_context; /* Runner data (thread handles, etc). */
 };
 
 /**
