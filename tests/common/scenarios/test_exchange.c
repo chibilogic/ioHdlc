@@ -200,6 +200,9 @@ int test_exchange_main(int argc, char **argv) {
   st_pri = &station_primary;
   st_sec = &station_secondary;
 
+  /* Reset global state for multiple runs */
+  test_running_global = true;
+
   /* Parse configuration */
   if (!test_parse_config(&config, argc, argv)) {
     return 1;

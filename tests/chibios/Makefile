@@ -83,8 +83,11 @@ endif
 # Project, sources and paths
 ##############################################################################
 
-# Define project name (changes based on EXCHANGE_TEST variable)
-ifeq ($(EXCHANGE_TEST),1)
+# Define project name (changes based on EXCHANGE_TEST or SHELL_TARGET variable)
+ifeq ($(SHELL_TARGET),1)
+  PROJECT = iohdlc_shell
+  TEST_MAIN_SRC = main_shell.c
+else ifeq ($(EXCHANGE_TEST),1)
   PROJECT = iohdlc_exchange
   TEST_MAIN_SRC = main_exchange.c
 else
@@ -130,6 +133,11 @@ include $(CHIBIOS)/tools/mk/autobuild.mk
 # Other files (optional).
 include $(CHIBIOS)/os/hal/lib/streams/streams.mk
 
+# Shell (optional, needed for shell target)
+ifeq ($(SHELL_TARGET),1)
+  include $(CHIBIOS)/os/various/shell/shell.mk
+endif
+
 # ioHdlc ChibiOS binding
 include $(OS_CHIBIOS_DIR)/ioHdlcBinding.mk
 
@@ -151,8 +159,15 @@ IOHDLC_CORE_SRCS = \
 	$(SRC_DIR)/ioHdlc_runner.c
 
 # ChibiOS platform-specific config
-CHIBIOS_CONFIG_SRCS = \
+ifeq ($(SHELL_TARGET),1)
+  # Shell: use runtime CLI parameter parsing
+  CHIBIOS_CONFIG_SRCS = \
+	$(CHIBIOS_DIR)/test_config_shell.c
+else
+  # Tests/Exchange: use compile-time configuration
+  CHIBIOS_CONFIG_SRCS = \
 	$(CHIBIOS_DIR)/test_config_chibios.c
+endif
 
 # Common test infrastructure
 COMMON_TEST_SRCS = \
@@ -164,7 +179,16 @@ COMMON_TEST_SRCS = \
 TEST_ADAPTER_SRCS =
 
 # OS-agnostic test scenarios (shared with Linux)
-ifeq ($(EXCHANGE_TEST),1)
+ifeq ($(SHELL_TARGET),1)
+  # Shell target needs all test scenarios for interactive commands
+  COMMON_TEST_SCENARIOS = \
+	$(COMMON_SCENARIOS_DIR)/test_frame_pool.c \
+	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c \
+	$(COMMON_SCENARIOS_DIR)/test_basic_connection_twa.c \
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c \
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c \
+	$(COMMON_SCENARIOS_DIR)/test_exchange.c
+else ifeq ($(EXCHANGE_TEST),1)
   # Exchange test only needs test_exchange.c
   COMMON_TEST_SCENARIOS = \
 	$(COMMON_SCENARIOS_DIR)/test_exchange.c
@@ -247,6 +271,13 @@ CPPWARN = -Wall -Wextra -Wundef
 # User C defines
 UDEFS = -DCHPRINTF_USE_FLOAT=1 $(CFLAGS_EXTRA)
 
+# Shell command configuration (when building shell target)
+ifeq ($(SHELL_TARGET),1)
+  UDEFS += -DSHELL_CMD_TEST_ENABLED=FALSE
+  UDEFS += -DSHELL_CMD_FILES_ENABLED=FALSE
+  UDEFS += -DSHELL_CONFIG_FILE
+endif
+
 # Test adapter selection (default: mock)
 # Set USE_UART_ADAPTER=1 to build with hardware UART adapter
 ifdef USE_UART_ADAPTER
@@ -312,7 +343,7 @@ clean-all: clean
 # Convenience targets for different configurations
 ##############################################################################
 
-.PHONY: tests exchange test-mock test-uart
+.PHONY: tests exchange shell test-mock test-uart shell-mock shell-uart
 
 # Build unit tests suite (main_tests.c)
 tests:
@@ -320,7 +351,7 @@ tests:
 	@echo "════════════════════════════════════════════════════════"
 	@echo "  Building ioHdlc Unit Tests Suite"
 	@echo "════════════════════════════════════════════════════════"
-	@$(MAKE) EXCHANGE_TEST=0 all
+	@$(MAKE) EXCHANGE_TEST=0 SHELL_TARGET=0 all
 
 # Build exchange test (main_exchange.c)
 exchange:
@@ -328,7 +359,15 @@ exchange:
 	@echo "════════════════════════════════════════════════════════"
 	@echo "  Building ioHdlc Exchange Test"
 	@echo "════════════════════════════════════════════════════════"
-	@$(MAKE) EXCHANGE_TEST=1 all
+	@$(MAKE) EXCHANGE_TEST=1 SHELL_TARGET=0 all
+
+# Build interactive shell (main_shell.c)
+shell:
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Building ioHdlc Interactive Shell"
+	@echo "════════════════════════════════════════════════════════"
+	@$(MAKE) USE_PROCESS_STACKSIZE=0x2000 SHELL_TARGET=1 all
 
 # Build with mock stream adapter (default, no hardware required)
 test-mock:
@@ -339,4 +378,14 @@ test-mock:
 test-uart:
 	@echo "Building tests with UART adapter (UARTD2 + FUART D1)..."
 	@$(MAKE) tests USE_UART_ADAPTER=1
+
+# Build shell with mock stream adapter (default)
+shell-mock:
+	@echo "Building shell with MOCK adapter (memory-based)..."
+	@$(MAKE) shell
+
+# Build shell with UART hardware adapter
+shell-uart:
+	@echo "Building shell with UART adapter (UARTD2 + FUART D1)..."
+	@$(MAKE) shell USE_UART_ADAPTER=1
 
