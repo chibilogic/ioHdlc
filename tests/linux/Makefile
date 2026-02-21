@@ -70,14 +70,14 @@ COMMON_TEST_SRCS = \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection_twa.c \
 	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c \
-	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c
+	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c \
+	$(COMMON_SCENARIOS_DIR)/test_exchange.c
 
 # Linux-specific test scenarios
 LINUX_TEST_SRCS = \
 	$(SCENARIOS_DIR)/test_mock_stream.c \
 	$(SCENARIOS_DIR)/test_osal_bsem.c \
-	$(SCENARIOS_DIR)/test_osal_events.c \
-	$(COMMON_SCENARIOS_DIR)/test_exchange.c
+	$(SCENARIOS_DIR)/test_osal_events.c
 
 # Test scenarios
 TEST_MOCK_STREAM = test_mock_stream
@@ -194,7 +194,7 @@ $(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA): $(OBJ_DIR)/test_runner_basic_connection
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
-$(BIN_DIR)/$(TEST_EXCHANGE): $(OBJ_DIR)/test_exchange.o $(ALL_OBJS)
+$(BIN_DIR)/$(TEST_EXCHANGE): $(OBJ_DIR)/test_runner_exchange.o $(OBJ_DIR)/test_exchange.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 

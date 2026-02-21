@@ -42,7 +42,7 @@
  * @brief   Test duration value in iterations or seconds
  */
 #ifndef TEST_DURATION_VALUE
-#define TEST_DURATION_VALUE 10
+#define TEST_DURATION_VALUE 1000
 #endif
 
 /**
@@ -70,7 +70,7 @@
  * @brief   Error injection rate 0-100%
  */
 #ifndef TEST_ERROR_RATE
-#define TEST_ERROR_RATE 0
+#define TEST_ERROR_RATE 1
 #endif
 
 /**

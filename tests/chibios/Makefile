@@ -83,8 +83,14 @@ endif
 # Project, sources and paths
 ##############################################################################
 
-# Define project name
-PROJECT = iohdlc_tests
+# Define project name (changes based on EXCHANGE_TEST variable)
+ifeq ($(EXCHANGE_TEST),1)
+  PROJECT = iohdlc_exchange
+  TEST_MAIN_SRC = main_exchange.c
+else
+  PROJECT = iohdlc_tests
+  TEST_MAIN_SRC = main_tests.c
+endif
 
 # Paths
 ROOT_DIR = ../..
@@ -158,15 +164,19 @@ COMMON_TEST_SRCS = \
 TEST_ADAPTER_SRCS =
 
 # OS-agnostic test scenarios (shared with Linux)
-COMMON_TEST_SCENARIOS = \
+ifeq ($(EXCHANGE_TEST),1)
+  # Exchange test only needs test_exchange.c
+  COMMON_TEST_SCENARIOS = \
+	$(COMMON_SCENARIOS_DIR)/test_exchange.c
+else
+  # Unit tests use all test scenarios
+  COMMON_TEST_SCENARIOS = \
 	$(COMMON_SCENARIOS_DIR)/test_frame_pool.c \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection.c \
 	$(COMMON_SCENARIOS_DIR)/test_basic_connection_twa.c \
 	$(COMMON_SCENARIOS_DIR)/test_checkpoint_tws.c \
 	$(COMMON_SCENARIOS_DIR)/test_checkpoint_twa.c
-
-# Test main (combines all tests)
-TEST_MAIN_SRC = main_tests.c
+endif
 
 # All C sources
 CSRC = $(ALLCSRC) \
@@ -299,17 +309,34 @@ clean-all: clean
 	@rm -rf .dep build lst
 
 ##############################################################################
-# Convenience targets for different test configurations
+# Convenience targets for different configurations
 ##############################################################################
 
-.PHONY: test-mock test-uart
+.PHONY: tests exchange test-mock test-uart
+
+# Build unit tests suite (main_tests.c)
+tests:
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Building ioHdlc Unit Tests Suite"
+	@echo "════════════════════════════════════════════════════════"
+	@$(MAKE) EXCHANGE_TEST=0 all
+
+# Build exchange test (main_exchange.c)
+exchange:
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Building ioHdlc Exchange Test"
+	@echo "════════════════════════════════════════════════════════"
+	@$(MAKE) EXCHANGE_TEST=1 all
 
 # Build with mock stream adapter (default, no hardware required)
 test-mock:
-	@echo "Building with MOCK adapter (memory-based)..."
-	$(MAKE) all
+	@echo "Building tests with MOCK adapter (memory-based)..."
+	@$(MAKE) tests
 
 # Build with UART hardware adapter (requires physical connections)
 test-uart:
-	@echo "Building with UART adapter (UARTD2 + FUARTD1)..."
-	$(MAKE) all USE_UART_ADAPTER=1
+	@echo "Building tests with UART adapter (UARTD2 + FUART D1)..."
+	@$(MAKE) tests USE_UART_ADAPTER=1
+

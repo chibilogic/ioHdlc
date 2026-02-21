@@ -176,7 +176,12 @@ static void *reader_thread(void *arg) {
 /* Main Test                                                                 */
 /*===========================================================================*/
 
-int main(int argc, char **argv) {
+/**
+ * @brief Exchange test main function.
+ * @note  Called from platform-specific wrappers (test_runner_exchange.c 
+ *        for Linux, main_exchange.c for ChibiOS).
+ */
+int test_exchange_main(int argc, char **argv) {
   test_config_t config;
   test_statistics_t stats_primary, stats_secondary;
   iohdlc_mutex_t stats_mutex_primary, stats_mutex_secondary;
