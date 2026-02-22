@@ -184,8 +184,8 @@ void test_print_statistics(const test_statistics_t *stats) {
   test_printf("  Reordered:  %u packets\n", stats->packets_reordered);
   
   test_printf("\nByte Statistics:\n");
-  test_printf("  Sent:       %llu bytes\n", (unsigned long long)stats->total_bytes_sent);
-  test_printf("  Received:   %llu bytes\n", (unsigned long long)stats->total_bytes_received);
+  test_printf("  Sent:       " U64_FMT " bytes\n", U64_ARGS(stats->total_bytes_sent));
+  test_printf("  Received:   " U64_FMT " bytes\n", U64_ARGS(stats->total_bytes_received));
   
   if (duration_ms > 0) {
     double throughput = (stats->total_bytes_received * 1000.0) / duration_ms;

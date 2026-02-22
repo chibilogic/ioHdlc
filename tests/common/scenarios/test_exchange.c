@@ -469,16 +469,16 @@ int test_exchange_main(int argc, char **argv) {
   test_printf("  Packets sent:     %u\r\n", stats_primary.packets_sent);
   test_printf("  Packets received: %u\r\n", stats_primary.packets_received);
   test_printf("  Seq errors:       %u\r\n", stats_primary.packets_reordered);
-  test_printf("  Bytes sent:       %lu\r\n", stats_primary.total_bytes_sent);
-  test_printf("  Bytes received:   %lu\r\n", stats_primary.total_bytes_received);
+  test_printf("  Bytes sent:       " U64_FMT "\r\n", U64_ARGS(stats_primary.total_bytes_sent));
+  test_printf("  Bytes received:   " U64_FMT "\r\n", U64_ARGS(stats_primary.total_bytes_received));
   test_printf("\r\n");
   
   test_printf("Secondary Station:\r\n");
   test_printf("  Packets sent:     %u\r\n", stats_secondary.packets_sent);
   test_printf("  Packets received: %u\r\n", stats_secondary.packets_received);
   test_printf("  Seq errors:       %u\r\n", stats_secondary.packets_reordered);
-  test_printf("  Bytes sent:       %lu\r\n", stats_secondary.total_bytes_sent);
-  test_printf("  Bytes received:   %lu\r\n", stats_secondary.total_bytes_received);
+  test_printf("  Bytes sent:       " U64_FMT "\r\n", U64_ARGS(stats_secondary.total_bytes_sent));
+  test_printf("  Bytes received:   " U64_FMT "\r\n", U64_ARGS(stats_secondary.total_bytes_received));
   test_printf("\r\n");
   
   /* Calculate and print traffic statistics based on direction */
@@ -491,10 +491,10 @@ int test_exchange_main(int argc, char **argv) {
                         ((float)stats_secondary.total_bytes_received / elapsed_time) : 0.0f;
     
     test_printf("Primary → Secondary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
-           stats_primary.packets_sent, stats_primary.total_bytes_sent);
-    test_printf("  Received:   %u packets (%lu bytes)\r\n",
-           stats_secondary.packets_received, stats_secondary.total_bytes_received);
+    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+           stats_primary.packets_sent, U64_ARGS(stats_primary.total_bytes_sent));
+    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+           stats_secondary.packets_received, U64_ARGS(stats_secondary.total_bytes_received));
     test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
     test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput, throughput / 1024.0f);
     test_printf("\r\n");
@@ -507,10 +507,10 @@ int test_exchange_main(int argc, char **argv) {
                         ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
     
     test_printf("Secondary → Primary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
-           stats_secondary.packets_sent, stats_secondary.total_bytes_sent);
-    test_printf("  Received:   %u packets (%lu bytes)\r\n",
-           stats_primary.packets_received, stats_primary.total_bytes_received);
+    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+           stats_secondary.packets_sent, U64_ARGS(stats_secondary.total_bytes_sent));
+    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+           stats_primary.packets_received, U64_ARGS(stats_primary.total_bytes_received));
     test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
     test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput, throughput / 1024.0f);
     test_printf("\r\n");
@@ -532,19 +532,19 @@ int test_exchange_main(int argc, char **argv) {
                             ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
     
     test_printf("Primary → Secondary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
-           stats_primary.packets_sent, stats_primary.total_bytes_sent);
-    test_printf("  Received:   %u packets (%lu bytes)\r\n",
-           stats_secondary.packets_received, stats_secondary.total_bytes_received);
+    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+           stats_primary.packets_sent, U64_ARGS(stats_primary.total_bytes_sent));
+    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+           stats_secondary.packets_received, U64_ARGS(stats_secondary.total_bytes_received));
     test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost_p2s, loss_percent_p2s);
     test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput_p2s, throughput_p2s / 1024.0f);
     test_printf("\r\n");
     
     test_printf("Secondary → Primary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
-           stats_secondary.packets_sent, stats_secondary.total_bytes_sent);
-    test_printf("  Received:   %u packets (%lu bytes)\r\n",
-           stats_primary.packets_received, stats_primary.total_bytes_received);
+    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+           stats_secondary.packets_sent, U64_ARGS(stats_secondary.total_bytes_sent));
+    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+           stats_primary.packets_received, U64_ARGS(stats_primary.total_bytes_received));
     test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost_s2p, loss_percent_s2p);
     test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput_s2p, throughput_s2p / 1024.0f);
     test_printf("\r\n");
