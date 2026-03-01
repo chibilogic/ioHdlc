@@ -22,6 +22,7 @@
  *          - Sequence number validation (N(S), N(R))
  *          - Checkpoint retransmission (ISO 13239 5.6.2.1)
  *          - REJ exception handling with overlap detection
+ *          - Support Frame Format Field TYPE0 and TYPE1
  */
 
 #include "ioHdlc_core.h"
@@ -214,7 +215,7 @@ iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
 
 static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Handle U-frames common to all modes (NRM, ABM, ARM, etc.).
-     Per ISO 13239:
+     Per ISO 13239, currently supports:
      - Commands (SNRM, SARM, SABM, DISC): processed by secondary/combined
      - Responses (UA, DM, FRMR): processed by primary/combined
   */
@@ -231,13 +232,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   const bool is_command = (addr == s->addr);
   
   /* Validate frame origin matches current peer. */
-  if (is_command) {
-    /* Command to us: must be from c_peer. */
-    if (addr != s->addr) {
-      hdlcReleaseFrame(&s->frame_pool, fp);
-      return;
-    }
-  } else {
+  if (!is_command) {
     /* Response from peer: must be from c_peer. */
     if (!p || addr != p->addr) {
       /* Spurious frame from wrong peer or no peer selected → discard. */
@@ -249,7 +244,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   iohdlc_mutex_lock(&p->state_mutex);
   if (is_command) {
     /* U-frame command received (we are Secondary or Combined in ABM).
-       Per 6.11.4.1.3: if already UM_RCVED in progress, ignore additional
+       Per 5.5.3.3: if already UM_RCVED in progress, ignore additional
        commands until response sent. */
     if (p->um_state & IOHDLC_UM_RCVED) {
       hdlcReleaseFrame(&s->frame_pool, fp);
@@ -263,8 +258,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       s->pf_state |= IOHDLC_P_RCVED;
     
     /* Determine appropriate response based on command and current state.
-       Per 6.11.4.1.1: Secondary validates command and decides response. */
-    
+       Per 6.11.4.1.1: Secondary validates command and decides response. */    
     uint8_t om = IOHDLC_UCMD_TO_MODE(u_cmd);
     if (om) {
       /* Set mode command (SNRM/SARM/SABM).
@@ -417,12 +411,9 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                       uint32_t nr) {
   /* Remove acknowledged frames from retransmission queue.
      Frames with N(S) < nr have been received by peer.
-     
      Also clear checkpoint/REJ state if their tracked frames are ACKed.
-     
-     Returns true if semaphore should be signaled (space became available).
+     Returns true if space became available.
   */
-  
   bool released_frames = false;
   
   while (p->nr != nr && !ioHdlc_frameq_isempty(&p->i_retrans_q)) {
@@ -457,10 +448,7 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
      Per ISO 13239 5.6.2.1: Both Primary and Secondary do this.
      ISO 13239 5.6.2.1 case a): An actioned REJ with P/F=0 inhibits checkpoint
      retransmission if it would retransmit the same I-frame.
-     
      Returns true if frames were moved, false otherwise.
-     
-     NOTE: Caller must hold state_mutex when calling this function.
   */
 
   if (ioHdlc_frameq_isempty(&p->i_retrans_q))
@@ -545,8 +533,7 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
        If N(R) >= vs_atlast_pf, processNR() has already removed all frames
        from i_retrans_q and checkpointRetransmit() will find nothing to move.
        If N(R) < vs_atlast_pf, frames remain in i_retrans_q and will be
-       moved to i_trans_q for retransmission (error recovery). */
-       
+       moved to i_trans_q for retransmission (error recovery). */      
     *checkpoint_moved_out = checkpointRetransmit(s, p);
     
     /* Role-specific P/F handling. */
@@ -556,7 +543,7 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
       p->poll_retry_count = 0;
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
       ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3,
-        s->reply_timeout_ms * IOHDLC_DFL_T3_T1_RATIO);
+            s->reply_timeout_ms * IOHDLC_DFL_T3_T1_RATIO);
     } else {
       /* Secondary received P=1: it shall respond with F=1.
          Signal TX for I-frame tx and honor the P/F bit. */
@@ -595,7 +582,6 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      Returns flags via output parameters for deferred signaling.
      Returns false if frame should be discarded (out-of-sequence).
   */
-  
   uint32_t ns = extractNS(s, fp);
   uint32_t expected_ns = p->vr;
   
@@ -603,6 +589,7 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Out-of-sequence error detected. */
     
     /* Send REJ to request retransmission.
+       REJ is not supported in TWA as it provides no practical benefit.
        ISO 13239 5.6.2.1 case a): only one REJ at a time.
        If REJ already actioned, first REJ will retransmit all needed frames.
        REJ is only sent if the option is negotiated (IOHDLC_USE_REJ).
@@ -658,8 +645,6 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      - Update peer busy state (RR/RNR)
      - Process REJ for retransmission
      - Ignore SREJ (not implemented)
-     
-     Caller must hold state_mutex.
      Returns flags via output parameters for deferred signaling.
   */
   
@@ -899,8 +884,7 @@ void ioHdlcRxEntry(void *stationp) {
 /**
  * @brief   Build U-frame (Unnumbered frame) for transmission.
  * @details Constructs control field and sets address field according to
- *          ISO 13239 command/response semantics. Calculates elen and
- *          valorizes FFF if present.
+ *          ISO 13239 command/response semantics.
  *          
  * @param[in] s           Station descriptor
  * @param[in] p           Peer descriptor

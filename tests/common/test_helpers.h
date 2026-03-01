@@ -44,7 +44,7 @@
  * @brief   Print uint64_t as decimal (split into high/low).
  * @usage   test_printf("Value: " U64_FMT "\r\n", U64_ARGS(myval));
  */
-#define U64_FMT "%lu%09lu"
+#define U64_FMT "%u%09u"
 #define U64_ARGS(val) \
   (uint32_t)((val) / 1000000000ULL), \
   (uint32_t)((val) % 1000000000ULL)
@@ -53,7 +53,7 @@
  * @brief   Print uint64_t as hexadecimal (high:low format).
  * @usage   test_printf("Addr: " U64_HEX "\r\n", U64_HEX_ARGS(addr));
  */
-#define U64_HEX "%08lX:%08lX"
+#define U64_HEX "%08X:%08X"
 #define U64_HEX_ARGS(val) \
   (uint32_t)((val) >> 32), \
   (uint32_t)((val) & 0xFFFFFFFFULL)
@@ -62,7 +62,7 @@
  * @brief   Print uint64_t in KB units.
  * @usage   test_printf("Size: " U64_KB " KB\r\n", U64_KB_ARGS(bytes));
  */
-#define U64_KB "%lu.%02lu"
+#define U64_KB "%u.%02u"
 #define U64_KB_ARGS(val) \
   (uint32_t)((val) / 1024ULL), \
   (uint32_t)(((val) % 1024ULL) * 100 / 1024)
@@ -71,7 +71,7 @@
  * @brief   Print uint64_t in MB units.
  * @usage   test_printf("Size: " U64_MB " MB\r\n", U64_MB_ARGS(bytes));
  */
-#define U64_MB "%lu.%02lu"
+#define U64_MB "%u.%02u"
 #define U64_MB_ARGS(val) \
   (uint32_t)((val) / (1024ULL * 1024)), \
   (uint32_t)(((val) % (1024ULL * 1024)) * 100 / (1024ULL * 1024))
