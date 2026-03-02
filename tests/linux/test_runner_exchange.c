@@ -9,9 +9,11 @@
  * @brief   Linux entry point for exchange test.
  */
 
+#include "adapter_mock.h"
+
 /* Entry point from test_exchange.c */
-extern int test_exchange_main(int argc, char **argv);
+extern int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv);
 
 int main(int argc, char **argv) {
-  return test_exchange_main(argc, argv);
+  return test_exchange_main(&mock_adapter, argc, argv);
 }

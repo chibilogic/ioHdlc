@@ -24,18 +24,6 @@
  *              static ioHdlcStreamPort        port;
  *              ioHdlcStreamPortChibiosUartObjectInit(&port, &uobj, &UARTD1, &uartcfg);
  *              @endcode
- *          - Define the stream configuration (@p ioHdlcStreamConfig) and
- *            initialize/start the core:
- *              @code
- *              ioHdlcStreamConfig cfg = {
- *                .has_frame_format   = false,
- *                .apply_transparency = false,
- *                .deliver_rx_frame   = my_deliver_rx,
- *              };
- *              ioHdlcStream core;
- *              ioHdlcStream_init(&core, &port, &cfg, pool, upper_ctx);
- *              ioHdlcStream_start(&core);
- *              @endcode
  *          - Transmission: use @p ioHdlcStream_send(&core, ptr, len, cookie).
  *            The @p cookie is returned in @p on_tx_done for ownership release
  *            or bookkeeping.

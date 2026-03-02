@@ -1330,6 +1330,7 @@ void ioHdlcTxEntry(void *stationp) {
       /* Connection management requested. */
       if (!IOHDLC_IS_PRI(s)) {
         /* A U command must originate from primary station */
+        cm_flags = 0;
         iohdlc_mutex_unlock(&p->state_mutex);
         continue;
       }
@@ -1341,6 +1342,7 @@ void ioHdlcTxEntry(void *stationp) {
           resetPeerUm(p);
           resetPeerVars(p);
           ioHdlcNextPeer(s);
+          cm_flags = 0;
           iohdlc_mutex_unlock(&p->state_mutex);
           continue;
         }
@@ -1428,7 +1430,7 @@ void ioHdlcTxEntry(void *stationp) {
     cm_flags &= ~(IOHDLC_EVT_LINK_ST_CHG);
 
     if (IOHDLC_PEER_DISC(p) || IOHDLC_UM_ISSENT(p)) {
-      cm_flags &= ~(IOHDLC_EVT_LINE_IDLE);
+      cm_flags &= IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_LINK_REQ;
       iohdlc_mutex_unlock(&p->state_mutex);
       continue;
     }

@@ -120,7 +120,7 @@ include $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk/startup_stm32f4xx.m
 # HAL-OSAL files (optional).
 include $(CHIBIOS)/os/hal/hal.mk
 include $(CHIBIOS)/os/hal/ports/STM32/STM32F4xx/platform.mk
-include $(CHIBIOS)/os/hal/boards/ST_NUCLEO64_F411RE/board.mk
+include $(CHIBIOS_DIR)/board_config/board.mk
 include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
 
 # RTOS files (optional).
@@ -235,7 +235,6 @@ INCDIR = $(CONFDIR) \
          $(COMMON_DIR)/adapters \
          $(CHIBIOS_DIR) \
          $(CHIBIOS_DIR)/adapters \
-         $(CHIBIOS_DIR)/board_config \
          $(ALLINC)
 
 ##############################################################################
@@ -367,7 +366,7 @@ shell:
 	@echo "════════════════════════════════════════════════════════"
 	@echo "  Building ioHdlc Interactive Shell"
 	@echo "════════════════════════════════════════════════════════"
-	@$(MAKE) USE_PROCESS_STACKSIZE=0x2000 SHELL_TARGET=1 all
+	@$(MAKE) USE_PROCESS_STACKSIZE=0x2000 SHELL_TARGET=1 USE_UART_ADAPTER=$(USE_UART_ADAPTER) all
 
 # Build with mock stream adapter (default, no hardware required)
 test-mock:
@@ -386,6 +385,6 @@ shell-mock:
 
 # Build shell with UART hardware adapter
 shell-uart:
-	@echo "Building shell with UART adapter (UARTD2 + FUART D1)..."
+	@echo "Building shell with UART adapter ..."
 	@$(MAKE) shell USE_UART_ADAPTER=1
 

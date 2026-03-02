@@ -16,9 +16,19 @@
 #include "ioHdlcosal.h"
 #include "chprintf.h"
 #include "board_config.h"
+#include "adapter_interface.h"
+
+/* Select adapter based on build configuration */
+#ifdef USE_UART_ADAPTER
+  extern const test_adapter_t uart_adapter;
+  #define TEST_ADAPTER (&uart_adapter)
+#else
+  extern const test_adapter_t mock_adapter;
+  #define TEST_ADAPTER (&mock_adapter)
+#endif
 
 /* Entry point from test_exchange.c */
-extern int test_exchange_main(int argc, char **argv);
+extern int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv);
 
 /*
  * Serial configuration for test output console.
@@ -62,8 +72,8 @@ static THD_FUNCTION(ExchangeTestRunner, arg) {
   /* Wait for serial to be ready */
   chThdSleepMilliseconds(100);
   
-  /* Run the exchange test (configured via compile-time defines) */
-  test_exchange_main(0, NULL);
+  /* Run the exchange test with configured adapter (UART or mock) */
+  test_exchange_main(TEST_ADAPTER, 0, NULL);
   
   /* Test completed - loop forever */
   while (true) {
