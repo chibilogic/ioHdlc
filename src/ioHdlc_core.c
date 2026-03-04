@@ -69,8 +69,8 @@ static void ioHdlcSetConnected(iohdlc_station_peer_t *p) {
 /* Clear and release all frames in a queue. */
 static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
   while (!ioHdlc_frameq_isempty(q)) {
-    iohdlc_frame_t *fp = q->next;
-    ioHdlc_frameq_delete(fp);
+    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(q);
+    iohdlc_frame_t *fp = IOHDLC_FRAME_FROM_Q(qh);
     hdlcReleaseFrame(&p->stationp->frame_pool, fp);
   }
 }
@@ -417,7 +417,8 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   bool released_frames = false;
   
   while (p->nr != nr && !ioHdlc_frameq_isempty(&p->i_retrans_q)) {
-    iohdlc_frame_t *acked_fp = ioHdlc_frameq_remove(&p->i_retrans_q);
+    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&p->i_retrans_q);
+    iohdlc_frame_t *acked_fp = IOHDLC_FRAME_FROM_Q(qh);
     uint32_t acked_ns = extractNS(s, acked_fp);
 
     if (acked_ns != p->nr) {
@@ -455,7 +456,6 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
     return false;  /* Nothing to retransmit */
   
   /* Find the first frame that needs checkpoint retransmission. */
-  iohdlc_frame_t *fp = p->i_retrans_q.next;
   uint32_t first_ns = 0;  /* N(S) + 1 of first frame to retransmit, 0 if none */
   
   /* Scan the retransmission queue to find frames with N(S) < vs_atlast_pf.
@@ -464,7 +464,10 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
      
      Check for REJ overlap: if rej_actioned != 0, it contains N(R)+1 from the REJ.
      If we find a frame with N(S) == N(R), inhibit entire checkpoint. */
-  while (fp != (iohdlc_frame_t *)&p->i_retrans_q) {
+  for (iohdlc_frame_q_t *fqp = p->i_retrans_q.next;
+       fqp != &p->i_retrans_q;
+       fqp = fqp->next) {
+    iohdlc_frame_t *fp = IOHDLC_FRAME_FROM_Q(fqp);
     uint32_t frame_ns = extractNS(s, fp);
     
     if (frame_ns == p->vs_atlast_pf) {
@@ -476,7 +479,6 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
     if (first_ns == 0) {
       first_ns = frame_ns + 1;  /* Save its N(S) + 1 */
     }
-    fp = fp->next;    /* Continue scanning */
   }
   
   /* If we found frames to retransmit, move them to i_trans_q. */
@@ -611,7 +613,7 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   }
   
   /* Frame is in sequence: enqueue for application. */
-  ioHdlc_frameq_insert(&p->i_recept_q, fp);
+  ioHdlc_frameq_insert(&p->i_recept_q, &fp->q);
   
   /* Signal the reception of a valid I-frame */
   *broadcast_flags_out |= IOHDLC_EVT_I_RECVD;
@@ -692,10 +694,10 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
           IOHDLC_LOG_MSG(IOHDLC_LOG_RX, s->addr, "REJ done on N(R)=%u", nr);
 #endif
           if (!ioHdlc_frameq_isempty(&p->i_retrans_q)) {
-            iohdlc_frame_t *first = p->i_retrans_q.next;
-            iohdlc_frame_t *last = p->i_retrans_q.prev;
-            ioHdlc_frameq_move(&p->i_trans_q, first, last);
-            p->vs = p->vs_atlast_pf = extractNS(s, first); 
+            iohdlc_frame_q_t *first_qh = p->i_retrans_q.next;
+            iohdlc_frame_q_t *last_qh = p->i_retrans_q.prev;
+            ioHdlc_frameq_move(&p->i_trans_q, first_qh, last_qh);
+            p->vs = p->vs_atlast_pf = extractNS(s, IOHDLC_FRAME_FROM_Q(first_qh)); 
             *broadcast_flags_out |= IOHDLC_EVT_TX_IFRM_ENQ;
           }
         } else {
@@ -765,7 +767,7 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     nns = extractNS(s, fp);
     nnr = nr;
     qns = ioHdlc_frameq_isempty(&p->i_retrans_q) ? s->modmask+1 :
-      extractNS(s, p->i_retrans_q.next);
+      extractNS(s, IOHDLC_FRAME_FROM_Q(p->i_retrans_q.next));
 
     /* Log received frame based on type */
     if (IOHDLC_IS_I_FRM(ctrl)) {
@@ -1115,8 +1117,10 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     }
     
     /* Extract frame from transmission queue with lookahead. */
-    iohdlc_frame_t *next_fp = NULL;
-    iohdlc_frame_t *fp = ioHdlc_frameq_remove_la(&p->i_trans_q, &next_fp);
+    iohdlc_frame_q_t *next_qh = NULL;
+    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove_la(&p->i_trans_q, &next_qh);
+    iohdlc_frame_t *fp = qh ? IOHDLC_FRAME_FROM_Q(qh) : NULL;
+    iohdlc_frame_t *next_fp = next_qh ? IOHDLC_FRAME_FROM_Q(next_qh) : NULL;
     if (fp == NULL) {
       iohdlc_mutex_unlock(&p->state_mutex);
       break;  /* Safety check. */
@@ -1148,7 +1152,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     uint32_t nr_value = p->vr;
     
     /* Move frame to retransmission queue. */
-    ioHdlc_frameq_insert(&p->i_retrans_q, fp);
+    ioHdlc_frameq_insert(&p->i_retrans_q, &fp->q);
 
     /* Set N(S) and then advance V(S) - use
        modmask for modular arithmetic on full numbering space. */

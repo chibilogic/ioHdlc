@@ -291,15 +291,15 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     
     /* Count frames in queues by traversing */
     uint32_t trans_count = 0, retrans_count = 0, recept_count = 0;
-    iohdlc_frame_t *fp;
+    iohdlc_frame_q_t *fqp;
     
-    for (fp = peer->i_trans_q.next; fp != (iohdlc_frame_t *)&peer->i_trans_q; fp = fp->next) {
+    for (fqp = peer->i_trans_q.next; fqp != &peer->i_trans_q; fqp = fqp->next) {
       trans_count++;
     }
-    for (fp = peer->i_retrans_q.next; fp != (iohdlc_frame_t *)&peer->i_retrans_q; fp = fp->next) {
+    for (fqp = peer->i_retrans_q.next; fqp != &peer->i_retrans_q; fqp = fqp->next) {
       retrans_count++;
     }
-    for (fp = peer->i_recept_q.next; fp != (iohdlc_frame_t *)&peer->i_recept_q; fp = fp->next) {
+    for (fqp = peer->i_recept_q.next; fqp != &peer->i_recept_q; fqp = fqp->next) {
       recept_count++;
     }
     

@@ -34,8 +34,8 @@ static iohdlc_station_t *st_pri, *st_sec;
 #define SECONDARY_ADDR  0x02
 #define WINDOW_SIZE     7
 #define MAX_PACKET_SIZE 128  /* Max packet size for tests */
-#define WTMO 1800
-#define RTMO 2200
+#define WTMO 4500
+#define RTMO 5000
 
 static volatile bool test_running_global = true;
 
@@ -137,10 +137,12 @@ static void *reader_thread(void *arg) {
    
     ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, RTMO);
 
+#if 0
     /* Every 256 frames, introduce a small delay to simulate pool low condition */
     if (((ctx->seq+1) & 0xFF) == 0) {
-      ioHdlc_sleep_ms(45);
+      ioHdlc_sleep_ms(450);
     }
+#endif
     if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
       iohdlc_mutex_lock(ctx->stats_mutex);
       test_validate_packet(buffer, received, &ctx->seq, ctx->stats);

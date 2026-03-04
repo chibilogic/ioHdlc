@@ -393,7 +393,9 @@ struct iohdlc_station_config {
                                       NULL for defaults.                     */
   void *phydriver;        /**< @brief the physical driver used by the station*/
   void *phydriver_config; /**< @brief the physical driver configuration.     */
-  uint16_t reply_timeout_ms; /**< @brief reply timeout in ms (0 = default 100ms) */
+  uint16_t reply_timeout_ms; /**< @brief T1 reply timeout in ms. Must account
+                                      for: (ks × frame_tx_time) + wire_RTT +
+                                      peer_processing + margin.              */
   uint8_t poll_retry_max; /**< @brief max poll retries (0 = default 5)       */
 };
 

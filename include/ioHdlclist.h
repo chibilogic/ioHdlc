@@ -15,7 +15,7 @@
  */
 /**
  * @file    include/ioHdlclist.h
- * @brief   HDLC perr list definitions header.
+ * @brief   HDLC peer list definitions header.
  * @details
  *
  * @addtogroup hdlc_types

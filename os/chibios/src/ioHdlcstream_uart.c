@@ -57,7 +57,6 @@ static void chb_txend_cb(UARTDriver *uartp) {
   /* clear busy */
   ctx->tx_framep = NULL;
   /* Signal semaphore to unblock waiting TX thread */
-  chBSemSignalI(&ctx->tx_sem);
   ctx->cbs->on_tx_done((void *)ctx->cbs->cb_ctx, framep);
 }
 
@@ -130,16 +129,12 @@ static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cook
   
   if (port_is_isr_context()) {
     /* ISR context: fail-fast if busy (defensive, should not occur) */
-    if (ctx->tx_framep != NULL || ctx->uartp->txstate != UART_TX_IDLE)
+    if (ctx->tx_framep != NULL || ctx->uartp->txstate == UART_TX_ACTIVE)
       return false;
     ctx->tx_framep = cookie;
     uartStartSendI(ctx->uartp, len, ptr);
     return true;
   } else {
-    /* Thread context: block on semaphore until TX available */
-    chBSemWait(&ctx->tx_sem);
-    
-    /* When we wake up, TX is guaranteed idle (signaled by txend_cb) */
     ctx->tx_framep = cookie;
     uartStartSend(ctx->uartp, len, ptr);
     return true;  /* Never returns false in thread context */
@@ -155,9 +150,11 @@ static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   if (ctx->rx_busy) return false; /* one RX at a time */
   ctx->rx_busy = true; /* mark busy */
-  if (port_is_isr_context())
+  if (port_is_isr_context()) {
+    chSysLockFromISR();
     uartStartReceiveI(ctx->uartp, len, ptr);
-  else
+    chSysUnlockFromISR();
+  } else
     uartStartReceive(ctx->uartp, len, ptr);
   return true;
 }
@@ -203,7 +200,6 @@ void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
   
   /* Initialize TX semaphore as available to allow first transmission.
    * Will be taken by first tx_submit, then signaled by txend_cb */
-  chBSemObjectInit(&obj->tx_sem, FALSE);
 
   port->ctx = obj;
   port->ops = &chibios_ops;

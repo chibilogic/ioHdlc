@@ -155,7 +155,7 @@ int main(void) {
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "════════════════════════════════════════════════════════" SHELL_NEWLINE_STR);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
-           "  ioHdlc Exchange Test Shell" SHELL_NEWLINE_STR);
+           "  ioHdlc Exchange Test Shell v0.2" SHELL_NEWLINE_STR);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "════════════════════════════════════════════════════════" SHELL_NEWLINE_STR);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 

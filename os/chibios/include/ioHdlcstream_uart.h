@@ -34,7 +34,6 @@ typedef struct ioHdlcStreamChibiosUart {
   const ioHdlcStreamCallbacks *cbs;
   void        *tx_framep;        /* TX in-flight frame pointer */
   bool        rx_busy;           /* RX in progress */
-  binary_semaphore_t tx_sem;     /* TX synchronization semaphore */
 } ioHdlcStreamChibiosUart;
 
 void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,

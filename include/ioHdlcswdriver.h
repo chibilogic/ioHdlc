@@ -63,6 +63,11 @@ typedef struct ioHdlcSwDriver {
   iohdlc_frame_q_t     raw_recept_q;
   IOHDLC_RAWQ_MUTEX_DECLARE(raw_recept_mtx);  /* Mutex protection (Linux only) */
 
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+  /* TX queue for ISR processing (real HW only) */
+  iohdlc_frame_q_t     raw_tx_q;              /* Unbounded queue (limited by ks) */
+#endif
+
   bool     started;
 } ioHdlcSwDriver;
 

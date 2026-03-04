@@ -39,24 +39,24 @@
 /*===========================================================================*/
 
 /*
- * @brief   HDLC frame queue header.
+ * @brief   HDLC frame queue header (intrusive list).
+ * @details Links point to other queue headers embedded in frames, not to frames directly.
+ *          This allows a frame to participate in multiple queues simultaneously.
  */
 struct iohdlc_frame_q {
-  iohdlc_frame_t *next;
-  iohdlc_frame_t *prev;
-
-  volatile uint16_t  nelem;       /* Number of elements in the queue. */
+  struct iohdlc_frame_q *next;
+  struct iohdlc_frame_q *prev;
 };
 
 /*
  * @brief   Type of a HDLC frame.
  * @note    The frame includes the frame format (optional), the address,
  *          the control, and the FCS octets.
- *
+ *          Embeds two queue headers (q, q_aux) for multi-queue participation.
  */
 struct iohdlc_frame {
-  iohdlc_frame_t *next;
-  iohdlc_frame_t *prev;
+  iohdlc_frame_q_t  q;            /* Primary queue link (protocol queues: i_retrans_q, etc) */
+  iohdlc_frame_q_t  q_aux;        /* Auxiliary queue link (driver use: TX queue, etc) */
 
   uint16_t elen;                  /* Effective length of the frame, excluding
                                      FLAG and FCS. */
@@ -68,6 +68,32 @@ struct iohdlc_frame {
 /*===========================================================================*/
 /* Module macros.                                                            */
 /*===========================================================================*/
+
+/**
+ * @name    Container-of macros for queue headers
+ * @{
+ * @brief   Retrieve frame pointer from embedded queue header.
+ */
+
+/**
+ * @brief   Get frame pointer from primary queue header.
+ * @param   qp  Pointer to queue header (q field).
+ * @return  Pointer to containing frame.
+ * @note    q is at offset 0, so simple cast works.
+ */
+#define IOHDLC_FRAME_FROM_Q(qp) \
+  ((iohdlc_frame_t *)(qp))
+
+/**
+ * @brief   Get frame pointer from auxiliary queue header.
+ * @param   qp  Pointer to queue header (q_aux field).
+ * @return  Pointer to containing frame.
+ * @note    Uses offsetof for q_aux which is not at offset 0.
+ */
+#define IOHDLC_FRAME_FROM_Q_AUX(qp) \
+  ((iohdlc_frame_t *)((char *)(qp) - offsetof(iohdlc_frame_t, q_aux)))
+
+/** @} */
 
 /**
  * @name    Frame field access macros
