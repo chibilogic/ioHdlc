@@ -37,8 +37,8 @@
 /* External Test Functions                                                   */
 /*===========================================================================*/
 
-/* Exchange test */
-extern int test_exchange_main(int argc, char **argv);
+/* Exchange test with adapter support */
+extern int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv);
 
 /*===========================================================================*/
 /* Serial Configuration                                                      */
@@ -66,8 +66,8 @@ static const SerialConfig sdcfg = {
 static void cmd_exchange(BaseSequentialStream *chp, int argc, char *argv[]) {
   (void)chp;
   
-  /* Pass arguments directly to test_exchange_main for Linux-compatible parsing */
-  test_exchange_main(argc, argv);
+  /* Pass adapter (UART or mock) and arguments to test_exchange_main */
+  test_exchange_main(TEST_ADAPTER, argc, argv);
 }
 
 /*===========================================================================*/
@@ -155,7 +155,7 @@ int main(void) {
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "════════════════════════════════════════════════════════" SHELL_NEWLINE_STR);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
-           "  ioHdlc Exchange Test Shell" SHELL_NEWLINE_STR);
+           "  ioHdlc Exchange Test Shell v0.3" SHELL_NEWLINE_STR);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "════════════════════════════════════════════════════════" SHELL_NEWLINE_STR);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 

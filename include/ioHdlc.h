@@ -174,7 +174,7 @@
                                    Temporarily the peer cannot receive I-frames. */
 #define IOHDLC_SS_REJPEND 0x02  /* An REJ has to be sent. */
 #define IOHDLC_SS_RECVING 0x04  /* In receiving I-frames from the peer. */
-#define IOHDLC_SS_NEEDPF  0x08  /* Primary only: Indicates need to send P bit in next available
+#define IOHDLC_SS_NEED_P  0x08  /* Primary only: Indicates need to send P bit in next available
                                    S-frame (traffic received, peer busy, or timeout).
                                    Cleared when S-frame with P=1 sent. */
 #define IOHDLC_SS_ST_DISM 0x40  /* Peer in disconnected mode (DM received). */
@@ -207,9 +207,9 @@
 #define IOHDLC_UM_ISSENT(p)   ((p)->um_state & IOHDLC_UM_SENT)
 #define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
 #define IOHDLC_PEER_BUSY(p)   (((p)->ss_state & IOHDLC_SS_BUSY))
-#define IOHDLC_NEED_PF(p)     ((p)->ss_state & IOHDLC_SS_NEEDPF)
-#define IOHDLC_SET_NEEDPF(s,p)  (IOHDLC_IS_PRI(s) ? ((p)->ss_state |= IOHDLC_SS_NEEDPF) : 0)
-#define IOHDLC_CLR_NEEDPF(p)  ((p)->ss_state &= ~IOHDLC_SS_NEEDPF)
+#define IOHDLC_NEED_P(p)      ((p)->ss_state & IOHDLC_SS_NEED_P)
+#define IOHDLC_SET_NEED_P(s,p)  (IOHDLC_IS_PRI(s) ? ((p)->ss_state |= IOHDLC_SS_NEED_P) : 0)
+#define IOHDLC_CLR_NEED_P(p)  ((p)->ss_state &= ~IOHDLC_SS_NEED_P)
 
 /**
  * @name    System-defined parameters
@@ -393,7 +393,9 @@ struct iohdlc_station_config {
                                       NULL for defaults.                     */
   void *phydriver;        /**< @brief the physical driver used by the station*/
   void *phydriver_config; /**< @brief the physical driver configuration.     */
-  uint16_t reply_timeout_ms; /**< @brief reply timeout in ms (0 = default 100ms) */
+  uint16_t reply_timeout_ms; /**< @brief T1 reply timeout in ms. Must account
+                                      for: (ks × frame_tx_time) + wire_RTT +
+                                      peer_processing + margin.              */
   uint8_t poll_retry_max; /**< @brief max poll retries (0 = default 5)       */
 };
 

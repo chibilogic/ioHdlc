@@ -32,6 +32,7 @@ static void print_usage(const char *progname) {
   printf("  --direction=DIR     Traffic direction: pri2sec, sec2pri, both (default: both)\n");
   printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
   printf("  --reply-timeout=N   Reply timeout in ms (default: 0=100ms)\n");  printf("  --poll-retry-max=N  Max poll retries before link down (default: 0=5)\n");  printf("  --progress-interval=ms  Progress update interval in ms (default: 1000)\n");
+  printf("  --watermark-delay=N Reader delay every 256 packets in ms (default: 0=disabled)\n");
   printf("  --help              Show this help\n\n");
   printf("Examples:\n");
   printf("  %s --mode=nrm --twa --count=100 --exchanges=50 --size=64\n", progname);
@@ -56,6 +57,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->reply_timeout_ms = 0;  /* Use default (100ms) */
   cfg->poll_retry_max = 0;  /* Use default (5) */
   cfg->progress_interval_ms = 1000;  /* 1 second by default */
+  cfg->watermark_delay_ms = 0;  /* Disabled by default */
   cfg->test_name = argv[0];
   
   /* Long options */
@@ -72,6 +74,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     {"reply-timeout",required_argument, 0, 'T'},
     {"poll-retry-max",required_argument, 0, 'R'},
     {"progress-interval", required_argument, 0, 'p'},
+    {"watermark-delay", required_argument, 0, 'w'},
     {"help",      no_argument,       0, 'h'},
     {0, 0, 0, 0}
   };
@@ -79,7 +82,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   int opt;
   int option_index = 0;
   
-  while ((opt = getopt_long(argc, argv, "m:asc:t:e:z:d:r:T:R:p:h",
+  while ((opt = getopt_long(argc, argv, "m:asc:t:e:z:d:r:T:R:p:w:h",
                             long_options, &option_index)) != -1) {
     switch (opt) {
       case 'm':  /* --mode */
@@ -166,6 +169,14 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         break;
       case 'T':  /* --reply-timeout */
         cfg->reply_timeout_ms = atoi(optarg);
+        break;
+        
+      case 'R':  /* --poll-retry-max */
+        cfg->poll_retry_max = atoi(optarg);
+        break;
+        
+      case 'w':  /* --watermark-delay */
+        cfg->watermark_delay_ms = atoi(optarg);
         break;
         
       case 'h':  /* --help */

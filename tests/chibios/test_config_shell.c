@@ -47,6 +47,7 @@ static void print_usage(void) {
   test_printf("  --count=N           Run for N iterations (default: 100)\r\n");
   test_printf("  --exchanges=N       Exchanges per iteration (default: 10)\r\n");
   test_printf("  -p N                Poll interval in ms (default: 1000)\r\n");
+  test_printf("  -w N                Watermark delay every 256 packets in ms (default: 0)\r\n");
   test_printf("  --error-rate=N      Error rate 0-100%% (default: 0)\r\n");
   test_printf("  --direction=DIR     Direction: both|a2b|b2a (default: both)\r\n");
   test_printf("  --reply-timeout=N   Reply timeout in ms (default: 100)\r\n");
@@ -54,6 +55,7 @@ static void print_usage(void) {
   test_printf("  --twa               Use Two-Way Alternate\r\n");
   test_printf("  --tws               Use Two-Way Simultaneous (default)\r\n");
   test_printf("  --time=N            Run for N seconds (vs --count)\r\n");
+  test_printf("  --watermark-delay=N Reader delay every 256 packets in ms (default: 0)\r\n");
   test_printf("  --help              Show this help\r\n");
   test_printf("\r\n");
   test_printf("Examples:\r\n");
@@ -88,6 +90,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->reply_timeout_ms = 100;      /* Reply timeout default: 100ms */
   cfg->poll_retry_max = 5;
   cfg->progress_interval_ms = 1000; /* Progress update default: 1000ms */
+  cfg->watermark_delay_ms = 0;      /* Watermark delay disabled by default */
   cfg->test_name = "Shell Exchange Test";
   
   /* Parse arguments */
@@ -142,6 +145,16 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         cfg->progress_interval_ms = interval;
       } else {
         test_printf("Error: Invalid poll interval\r\n");
+        return false;
+      }
+    }
+    /* -w N (watermark delay) */
+    else if (strcmp(arg, "-w") == 0 && i + 1 < argc) {
+      int delay = atoi(argv[++i]);
+      if (delay >= 0) {
+        cfg->watermark_delay_ms = delay;
+      } else {
+        test_printf("Error: Invalid watermark delay\r\n");
         return false;
       }
     }
@@ -232,6 +245,19 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         int retries = atoi(value);
         if (retries >= 0) {
           cfg->poll_retry_max = retries;
+        }
+      }
+    }
+    /* --watermark-delay=N */
+    else if (arg_starts_with(arg, "--watermark-delay=")) {
+      value = get_arg_value(arg);
+      if (value) {
+        int delay = atoi(value);
+        if (delay >= 0) {
+          cfg->watermark_delay_ms = delay;
+        } else {
+          test_printf("Error: Invalid watermark delay\r\n");
+          return false;
         }
       }
     }

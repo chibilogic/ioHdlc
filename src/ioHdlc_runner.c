@@ -54,7 +54,7 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
   station->stop_requested = false;
   
   /* Create TX thread and save reference (joinable) */
-  ctx->tx_thread = iohdlc_thread_create("HDLC-TX", 2048, NORMALPRIO + 2,
+  ctx->tx_thread = iohdlc_thread_create("HDLC-TX", 2048, 1,
                                          HdlcTxThread, station);
   if (ctx->tx_thread == NULL) {
     /* TX thread creation failed - cleanup and abort */
@@ -66,7 +66,7 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
   ctx->tx_started = true;
   
   /* Create RX thread and save reference (joinable) */
-  ctx->rx_thread = iohdlc_thread_create("HDLC-RX", 2048, NORMALPRIO + 1,
+  ctx->rx_thread = iohdlc_thread_create("HDLC-RX", 2048, 1,
                                          HdlcRxThread, station);
   if (ctx->rx_thread == NULL) {
     /* RX thread creation failed - stop TX thread and cleanup */

@@ -801,7 +801,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     iohdlc_mutex_lock(&peer->state_mutex);
     
     /* Queue frame for transmission */
-    ioHdlc_frameq_insert(&peer->i_trans_q, fp);
+    ioHdlc_frameq_insert(&peer->i_trans_q, &fp->q);
     signal_tx = true;
 
     /* Increment pending count for flow control */
@@ -877,7 +877,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
   iohdlc_mutex_lock(&peer->state_mutex);
   ioHdlcBroadcastFlags(s, IOHDLC_EVT_PF_RECVD);
   peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
-  peer->ss_state |= IOHDLC_SS_NEEDPF;
+  IOHDLC_SET_NEED_P(s, peer);
   iohdlc_mutex_unlock(&peer->state_mutex);
   
   /* Greedy consumption loop: read frames until count satisfied, timeout, or queue empty.
@@ -919,8 +919,10 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       /* Remove frame from queue (protect with mutex) */
       iohdlc_mutex_lock(&peer->state_mutex);
       fp = NULL;
-      if (!ioHdlc_frameq_isempty(&peer->i_recept_q))
-        fp = ioHdlc_frameq_remove(&peer->i_recept_q);
+      if (!ioHdlc_frameq_isempty(&peer->i_recept_q)) {
+        iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&peer->i_recept_q);
+        fp = IOHDLC_FRAME_FROM_Q(qh);
+      }
       iohdlc_mutex_unlock(&peer->state_mutex);
       
       if (fp == NULL) {

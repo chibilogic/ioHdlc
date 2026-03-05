@@ -161,6 +161,12 @@ void test_print_config(const test_config_t *cfg) {
   test_printf("Reply timeout: %u ms %s\n", 
               cfg->reply_timeout_ms == 0 ? 100 : cfg->reply_timeout_ms,
               cfg->reply_timeout_ms == 0 ? "(default)" : "");
+  
+  /* Watermark testing */
+  if (cfg->watermark_delay_ms > 0) {
+    test_printf("Watermark delay: %u ms every 256 packets\n", cfg->watermark_delay_ms);
+  }
+  
   test_printf("\n");
 }
 
@@ -184,8 +190,8 @@ void test_print_statistics(const test_statistics_t *stats) {
   test_printf("  Reordered:  %u packets\n", stats->packets_reordered);
   
   test_printf("\nByte Statistics:\n");
-  test_printf("  Sent:       %llu bytes\n", (unsigned long long)stats->total_bytes_sent);
-  test_printf("  Received:   %llu bytes\n", (unsigned long long)stats->total_bytes_received);
+  test_printf("  Sent:       " U64_FMT " bytes\n", U64_ARGS(stats->total_bytes_sent));
+  test_printf("  Received:   " U64_FMT " bytes\n", U64_ARGS(stats->total_bytes_received));
   
   if (duration_ms > 0) {
     double throughput = (stats->total_bytes_received * 1000.0) / duration_ms;
@@ -291,15 +297,15 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     
     /* Count frames in queues by traversing */
     uint32_t trans_count = 0, retrans_count = 0, recept_count = 0;
-    iohdlc_frame_t *fp;
+    iohdlc_frame_q_t *fqp;
     
-    for (fp = peer->i_trans_q.next; fp != (iohdlc_frame_t *)&peer->i_trans_q; fp = fp->next) {
+    for (fqp = peer->i_trans_q.next; fqp != &peer->i_trans_q; fqp = fqp->next) {
       trans_count++;
     }
-    for (fp = peer->i_retrans_q.next; fp != (iohdlc_frame_t *)&peer->i_retrans_q; fp = fp->next) {
+    for (fqp = peer->i_retrans_q.next; fqp != &peer->i_retrans_q; fqp = fqp->next) {
       retrans_count++;
     }
-    for (fp = peer->i_recept_q.next; fp != (iohdlc_frame_t *)&peer->i_recept_q; fp = fp->next) {
+    for (fqp = peer->i_recept_q.next; fqp != &peer->i_recept_q; fqp = fqp->next) {
       recept_count++;
     }
     

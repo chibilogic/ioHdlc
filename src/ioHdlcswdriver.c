@@ -94,6 +94,11 @@ void ioHdlcSwDriverInit(ioHdlcSwDriver *drv) {
   ioHdlc_frameq_init(&drv->raw_recept_q);
   iohdlc_sem_init(&drv->raw_recept_sem, 0);
   IOHDLC_RAWQ_MUTEX_INIT(drv->raw_recept_mtx);
+
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+  /* Init TX queue (real HW only) */
+  ioHdlc_frameq_init(&drv->raw_tx_q);
+#endif
 }
 
 /*===========================================================================*/
@@ -191,21 +196,40 @@ static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
 
   /* Add closing FLAG */
   nfp->frame[wire_len++] = HDLC_FLAG;
+
+#ifdef IOHDLC_USE_MOCK_ADAPTER
+  /* Mock adapter: direct submit with opening flag if idle */
   nfp->openingflag = 0;
- 
-  /* Add opening FLAG if line idle */
   if (drv->port.ops && drv->port.ops->tx_busy &&
       !drv->port.ops->tx_busy(drv->port.ctx)) {
     nfp->openingflag = HDLC_FLAG;
-    wire_len++;
   }
-
   const uint8_t *ptr = nfp->openingflag ? &nfp->openingflag : nfp->frame;
-
+  size_t len = nfp->openingflag ? wire_len + 1 : wire_len;
+  
   /* Submit TX (spin until accepted) */
-  while (!drv->port.ops->tx_submit(drv->port.ctx, ptr, wire_len, (void *)nfp)) {
+  while (!drv->port.ops->tx_submit(drv->port.ctx, ptr, len, (void *)nfp)) {
     iohdlc_thread_yield();
   }
+#else
+  /* Real HW: enqueue for ISR processing */
+  iohdlc_sys_lock();
+  
+  if (!drv->port.ops->tx_busy(drv->port.ctx)) {
+    /* TX idle: kickstart directly (don't enqueue) */
+    nfp->openingflag = HDLC_FLAG;  /* First frame needs opening flag */
+    
+    const uint8_t *ptr = &nfp->openingflag;
+    size_t len = wire_len + 1;  /* +1 for opening flag */
+    iohdlc_sys_unlock();
+    (void)drv->port.ops->tx_submit(drv->port.ctx, ptr, len, (void *)nfp);
+  } else {
+    /* TX busy: enqueue for ISR processing (no opening flag) */
+    nfp->openingflag = 0;  /* Contiguous with previous frame */
+    ioHdlc_frameq_insert(&drv->raw_tx_q, &nfp->q_aux);
+    iohdlc_sys_unlock();
+  }
+#endif
   
   return 0;
 }
@@ -219,8 +243,10 @@ static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo) {
     fp = NULL;
     if (iohdlc_sem_wait_timeout(&drv->raw_recept_sem, tmo) == MSG_OK) {
       IOHDLC_RAWQ_LOCK(drv->raw_recept_mtx);
-      if (!ioHdlc_frameq_isempty(&drv->raw_recept_q))
-        fp = ioHdlc_frameq_remove(&drv->raw_recept_q);
+      if (!ioHdlc_frameq_isempty(&drv->raw_recept_q)) {
+        iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->raw_recept_q);
+        fp = IOHDLC_FRAME_FROM_Q(qh);
+      }
       IOHDLC_RAWQ_UNLOCK(drv->raw_recept_mtx);
     }
     if (fp == NULL)
@@ -379,7 +405,7 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
 
       /* Deliver frame to upper layer */
       IOHDLC_RAWQ_LOCK_ISR(drv->raw_recept_mtx);
-      ioHdlc_frameq_insert(&drv->raw_recept_q, drv->rx_in_frame);
+      ioHdlc_frameq_insert(&drv->raw_recept_q, &drv->rx_in_frame->q);
       iohdlc_sem_signal_i(&drv->raw_recept_sem);
       IOHDLC_RAWQ_UNLOCK_ISR(drv->raw_recept_mtx);
       
@@ -477,9 +503,39 @@ nextoctet:
  */
 static void s_hal_on_tx_done(void *cb_ctx, void *framep) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
+  
+  /* Release completed frame */
   if (framep) {
     hdlcReleaseFrame(drv->fpp, (iohdlc_frame_t *)framep);
   }
+
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+  /* Real HW: process next frame from TX queue */
+  iohdlc_sys_lock_isr();
+  
+  iohdlc_frame_t *next_fp = NULL;
+  if (!ioHdlc_frameq_isempty(&drv->raw_tx_q)) {
+    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->raw_tx_q);
+    next_fp = IOHDLC_FRAME_FROM_Q_AUX(qh);
+  }
+  
+  /* Submit next frame if available */
+  if (next_fp) {
+    /* Recalculate wire_len (don't rely on frame fields which may be reused) */
+    size_t wire_len;
+    if (drv->apply_transparency) {
+      /* Frame is encoded: elen already includes encoded payload+FCS */
+      wire_len = next_fp->elen + 1;  /* +1 for closing FLAG */
+    } else {
+      /* Frame is original with FCS added in place */
+      wire_len = next_fp->elen + drv->fcs_size + 1;  /* +FCS +FLAG */
+    }
+    
+    const uint8_t *ptr = next_fp->frame;
+    (void)drv->port.ops->tx_submit(drv->port.ctx, ptr, wire_len, (void *)next_fp);
+  }
+  iohdlc_sys_unlock_isr();
+#endif
 }
 
 /**

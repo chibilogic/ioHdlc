@@ -336,6 +336,50 @@ config.reply_timeout_ms = 1000;  // 1 second
 config.max_retransmissions = 10;  // Max retries
 ```
 
+#### T1 Sizing Formula
+
+The T1 value must account for **all system latencies** to prevent false timeouts:
+
+```
+T1 >= (ks × frame_tx_time_max) + wire_RTT + peer_processing + safety_margin
+```
+
+**Components:**
+
+- **ks × frame_tx_time_max**: Maximum queue depth latency
+  - `ks`: Window size (e.g., 7 frames)
+  - `frame_tx_time_max`: Time to transmit largest frame at configured baudrate
+  - Example (9600 baud, 50 bytes): `50 bytes × 10 bits/byte / 9600 bps = 52 ms`
+
+- **wire_RTT**: Physical propagation delay (typically 1-10 ms for short distances)
+
+- **peer_processing**: Time for peer to process command and generate response (typically 10-50 ms)
+
+- **safety_margin**: Additional buffer for system jitter and scheduling delays (typically 50-100 ms)
+
+**Example Calculation:**
+
+```
+Baudrate: 9600 bps
+Frame size: 50 bytes
+Window size (ks): 7
+wire_RTT: 5 ms
+Peer processing: 20 ms
+Safety margin: 50 ms
+
+frame_tx_time = (50 × 10) / 9600 = 52 ms
+T1 >= (7 × 52) + 5 + 20 + 50 = 439 ms  →  use T1 = 500 ms
+```
+
+**Guidelines:**
+
+- **Low baudrates (≤9600 bps)**: Increase T1 significantly (500-1000 ms)
+- **High baudrates (≥115200 bps)**: T1 can be lower (100-200 ms)
+- **Large window sizes (ks > 7)**: Scale T1 proportionally
+- **Hardware TX queues**: Include queue depth in calculation (e.g., ISR-based TX pipeline)
+
+**Note**: This applies to **any** system with non-blocking transmission (DMA, ISR queues, etc.), not just queue-based implementations. The driver returns immediately after DMA start, but T1 must account for the physical transmission time.
+
 ### T2 Timer (ACK Delay) - Optional
 
 **Purpose**: Batch ACKs to reduce overhead

@@ -67,6 +67,9 @@ typedef struct {
   /* Progress reporting */
   uint32_t progress_interval_ms;        /**< Progress update interval in ms (default: 1000) */
   
+  /* Watermark testing */
+  uint32_t watermark_delay_ms;          /**< Reader delay every 256 packets (ms), 0=disabled */
+  
   /* Test name (for reporting) */
   const char *test_name;
 } test_config_t;

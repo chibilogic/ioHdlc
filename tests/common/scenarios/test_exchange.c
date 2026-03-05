@@ -12,6 +12,7 @@
 #include "test_framework.h"
 #include "test_helpers.h"
 #include "test_arenas.h"
+#include "adapter_interface.h"
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
 #include "ioHdlcqueue.h"
@@ -19,8 +20,6 @@
 #include "ioHdlc_runner.h"
 #include "ioHdlcfmempool.h"
 #include "ioHdlcosal.h"
-#include "mock_stream.h"
-#include "mock_stream_adapter.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,8 +34,8 @@ static iohdlc_station_t *st_pri, *st_sec;
 #define SECONDARY_ADDR  0x02
 #define WINDOW_SIZE     7
 #define MAX_PACKET_SIZE 128  /* Max packet size for tests */
-#define WTMO 1800
-#define RTMO 2200
+#define WTMO 4500
+#define RTMO 5000
 
 static volatile bool test_running_global = true;
 
@@ -138,10 +137,11 @@ static void *reader_thread(void *arg) {
    
     ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, RTMO);
 
-    /* Every 256 frames, introduce a small delay to simulate pool low condition */
-    if (((ctx->seq+1) & 0xFF) == 0) {
-      ioHdlc_sleep_ms(45);
+    /* Watermark test: delay every 256 packets to simulate pool pressure */
+    if (ctx->config->watermark_delay_ms > 0 && ((ctx->seq+1) & 0xFF) == 0) {
+      ioHdlc_sleep_ms(ctx->config->watermark_delay_ms);
     }
+    
     if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
       iohdlc_mutex_lock(ctx->stats_mutex);
       test_validate_packet(buffer, received, &ctx->seq, ctx->stats);
@@ -178,15 +178,17 @@ static void *reader_thread(void *arg) {
 
 /**
  * @brief Exchange test main function.
+ * @param[in] adapter  Test adapter (UART or mock), must be non-NULL
+ * @param[in] argc     Command line argument count
+ * @param[in] argv     Command line arguments
+ * @return 0 on success, 1 on failure
  * @note  Called from platform-specific wrappers (test_runner_exchange.c 
- *        for Linux, main_exchange.c for ChibiOS).
+ *        for Linux, main_shell.c for ChibiOS).
  */
-int test_exchange_main(int argc, char **argv) {
+int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   test_config_t config;
   test_statistics_t stats_primary, stats_secondary;
   iohdlc_mutex_t stats_mutex_primary, stats_mutex_secondary;
-  mock_stream_t *stream_primary, *stream_secondary;
-  mock_stream_adapter_t *adapter_primary, *adapter_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
@@ -196,6 +198,7 @@ int test_exchange_main(int argc, char **argv) {
   static uint8_t arena_primary[16384], arena_secondary[16384];
   int32_t result;
   uint32_t start_time, elapsed_time;
+  ioHdlcStreamPort port_primary, port_secondary;
   
   st_pri = &station_primary;
   st_sec = &station_secondary;
@@ -233,32 +236,23 @@ int test_exchange_main(int argc, char **argv) {
   test_printf("Initializing HDLC stations...\r\n");
   test_printf("========================================\r\n\r\n");
   
-  /* Create mock streams */
-  mock_stream_config_t stream_config = {
-    .loopback = false,
-    .inject_errors = (config.error_rate > 0),
-    .error_rate = config.error_rate,
-    .delay_us = 100
-  };
+  /* Initialize adapter (compile-time selected: UART or mock) */
+  test_printf("Using adapter: %s\r\n", adapter->name);
   
-  stream_primary = mock_stream_create(&stream_config);
-  stream_secondary = mock_stream_create(&stream_config);
-  if (stream_primary == NULL || stream_secondary == NULL) {
-    test_printf("Failed to create mock streams\r\n");
-    return 1;
-  }
-  mock_stream_connect(stream_primary, stream_secondary);
-  
-  /* Create adapters */
-  adapter_primary = mock_stream_adapter_create(stream_primary);
-  adapter_secondary = mock_stream_adapter_create(stream_secondary);
-  if (adapter_primary == NULL || adapter_secondary == NULL) {
-    test_printf("Failed to create adapters\r\n");
-    return 1;
+  if (adapter->init) {
+    adapter->init();
   }
   
-  ioHdlcStreamPort port_primary = mock_stream_adapter_get_port(adapter_primary);
-  ioHdlcStreamPort port_secondary = mock_stream_adapter_get_port(adapter_secondary);
+  /* Configure error injection if supported (typically only mock adapter) */
+  if (config.error_rate > 0 && adapter->configure_error_injection) {
+    if (adapter->configure_error_injection(config.error_rate) != 0) {
+      test_printf("Warning: Error injection not supported by adapter\r\n");
+    }
+  }
+  
+  /* Get communication ports from adapter */
+  port_primary = adapter->get_port_a();
+  port_secondary = adapter->get_port_b();
   
   /* Initialize drivers */
   ioHdlcSwDriverInit(&driver_primary);
@@ -469,16 +463,16 @@ int test_exchange_main(int argc, char **argv) {
   test_printf("  Packets sent:     %u\r\n", stats_primary.packets_sent);
   test_printf("  Packets received: %u\r\n", stats_primary.packets_received);
   test_printf("  Seq errors:       %u\r\n", stats_primary.packets_reordered);
-  test_printf("  Bytes sent:       %lu\r\n", stats_primary.total_bytes_sent);
-  test_printf("  Bytes received:   %lu\r\n", stats_primary.total_bytes_received);
+  test_printf("  Bytes sent:       " U64_FMT "\r\n", U64_ARGS(stats_primary.total_bytes_sent));
+  test_printf("  Bytes received:   " U64_FMT "\r\n", U64_ARGS(stats_primary.total_bytes_received));
   test_printf("\r\n");
   
   test_printf("Secondary Station:\r\n");
   test_printf("  Packets sent:     %u\r\n", stats_secondary.packets_sent);
   test_printf("  Packets received: %u\r\n", stats_secondary.packets_received);
   test_printf("  Seq errors:       %u\r\n", stats_secondary.packets_reordered);
-  test_printf("  Bytes sent:       %lu\r\n", stats_secondary.total_bytes_sent);
-  test_printf("  Bytes received:   %lu\r\n", stats_secondary.total_bytes_received);
+  test_printf("  Bytes sent:       " U64_FMT "\r\n", U64_ARGS(stats_secondary.total_bytes_sent));
+  test_printf("  Bytes received:   " U64_FMT "\r\n", U64_ARGS(stats_secondary.total_bytes_received));
   test_printf("\r\n");
   
   /* Calculate and print traffic statistics based on direction */
@@ -491,10 +485,10 @@ int test_exchange_main(int argc, char **argv) {
                         ((float)stats_secondary.total_bytes_received / elapsed_time) : 0.0f;
     
     test_printf("Primary → Secondary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
-           stats_primary.packets_sent, stats_primary.total_bytes_sent);
-    test_printf("  Received:   %u packets (%lu bytes)\r\n",
-           stats_secondary.packets_received, stats_secondary.total_bytes_received);
+    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+           stats_primary.packets_sent, U64_ARGS(stats_primary.total_bytes_sent));
+    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+           stats_secondary.packets_received, U64_ARGS(stats_secondary.total_bytes_received));
     test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
     test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput, throughput / 1024.0f);
     test_printf("\r\n");
@@ -507,10 +501,10 @@ int test_exchange_main(int argc, char **argv) {
                         ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
     
     test_printf("Secondary → Primary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
-           stats_secondary.packets_sent, stats_secondary.total_bytes_sent);
-    test_printf("  Received:   %u packets (%lu bytes)\r\n",
-           stats_primary.packets_received, stats_primary.total_bytes_received);
+    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+           stats_secondary.packets_sent, U64_ARGS(stats_secondary.total_bytes_sent));
+    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+           stats_primary.packets_received, U64_ARGS(stats_primary.total_bytes_received));
     test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
     test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput, throughput / 1024.0f);
     test_printf("\r\n");
@@ -532,19 +526,19 @@ int test_exchange_main(int argc, char **argv) {
                             ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
     
     test_printf("Primary → Secondary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
-           stats_primary.packets_sent, stats_primary.total_bytes_sent);
-    test_printf("  Received:   %u packets (%lu bytes)\r\n",
-           stats_secondary.packets_received, stats_secondary.total_bytes_received);
+    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+           stats_primary.packets_sent, U64_ARGS(stats_primary.total_bytes_sent));
+    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+           stats_secondary.packets_received, U64_ARGS(stats_secondary.total_bytes_received));
     test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost_p2s, loss_percent_p2s);
     test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput_p2s, throughput_p2s / 1024.0f);
     test_printf("\r\n");
     
     test_printf("Secondary → Primary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (%lu bytes)\r\n",
-           stats_secondary.packets_sent, stats_secondary.total_bytes_sent);
-    test_printf("  Received:   %u packets (%lu bytes)\r\n",
-           stats_primary.packets_received, stats_primary.total_bytes_received);
+    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+           stats_secondary.packets_sent, U64_ARGS(stats_secondary.total_bytes_sent));
+    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+           stats_primary.packets_received, U64_ARGS(stats_primary.total_bytes_received));
     test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost_s2p, loss_percent_s2p);
     test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput_s2p, throughput_s2p / 1024.0f);
     test_printf("\r\n");
@@ -559,11 +553,10 @@ cleanup:
   ioHdlcSwDriverStop(&driver_primary);
   ioHdlcSwDriverStop(&driver_secondary);
   
-  /* Cleanup */
-  mock_stream_adapter_destroy(adapter_primary);
-  mock_stream_adapter_destroy(adapter_secondary);
-  mock_stream_destroy(stream_primary);
-  mock_stream_destroy(stream_secondary);
+  /* Deinitialize adapter */
+  if (adapter && adapter->deinit) {
+    adapter->deinit();
+  }
   
   return 0;
 }
