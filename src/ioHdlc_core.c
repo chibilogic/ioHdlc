@@ -496,6 +496,23 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
   return false;
 }
 
+/**
+ * @brief Handles checkpoint and acknowledgment processing for HDLC station communication.
+ *
+ * This function processes the received sequence number (N(R)) and poll/final bit
+ * to manage the station's transmission window, handle acknowledgments, and determine
+ * if checkpoint conditions have been met.
+ *
+ * @param[in] s Pointer to the HDLC station structure
+ * @param[in] p Pointer to the peer station structure
+ * @param[in] nr Received sequence number N(R) indicating the next frame expected by peer
+ * @param[in] pf Poll/Final bit value from the received frame
+ * @param[out] should_signal_tx_out Flag indicating if transmission should be signaled
+ * @param[out] checkpoint_moved_out Flag indicating if the checkpoint has been advanced
+ * @param[out] broadcast_flags_out Pointer to flags for broadcast event notifications
+ *
+ * @return false if N(R) is invalid.
+ */
 static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                                    uint32_t nr,
                                    bool pf,
@@ -503,10 +520,9 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
                                    bool *checkpoint_moved_out,
                                    uint32_t *broadcast_flags_out) {
   /* Common processing for both I-frames and S-frames:
-     1. Process N(R) to acknowledge our sent frames
-     2. Handle P/F bit for checkpointing
-     3. Manage reply timer based on role and P/F bit
-     
+     - Process N(R) to acknowledge our sent frames
+     - Handle P/F bit for checkpointing
+     - Manage reply timer based on role and P/F bit
      Returns flags via output parameters for deferred signaling.
   */
   
@@ -666,7 +682,7 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       /* Peer not ready: set busy flag. */
       p->ss_state |= IOHDLC_SS_BUSY;
       *broadcast_flags_out |= IOHDLC_EVT_RNR_RECVD;
-      IOHDLC_SET_NEEDPF(s, p);
+      IOHDLC_SET_NEED_P(s, p);
       break;
       
     case IOHDLC_S_REJ:
@@ -708,7 +724,7 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
           p->chkpt_actioned = 0;
         }
         *broadcast_flags_out |= IOHDLC_EVT_xREJ_RECVD;
-        IOHDLC_SET_NEEDPF(s, p);
+        IOHDLC_SET_NEED_P(s, p);
       }
       break;
       
@@ -795,7 +811,7 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   
   /* Branch by frame type for specific handling. */
   if (IOHDLC_IS_I_FRM(ctrl)) {
-    IOHDLC_SET_NEEDPF(s, p);
+    IOHDLC_SET_NEED_P(s, p);
     frame_accepted = handleIFrame(s, p, fp, pf, &broadcast_flags);
   } else {
     handleSFrame(s, p, fp, pf, &broadcast_flags);
@@ -1018,7 +1034,7 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
     if (set_pf) {
       p->vs_atlast_pf = p->vs;
       IOHDLC_IS_PRI(s) ? IOHDLC_ACK_F(s) : IOHDLC_ACK_P(s);
-      IOHDLC_CLR_NEEDPF(p);
+      IOHDLC_CLR_NEED_P(p);
     }
     
     IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun,
@@ -1051,7 +1067,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       }
       
       /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
-      IOHDLC_SET_NEEDPF(s, p);
+      IOHDLC_SET_NEED_P(s, p);
       s->pf_state |= IOHDLC_F_RCVED;
       p->rej_actioned = 0;  /* Clear REJ exception on timeout retry */
     }
@@ -1065,7 +1081,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       IOHDLC_LOG_WARN(IOHDLC_LOG_TX, s->addr, "T3");
       
       /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
-      IOHDLC_SET_NEEDPF(s, p);
+      IOHDLC_SET_NEED_P(s, p);
     }
   }
 
@@ -1126,7 +1142,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       break;  /* Safety check. */
     }
 
-    IOHDLC_SET_NEEDPF(s, p);
+    IOHDLC_SET_NEED_P(s, p);
     bool set_pf = false;
     /* Determine if P/F bit should be set in this I-frame. 
        If local busy, never set P/F on I-frames. */
@@ -1243,7 +1259,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   /* If no frame was sent, or prepared to, but we have the opportunity/need
      to respond, prepare to send an opportunistic S-frame (RR or RNR). */
   if (sframe_to_send == NULL && !i_frame_sent && (IOHDLC_P_ISRCVED(s) ||
-        (IOHDLC_F_ISRCVED(s) && IOHDLC_NEED_PF(p)))) {
+        (IOHDLC_F_ISRCVED(s) && IOHDLC_NEED_P(p)))) {
     /* In TWA, if we still have permission on the link but didn't send I-frames,
        we should send an S-frame to acknowledge and cede the link.
        In TWS, we may also want to send periodic acknowledgments. */

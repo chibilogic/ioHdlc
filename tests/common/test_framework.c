@@ -161,6 +161,12 @@ void test_print_config(const test_config_t *cfg) {
   test_printf("Reply timeout: %u ms %s\n", 
               cfg->reply_timeout_ms == 0 ? 100 : cfg->reply_timeout_ms,
               cfg->reply_timeout_ms == 0 ? "(default)" : "");
+  
+  /* Watermark testing */
+  if (cfg->watermark_delay_ms > 0) {
+    test_printf("Watermark delay: %u ms every 256 packets\n", cfg->watermark_delay_ms);
+  }
+  
   test_printf("\n");
 }
 

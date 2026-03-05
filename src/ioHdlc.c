@@ -877,7 +877,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
   iohdlc_mutex_lock(&peer->state_mutex);
   ioHdlcBroadcastFlags(s, IOHDLC_EVT_PF_RECVD);
   peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
-  IOHDLC_SET_NEEDPF(s, peer);
+  IOHDLC_SET_NEED_P(s, peer);
   iohdlc_mutex_unlock(&peer->state_mutex);
   
   /* Greedy consumption loop: read frames until count satisfied, timeout, or queue empty.

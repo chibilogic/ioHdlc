@@ -24,9 +24,6 @@
  *              static ioHdlcStreamPort        port;
  *              ioHdlcStreamPortChibiosUartObjectInit(&port, &uobj, &UARTD1, &uartcfg);
  *              @endcode
- *          - Transmission: use @p ioHdlcStream_send(&core, ptr, len, cookie).
- *            The @p cookie is returned in @p on_tx_done for ownership release
- *            or bookkeeping.
  *
  *          Operational notes:
  *          - The adapter assigns @p txend1_cb/@p rxend_cb/@p rxerr_cb/@p timeout_cb
@@ -37,7 +34,6 @@
  *            the same frame (multi-chunk) via @p on_rx according to the
  *            expected length.
  */
-
 
 #include "ioHdlcstream_uart.h"
 

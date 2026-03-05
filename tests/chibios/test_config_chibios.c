@@ -130,6 +130,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->reply_timeout_ms = TEST_REPLY_TIMEOUT;
   cfg->poll_retry_max = TEST_POLL_RETRY_MAX;
   cfg->progress_interval_ms = TEST_PROGRESS_INTERVAL;
+  cfg->watermark_delay_ms = 0;  /* Disabled by default */
   cfg->test_name = TEST_NAME;
   
   return true;

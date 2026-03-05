@@ -137,12 +137,11 @@ static void *reader_thread(void *arg) {
    
     ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, RTMO);
 
-#if 0
-    /* Every 256 frames, introduce a small delay to simulate pool low condition */
-    if (((ctx->seq+1) & 0xFF) == 0) {
-      ioHdlc_sleep_ms(450);
+    /* Watermark test: delay every 256 packets to simulate pool pressure */
+    if (ctx->config->watermark_delay_ms > 0 && ((ctx->seq+1) & 0xFF) == 0) {
+      ioHdlc_sleep_ms(ctx->config->watermark_delay_ms);
     }
-#endif
+    
     if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
       iohdlc_mutex_lock(ctx->stats_mutex);
       test_validate_packet(buffer, received, &ctx->seq, ctx->stats);
