@@ -53,7 +53,7 @@ static void chb_txend_cb(UARTDriver *uartp) {
   /* clear busy */
   ctx->tx_framep = NULL;
   /* Signal semaphore to unblock waiting TX thread */
-  ctx->cbs->on_tx_done((void *)ctx->cbs->cb_ctx, framep);
+  ctx->cbs->on_tx_done(ctx->cbs->cb_ctx, framep);
 }
 
 static void chb_rxend_cb(UARTDriver *uartp) {
@@ -62,7 +62,7 @@ static void chb_rxend_cb(UARTDriver *uartp) {
   chDbgAssert(ctx->cbs && ctx->cbs->on_rx, "uart rxend cb: callbacks not set");
   /* RX of the armed buffer completed (usually 1 byte). */
   ctx->rx_busy = false;
-  ctx->cbs->on_rx((void *)ctx->cbs->cb_ctx, 0);
+  ctx->cbs->on_rx(ctx->cbs->cb_ctx, 0);
 }
 
 static void chb_rxerr_cb(UARTDriver *uartp, uartflags_t e) {
@@ -80,14 +80,14 @@ static void chb_rxerr_cb(UARTDriver *uartp, uartflags_t e) {
 #if defined(UART_OVERRUN_ERROR)
   if (e & UART_OVERRUN_ERROR) mask |= IOHDLC_STREAM_ERR_OVERRUN;
 #endif
-  ctx->cbs->on_rx_error((void *)ctx->cbs->cb_ctx, mask);
+  ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, mask);
 }
 
 static void chb_timeout_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (!ctx) return;
   chDbgAssert(ctx->cbs && ctx->cbs->on_rx_error, "uart timeout cb: callbacks not set");
-  ctx->cbs->on_rx_error((void *)ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_TMO);
+  ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_TMO);
 }
 
 /*===========================================================================*/
@@ -111,6 +111,9 @@ static void chb_start(void *vctx, const ioHdlcStreamCallbacks *cbs) {
     ctx->cfgp->rxend_cb  = chb_rxend_cb;
     ctx->cfgp->rxerr_cb  = chb_rxerr_cb;
     ctx->cfgp->timeout_cb = chb_timeout_cb;
+#ifdef USART_CR1_IDLEIE
+    ctx->cfgp->cr1 = USART_CR1_IDLEIE;
+#endif
   }
   uartStart(ctx->uartp, ctx->cfgp);
 }
@@ -123,18 +126,11 @@ static void chb_stop(void *vctx) {
 static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cookie) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   
-  if (port_is_isr_context()) {
-    /* ISR context: fail-fast if busy (defensive, should not occur) */
-    if (ctx->tx_framep != NULL || ctx->uartp->txstate == UART_TX_ACTIVE)
-      return false;
+    chDbgAssert(ctx->tx_framep == NULL && ctx->uartp->txstate != UART_TX_ACTIVE,
+                "uart tx_submit: tx is busy");
     ctx->tx_framep = cookie;
     uartStartSendI(ctx->uartp, len, ptr);
     return true;
-  } else {
-    ctx->tx_framep = cookie;
-    uartStartSend(ctx->uartp, len, ptr);
-    return true;  /* Never returns false in thread context */
-  }
 }
 
 static bool chb_tx_busy(void *vctx) {
@@ -146,21 +142,13 @@ static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   if (ctx->rx_busy) return false; /* one RX at a time */
   ctx->rx_busy = true; /* mark busy */
-  if (port_is_isr_context()) {
-    chSysLockFromISR();
-    uartStartReceiveI(ctx->uartp, len, ptr);
-    chSysUnlockFromISR();
-  } else
-    uartStartReceive(ctx->uartp, len, ptr);
+  uartStartReceiveI(ctx->uartp, len, ptr);
   return true;
 }
 
 static void chb_rx_cancel(void *vctx) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
-  if (port_is_isr_context())
-    uartStopReceiveI(ctx->uartp);
-  else
-    uartStopReceive(ctx->uartp);
+  uartStopReceiveI(ctx->uartp);
   ctx->rx_busy = false;
 }
 

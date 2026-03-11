@@ -127,7 +127,9 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
 
   /* Start port and begin RX */
   drv->port.ops->start(drv->port.ctx, &drv->hal_cbs);
+  iohdlc_sys_lock();
   (void)drv->port.ops->rx_submit(drv->port.ctx, drv->rx_stagep, 1);
+  iohdlc_sys_unlock();
   
   drv->started = true;
 }
@@ -221,16 +223,21 @@ static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
     
     const uint8_t *ptr = &nfp->openingflag;
     size_t len = wire_len + 1;  /* +1 for opening flag */
-    iohdlc_sys_unlock();
     (void)drv->port.ops->tx_submit(drv->port.ctx, ptr, len, (void *)nfp);
   } else {
     /* TX busy: enqueue for ISR processing (no opening flag) */
-    nfp->openingflag = 0;  /* Contiguous with previous frame */
-    ioHdlc_frameq_insert(&drv->raw_tx_q, &nfp->q_aux);
-    iohdlc_sys_unlock();
+    if (nfp->q_aux.next == NULL) {
+      nfp->openingflag = 0;  /* Contiguous with previous frame */
+      ioHdlc_frameq_insert(&drv->raw_tx_q, &nfp->q_aux);
+    } else {
+      /* This can only happen if the caller retrasmit frames
+         already enqueued. */
+      hdlcReleaseFrame(drv->fpp, nfp);  /* Release new frame */
+    }
   }
+  iohdlc_sys_unlock();
 #endif
-  
+
   return 0;
 }
 
@@ -352,10 +359,11 @@ static void s_handle_rx_error(ioHdlcSwDriver *drv) {
     hdlcReleaseFrame(drv->fpp, drv->rx_in_frame);
     drv->rx_in_frame = NULL;
   }
+  drv->rx_stagep[0] = 0;  /* Reset staging buffer */
 }
 
 /**
- * @brief   HAL callback: RX byte/chunk received or timeout.
+ * @brief   HAL ISR callback: RX byte/chunk received or timeout.
  */
 static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
@@ -370,8 +378,9 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
     if (drv->rx_in_frame && drv->rx_in_frame->elen != 0) {
       /* Intra-frame timeout - discard partial frame */
       s_handle_rx_error(drv);
-      if (drv->port.ops->rx_cancel)
-        drv->port.ops->rx_cancel(drv->port.ctx);
+      iohdlc_sys_lock_isr();
+      drv->port.ops->rx_cancel(drv->port.ctx);
+      iohdlc_sys_unlock_isr();
       goto newframe;
     }
     /* Inter-frame timeout - signal IDLE */
@@ -384,6 +393,9 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
   /* Handle other errors */
   if (errmask) {
     s_handle_rx_error(drv);
+    iohdlc_sys_lock_isr();
+    drv->port.ops->rx_cancel(drv->port.ctx);
+    iohdlc_sys_unlock_isr();
     goto newframe;
   }
 
@@ -418,6 +430,7 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
         if (drv->frame_format_size == 1 && drv->rx_in_frame->elen == 0) {
           /* TYPE 0: 1 byte FFF, bit 7 = 0 */
           if (!(drv->rx_in_frame->frame[0] & 0x80) &&
+              ((size_t)drv->rx_in_frame->frame[0] != 0) &&
               ((size_t)drv->rx_in_frame->frame[0] < drv->fpp->framesize)) {
             /* Valid TYPE 0 FFF - read exact length */
             n = (size_t)drv->rx_in_frame->frame[0];
@@ -426,6 +439,7 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
           } else {
             /* Invalid TYPE 0 FFF - discard frame */
             s_handle_rx_error(drv);
+            n = 1;
           }
         } else if (drv->frame_format_size == 2) {
           if (drv->rx_in_frame->elen == 0) {
@@ -442,13 +456,14 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
             /* TYPE 1: second byte received, calculate total length */
             n = ((drv->rx_in_frame->frame[0] & 0x0F) << 8) | 
                                  drv->rx_in_frame->frame[1];
-            if (n < drv->fpp->framesize) {
+            if (n && n < drv->fpp->framesize) {
               /* Valid TYPE 1 FFF - read exact length */
               drv->rx_in_frame->elen = n--; /* decrement of the 2nd fff byte. */
               b = &drv->rx_in_frame->frame[2];
             } else {
               /* Frame too large - discard */
               s_handle_rx_error(drv);
+              n = 1;
             }
           } else {
             /* Already past FFF bytes - continue accumulating */
@@ -495,7 +510,11 @@ newframe:
 
 nextoctet:
   /* Arm next RX byte/chunk */
+  chDbgAssert(n != 0, "Invalid RX chunk size");
+  iohdlc_sys_lock_isr();
   (void)drv->port.ops->rx_submit(drv->port.ctx, b, n);
+  iohdlc_sys_unlock_isr();
+
 }
 
 /**
@@ -517,6 +536,7 @@ static void s_hal_on_tx_done(void *cb_ctx, void *framep) {
   if (!ioHdlc_frameq_isempty(&drv->raw_tx_q)) {
     iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->raw_tx_q);
     next_fp = IOHDLC_FRAME_FROM_Q_AUX(qh);
+    next_fp->q_aux.next = NULL;  /* Clear auxiliary queue link for safety */
   }
   
   /* Submit next frame if available */
@@ -531,8 +551,8 @@ static void s_hal_on_tx_done(void *cb_ctx, void *framep) {
       wire_len = next_fp->elen + drv->fcs_size + 1;  /* +FCS +FLAG */
     }
     
-    const uint8_t *ptr = next_fp->frame;
-    (void)drv->port.ops->tx_submit(drv->port.ctx, ptr, wire_len, (void *)next_fp);
+    (void)drv->port.ops->tx_submit(drv->port.ctx, next_fp->frame,
+                                   wire_len, next_fp);
   }
   iohdlc_sys_unlock_isr();
 #endif

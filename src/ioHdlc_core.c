@@ -87,6 +87,9 @@ static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
  */
 static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
   p->poll_retry_count++;
+#if defined(IOHDLC_ENABLE_STATISTICS)
+  p->stats.timeouts++;
+#endif
   
   if (p->poll_retry_count >= p->poll_retry_max) {
     /* Max retries exceeded: declare link down. */
@@ -489,6 +492,9 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
     /* Mark checkpoint as actioned with first frame N(S).
        Used to detect overlap with subsequent REJ (5.6.2.2). */
     p->chkpt_actioned = first_ns;
+#if defined(IOHDLC_ENABLE_STATISTICS)
+    p->stats.checkpoints++;
+#endif
     p->vs = first_ns - 1;  /* Reset V(S) to first retransmit frame N(S) */
     return true;
   }
@@ -616,6 +622,9 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "N(S) %u, exp %u",
                   ns, expected_ns);
 #endif
+#if defined(IOHDLC_ENABLE_STATISTICS)
+    p->stats.out_of_sequence++;
+#endif
     if (!IOHDLC_USE_TWA(s) && IOHDLC_USE_REJ(s) && p->rej_actioned == 0) {
       p->rej_actioned = expected_ns + 1;
       p->ss_state |= IOHDLC_SS_REJPEND;
@@ -723,6 +732,9 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 #endif
           p->chkpt_actioned = 0;
         }
+#if defined(IOHDLC_ENABLE_STATISTICS)
+        p->stats.rej_received++;
+#endif
         *broadcast_flags_out |= IOHDLC_EVT_xREJ_RECVD;
         IOHDLC_SET_NEED_P(s, p);
       }
