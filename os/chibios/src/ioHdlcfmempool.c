@@ -41,37 +41,17 @@
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
-static syssts_t _chSysGetStatusAndLockX(void) {
-
-  syssts_t sts = port_get_lock_status();
-  if (port_is_isr_context()) {
-    chSysLockFromISR();
-  } else {
-    chSysLock();
-  }
-  return sts;
-}
-
-static void _chSysRestoreStatusX(syssts_t sts) {
-  (void )sts;
-  if (port_is_isr_context()) {
-    chSysUnlockFromISR();
-  } else {
-    chSchRescheduleS();
-    chSysUnlock();
-  }
-}
-
 /*
  *  ioHdlcFramePool interface implementation.
  */
 
 static iohdlc_frame_t * take(void *ip) {
   ioHdlcFrameMemPool *fmpp = (ioHdlcFrameMemPool *)ip;
-  syssts_t sts = _chSysGetStatusAndLockX();
+  syssts_t sts = chSysGetStatusAndLockX();
   iohdlc_frame_t *fp = chPoolAllocI(&fmpp->mp);
   if (fp != NULL) {
     fp->refs = 1;
+    fp->q_aux.next = NULL;
     fmpp->allocated++;
     
     /* Check low watermark with hysteresis (common logic) */
@@ -79,20 +59,20 @@ static iohdlc_frame_t * take(void *ip) {
     void *cb_arg;
     void (*cb)(void *) = hdlc_pool_check_low_watermark((ioHdlcFramePool *)fmpp, &notify, &cb_arg);
     
-    _chSysRestoreStatusX(sts);
+    chSysRestoreStatusX(sts);
     
     if (notify && cb != NULL)
       cb(cb_arg);
       
     return fp;
   }
-  _chSysRestoreStatusX(sts);
+  chSysRestoreStatusX(sts);
   return fp;
 }
 
 static void release(void *ip, iohdlc_frame_t *fp) {
   ioHdlcFrameMemPool *fmpp = (ioHdlcFrameMemPool *)ip;
-  syssts_t sts = _chSysGetStatusAndLockX();
+  syssts_t sts = chSysGetStatusAndLockX();
   chDbgAssert(fp->refs > 0, "frame ref count mismatch");
   if (--fp->refs == 0) {
     chPoolFreeI(&fmpp->mp, fp);
@@ -103,20 +83,20 @@ static void release(void *ip, iohdlc_frame_t *fp) {
     void *cb_arg;
     void (*cb)(void *) = hdlc_pool_check_high_watermark((ioHdlcFramePool *)fmpp, &notify, &cb_arg);
     
-    _chSysRestoreStatusX(sts);
+    chSysRestoreStatusX(sts);
     
     if (notify && cb != NULL)
       cb(cb_arg);
       
     return;
   }
-  _chSysRestoreStatusX(sts);
+  chSysRestoreStatusX(sts);
 }
 
 static void addref(iohdlc_frame_t *fp) {
-  syssts_t sts = _chSysGetStatusAndLockX();
+  syssts_t sts = chSysGetStatusAndLockX();
   ++fp->refs;
-  _chSysRestoreStatusX(sts);
+  chSysRestoreStatusX(sts);
 }
 
 static const struct _iohdlc_fmempool_vmt vmt = {

@@ -4,3 +4,14 @@ doxygen/doxygen_use_javadoc_tags=true
 doxygen/doxygen_use_pre_tag=false
 doxygen/doxygen_use_structural_commands=false
 eclipse.preferences.version=1
+environment/project/0.455167531/ARCH/delimiter=\:
+environment/project/0.455167531/ARCH/operation=append
+environment/project/0.455167531/ARCH/value=arm
+environment/project/0.455167531/CROSS_COMPILE/delimiter=\:
+environment/project/0.455167531/CROSS_COMPILE/operation=append
+environment/project/0.455167531/CROSS_COMPILE/value=arm-linux-gnueabi-
+environment/project/0.455167531/USE_OPT/delimiter=\:
+environment/project/0.455167531/USE_OPT/operation=append
+environment/project/0.455167531/USE_OPT/value=-O2 -ggdb -fomit-frame-pointer -falign-functions\=16
+environment/project/0.455167531/append=true
+environment/project/0.455167531/appendContributed=true

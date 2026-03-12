@@ -240,6 +240,20 @@ struct iohdlc_peer_list {
   iohdlc_station_peer_t *prev;
 };
 
+#if defined(IOHDLC_ENABLE_STATISTICS)
+/**
+ * @brief   Peer statistics counters for debugging and monitoring.
+ * @note    Grouped in a separate structure for easy access and reporting.
+ * @note    Enabled only when IOHDLC_ENABLE_STATISTICS is defined.
+ */
+struct iohdlc_peer_stats {
+  volatile uint32_t rej_received;       /* REJ frames received (peer detected error). */
+  volatile uint32_t checkpoints;        /* Checkpoint retransmissions triggered. */
+  volatile uint32_t timeouts;           /* Reply timeout events. */
+  volatile uint32_t out_of_sequence;    /* Out-of-sequence I-frames discarded. */
+};
+#endif /* IOHDLC_ENABLE_STATISTICS */
+
 /**
  * @brief   Type of a HDLC station peer.
  * @note    A station peer represents the state of the
@@ -321,6 +335,11 @@ struct iohdlc_station_peer {
   uint8_t poll_retry_max;       /* Maximum number of retries allowed for poll frames.
                                    When poll_retry_count >= poll_retry_max, the link
                                    is considered down. */
+
+#if defined(IOHDLC_ENABLE_STATISTICS)
+  /* statistics counters. */
+  struct iohdlc_peer_stats stats;  /* Debug/monitoring statistics. */
+#endif
 };
 
 /**

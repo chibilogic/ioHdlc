@@ -176,6 +176,8 @@ static void *reader_thread(void *arg) {
 /* Main Test                                                                 */
 /*===========================================================================*/
 
+iohdlc_station_t station_primary, station_secondary;
+
 /**
  * @brief Exchange test main function.
  * @param[in] adapter  Test adapter (UART or mock), must be non-NULL
@@ -190,7 +192,6 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   test_statistics_t stats_primary, stats_secondary;
   iohdlc_mutex_t stats_mutex_primary, stats_mutex_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
-  iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t station_config;
   thread_context_t ctx_pri_writer, ctx_pri_reader, ctx_sec_writer, ctx_sec_reader;
@@ -239,15 +240,15 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   /* Initialize adapter (compile-time selected: UART or mock) */
   test_printf("Using adapter: %s\r\n", adapter->name);
   
-  if (adapter->init) {
-    adapter->init();
-  }
-  
   /* Configure error injection if supported (typically only mock adapter) */
   if (config.error_rate > 0 && adapter->configure_error_injection) {
     if (adapter->configure_error_injection(config.error_rate) != 0) {
       test_printf("Warning: Error injection not supported by adapter\r\n");
     }
+  }
+  
+  if (adapter->init) {
+    adapter->init();
   }
   
   /* Get communication ports from adapter */
