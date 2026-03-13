@@ -163,7 +163,7 @@
  * @brief   Enables the SPI subsystem.
  */
 #if !defined(HAL_USE_SPI) || defined(__DOXYGEN__)
-#define HAL_USE_SPI                         FALSE
+#define HAL_USE_SPI                         TRUE
 #endif
 
 /**
@@ -528,6 +528,12 @@
  * @brief   Add back reference to the ioHdlcDriver instance.
  */
 #define UART_DRIVER_EXT_FIELDS \
+  void *ip;
+
+/**
+ * @brief   Add back reference to the ioHdlcDriver instance (SPI).
+ */
+#define SPI_DRIVER_EXT_FIELDS \
   void *ip;
 
 /*===========================================================================*/

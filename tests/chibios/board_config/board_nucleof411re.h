@@ -33,4 +33,56 @@
  */
 #define TEST_ENDPOINT_A   UARTD1
 #define TEST_ENDPOINT_B   UARTD6
+
+/*
+ * Test endpoints for SPI
+ * SPID1: SPI1 - Endpoint A (master)
+ * SPID2: SPI2 - Endpoint B (slave)
+ *
+ * Physical connections required (same board loopback):
+ *   SPI1_SCK  (PA5)  <-->  SPI2_SCK  (PB13)
+ *   SPI1_MISO (PA6)  <-->  SPI2_MISO (PB14)
+ *   SPI1_MOSI (PA7)  <-->  SPI2_MOSI (PB15)
+ *
+ * Optionally, if TEST_SPI_USE_CS is defined:
+ *   SPI1_NSS  (PA4)  <-->  SPI2_NSS  (PB12)
+ */
+#define TEST_SPI_ENDPOINT_A     SPID1
+#define TEST_SPI_ENDPOINT_B     SPID2
+
+/*
+ * Define TEST_SPI_USE_CS to enable hardware CS (NSS) lines.
+ * When undefined, SSM+SSI are used (software slave management,
+ * slave always selected) and only 3 wires are needed.
+ */
+/* #define TEST_SPI_USE_CS */
+
+/* CS (NSS) physical pins - used only when TEST_SPI_USE_CS is defined */
+#define TEST_SPI_CS_PORT_A_HW   GPIOA
+#define TEST_SPI_CS_PAD_A_HW    4U
+#define TEST_SPI_CS_PORT_B_HW   GPIOB
+#define TEST_SPI_CS_PAD_B_HW    12U
+
+#if defined(TEST_SPI_USE_CS)
+/* Hardware NSS: master drives PA4, slave listens on PB12 */
+#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_1 | SPI_CR1_BR_0)
+#define TEST_SPI_CFG_B_CR1      0
+#define TEST_SPI_CS_PORT_A      TEST_SPI_CS_PORT_A_HW
+#define TEST_SPI_CS_PAD_A       TEST_SPI_CS_PAD_A_HW
+#define TEST_SPI_CS_PORT_B      TEST_SPI_CS_PORT_B_HW
+#define TEST_SPI_CS_PAD_B       TEST_SPI_CS_PAD_B_HW
+#else
+/* Software NSS: SSM=1 SSI=1 on master (no MODF), SSM=1 SSI=0 on slave (always selected) */
+#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_2 | SPI_CR1_BR_1 | SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
+#define TEST_SPI_CFG_B_CR1      (SPI_CR1_SSM)
+#define TEST_SPI_CS_PORT_A      NULL
+#define TEST_SPI_CS_PAD_A       0U
+#define TEST_SPI_CS_PORT_B      NULL
+#define TEST_SPI_CS_PAD_B       0U
+#endif
+
+/* CR2: default 8-bit, DMA managed by ChibiOS */
+#define TEST_SPI_CFG_A_CR2      0
+#define TEST_SPI_CFG_B_CR2      0
+
 #endif /* BOARD_NUCLEOF411_H */

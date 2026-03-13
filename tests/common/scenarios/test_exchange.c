@@ -211,6 +211,17 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   if (!test_parse_config(&config, argc, argv)) {
     return 1;
   }
+
+  /* Enforce adapter hardware constraints */
+  if (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY) {
+    if (!config.use_twa) {
+      test_printf("Error: adapter '%s' requires TWA mode.\r\n"
+                  "       --tws is not supported on SPI adapters.\r\n"
+                  "       Use --twa or omit the mode option (default is TWA for SPI).\r\n",
+                  adapter->name);
+      return 1;
+    }
+  }
   
   /* Enable HDLC logging if compiled in */
 #if IOHDLC_LOG_LEVEL > 0
@@ -261,6 +272,14 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   
   /* Configure primary station */
   /* Note: Using default optfuncs (NULL) which enables TYPE0 FFF (max 127 bytes frame) */
+  /* SPI adapters use no-REJ optfuncs: recovery via checkpoint only is the correct mode. */
+  static const uint8_t optfuncs_norej[5] = {
+    0x00, 0x00, IOHDLC_OPT_SST, 0x00, IOHDLC_OPT_FFF | IOHDLC_OPT_INH
+  };
+  const uint8_t *optfuncs = (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY)
+                            ? optfuncs_norej : NULL;
+
+  /* Configure primary station */
   station_config.mode = config.mode;
   station_config.flags = IOHDLC_FLG_PRI | (config.use_twa ? IOHDLC_FLG_TWA : 0);
   station_config.log2mod = 3;
@@ -271,7 +290,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   station_config.max_info_len = 0;
   station_config.pool_watermark = 0;  /* Auto: 20% min 1 */
   station_config.fff_type = 1;  /* TYPE0 */
-  station_config.optfuncs = NULL;  /* Use defaults (TYPE0 FFF) */
+  station_config.optfuncs = optfuncs;
   station_config.phydriver = &port_primary;
   station_config.phydriver_config = NULL;
   station_config.reply_timeout_ms = config.reply_timeout_ms;

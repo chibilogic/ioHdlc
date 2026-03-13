@@ -279,9 +279,13 @@ endif
 
 # Test adapter selection (default: mock)
 # Set USE_UART_ADAPTER=1 to build with hardware UART adapter
+# Set USE_SPI_ADAPTER=1  to build with hardware SPI adapter
 ifdef USE_UART_ADAPTER
   TEST_ADAPTER_SRCS = adapters/adapter_uart.c
   UDEFS += -DUSE_UART_ADAPTER
+else ifdef USE_SPI_ADAPTER
+  TEST_ADAPTER_SRCS = adapters/adapter_spi.c
+  UDEFS += -DUSE_SPI_ADAPTER
 else
   TEST_ADAPTER_SRCS = $(COMMON_DIR)/adapters/adapter_mock.c \
                       $(COMMON_DIR)/mocks/mock_stream.c \
@@ -342,7 +346,7 @@ clean-all: clean
 # Convenience targets for different configurations
 ##############################################################################
 
-.PHONY: tests exchange shell test-mock test-uart shell-mock shell-uart
+.PHONY: tests exchange shell test-mock test-uart test-spi shell-mock shell-uart shell-spi
 
 # Build unit tests suite (main_tests.c)
 tests:
@@ -378,6 +382,11 @@ test-uart:
 	@echo "Building tests with UART adapter (UARTD2 + FUART D1)..."
 	@$(MAKE) tests USE_UART_ADAPTER=1
 
+# Build with SPI hardware adapter (requires physical connections)
+test-spi:
+	@echo "Building tests with SPI adapter (SPID1 master + SPID2 slave)..."
+	@$(MAKE) tests USE_SPI_ADAPTER=1
+
 # Build shell with mock stream adapter (default)
 shell-mock:
 	@echo "Building shell with MOCK adapter (memory-based)..."
@@ -387,4 +396,9 @@ shell-mock:
 shell-uart:
 	@echo "Building shell with UART adapter ..."
 	@$(MAKE) shell USE_UART_ADAPTER=1
+
+# Build shell with SPI hardware adapter
+shell-spi:
+	@echo "Building shell with SPI adapter (SPID1 master + SPID2 slave)..."
+	@$(MAKE) shell USE_SPI_ADAPTER=1
 
