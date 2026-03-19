@@ -370,9 +370,6 @@ static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
   size_t n = 1;
   uint8_t *b = 0;
 
-  if (!drv || !drv->started)
-    return;
-
   /* Handle timeout */
   if (errmask & IOHDLC_STREAM_ERR_TMO) {
     if (drv->rx_in_frame && drv->rx_in_frame->elen != 0) {
@@ -514,7 +511,6 @@ nextoctet:
   iohdlc_sys_lock_isr();
   (void)drv->port.ops->rx_submit(drv->port.ctx, b, n);
   iohdlc_sys_unlock_isr();
-
 }
 
 /**

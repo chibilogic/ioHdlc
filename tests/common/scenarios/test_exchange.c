@@ -267,8 +267,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   port_secondary = adapter->get_port_b();
   
   /* Initialize drivers */
-  ioHdlcSwDriverInit(&driver_primary);
   ioHdlcSwDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary);
   
   /* Configure primary station */
   /* Note: Using default optfuncs (NULL) which enables TYPE0 FFF (max 127 bytes frame) */

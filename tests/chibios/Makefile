@@ -286,6 +286,7 @@ ifdef USE_UART_ADAPTER
 else ifdef USE_SPI_ADAPTER
   TEST_ADAPTER_SRCS = adapters/adapter_spi.c
   UDEFS += -DUSE_SPI_ADAPTER
+	UDEFS += -DSTM32_SPI_SLAVE_GRACEFUL_STOP
 else
   TEST_ADAPTER_SRCS = $(COMMON_DIR)/adapters/adapter_mock.c \
                       $(COMMON_DIR)/mocks/mock_stream.c \

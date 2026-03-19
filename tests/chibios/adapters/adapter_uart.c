@@ -78,9 +78,6 @@ static void adapter_uart_init(void) {
 }
 
 static void adapter_uart_deinit(void) {
-  /* Stop UART drivers */
-  uartStop(&TEST_ENDPOINT_A);
-  uartStop(&TEST_ENDPOINT_B);
 }
 
 static ioHdlcStreamPort adapter_uart_get_port_a(void) {

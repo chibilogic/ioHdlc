@@ -24,12 +24,12 @@
  * Test endpoints for HDLC protocol
  * UARTD1: UART1 - Endpoint A (Primary station)
  * UARTD6: UART6 - Endpoint B (Secondary station)
- * 
+ *
  * Physical connections required:
- *   UARTD1_TX  <-->  UARTD6_RX
- *   UARTD1_RX  <-->  UARTD6_TX
- * 
- * Pin mappings are defined in:
+ *   UARTD1_TX (PA9,  USART1_TX)  <-->  UARTD6_RX (PC7,  USART6_RX)
+ *   UARTD1_RX (PA10, USART1_RX)  <-->  UARTD6_TX (PC6,  USART6_TX)
+ *
+ * Console (SD2/USART2): PA2 = USART2_TX (ARD_D1), PA3 = USART2_RX (ARD_D0)
  */
 #define TEST_ENDPOINT_A   UARTD1
 #define TEST_ENDPOINT_B   UARTD6
@@ -40,9 +40,9 @@
  * SPID2: SPI2 - Endpoint B (slave)
  *
  * Physical connections required (same board loopback):
- *   SPI1_SCK  (PA5)  <-->  SPI2_SCK  (PB13)
- *   SPI1_MISO (PA6)  <-->  SPI2_MISO (PB14)
- *   SPI1_MOSI (PA7)  <-->  SPI2_MOSI (PB15)
+ *   SPI1_SCK  (PB3)  <-->  SPI2_SCK  (PB13)
+ *   SPI1_MISO (PB4)  <-->  SPI2_MISO (PB14)
+ *   SPI1_MOSI (PB5)  <-->  SPI2_MOSI (PB15)
  *
  * Optionally, if TEST_SPI_USE_CS is defined:
  *   SPI1_NSS  (PA4)  <-->  SPI2_NSS  (PB12)
@@ -55,7 +55,7 @@
  * When undefined, SSM+SSI are used (software slave management,
  * slave always selected) and only 3 wires are needed.
  */
-/* #define TEST_SPI_USE_CS */
+#define TEST_SPI_USE_CS
 
 /* CS (NSS) physical pins - used only when TEST_SPI_USE_CS is defined */
 #define TEST_SPI_CS_PORT_A_HW   GPIOA
@@ -65,7 +65,7 @@
 
 #if defined(TEST_SPI_USE_CS)
 /* Hardware NSS: master drives PA4, slave listens on PB12 */
-#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_1 | SPI_CR1_BR_0)
+#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_2 | /*SPI_CR1_BR_1 |*/ SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
 #define TEST_SPI_CFG_B_CR1      0
 #define TEST_SPI_CS_PORT_A      TEST_SPI_CS_PORT_A_HW
 #define TEST_SPI_CS_PAD_A       TEST_SPI_CS_PAD_A_HW
@@ -84,5 +84,17 @@
 /* CR2: default 8-bit, DMA managed by ChibiOS */
 #define TEST_SPI_CFG_A_CR2      0
 #define TEST_SPI_CFG_B_CR2      0
+
+/*
+ * DATA_READY signal for SPI master/slave synchronization.
+ * Used only when IOHDLC_SPI_USE_DR is defined at compile time.
+ * Slave asserts this line (high) when it has a frame ready to transmit.
+ * Master monitors it via PAL event callback to know when to start receive DMA.
+ *
+ * Physical connection required:
+ *   PA8 (master input)  <-->  PB10 (slave output)
+ */
+#define TEST_SPI_DR_LINE_A    PAL_LINE(GPIOA, 8U)   /* master: DR input  */
+#define TEST_SPI_DR_LINE_B    PAL_LINE(GPIOB, 10U)  /* slave:  DR output */
 
 #endif /* BOARD_NUCLEOF411_H */

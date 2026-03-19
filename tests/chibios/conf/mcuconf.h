@@ -92,9 +92,9 @@
 #define STM32_IRQ_TIM4_PRIORITY             7
 #define STM32_IRQ_TIM5_PRIORITY             7
 
-#define STM32_IRQ_USART1_PRIORITY           12
+#define STM32_IRQ_USART1_PRIORITY           9
 #define STM32_IRQ_USART2_PRIORITY           12
-#define STM32_IRQ_USART6_PRIORITY           12
+#define STM32_IRQ_USART6_PRIORITY           9
 
 /*
  * ADC driver system settings.
@@ -206,12 +206,13 @@
 #define STM32_SPI_SPI3_RX_DMA_STREAM        STM32_DMA_STREAM_ID(1, 0)
 #define STM32_SPI_SPI3_TX_DMA_STREAM        STM32_DMA_STREAM_ID(1, 7)
 #define STM32_SPI_SPI1_DMA_PRIORITY         1
-#define STM32_SPI_SPI2_DMA_PRIORITY         1
+#define STM32_SPI_SPI2_DMA_PRIORITY         3
 #define STM32_SPI_SPI3_DMA_PRIORITY         1
 #define STM32_SPI_SPI1_IRQ_PRIORITY         10
-#define STM32_SPI_SPI2_IRQ_PRIORITY         10
+#define STM32_SPI_SPI2_IRQ_PRIORITY         5
 #define STM32_SPI_SPI3_IRQ_PRIORITY         10
 #define STM32_SPI_DMA_ERROR_HOOK(spip)      osalSysHalt("DMA failure")
+#define STM32_SPI_FILLER_PATTERN            0x00000000
 
 /*
  * ST driver system settings.
