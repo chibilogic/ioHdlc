@@ -16,7 +16,8 @@
 /**
  * @file    ioHdlcswdriver.c
  * @brief   HDLC software driver.
- * @details Integrates RX multi-chunk state machine + protocol logic (FCS, transparency).
+ * @details Integrates RX multi-chunk state machine + protocol logic
+ *          (FCS, transparency).
  */
 
 #include "ioHdlcswdriver.h"
@@ -37,9 +38,9 @@ static const ioHdlcDriverCapabilities* drv_get_capabilities(void *instance);
 static int32_t drv_configure(void *instance, uint8_t fcs_size, bool transparency, uint8_t fff_type);
 
 /* Internal RX state machine */
-static void s_hal_on_rx(void *cb_ctx, uint32_t errmask);
-static void s_hal_on_tx_done(void *cb_ctx, void *framep);
-static void s_hal_on_rx_error(void *cb_ctx, uint32_t errmask);
+static void s_on_rx(void *cb_ctx, uint32_t errmask);
+static void s_on_tx_done(void *cb_ctx, void *framep);
+static void s_on_rx_error(void *cb_ctx, uint32_t errmask);
 static void s_handle_rx_error(ioHdlcSwDriver *d);
 
 /*===========================================================================*/
@@ -114,9 +115,9 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   drv->port = *portp;  /* Copy port handle */
 
   /* Setup HAL callbacks */
-  drv->hal_cbs.on_rx = s_hal_on_rx;
-  drv->hal_cbs.on_tx_done = s_hal_on_tx_done;
-  drv->hal_cbs.on_rx_error = s_hal_on_rx_error;
+  drv->hal_cbs.on_rx = s_on_rx;
+  drv->hal_cbs.on_tx_done = s_on_tx_done;
+  drv->hal_cbs.on_rx_error = s_on_rx_error;
   drv->hal_cbs.cb_ctx = drv;
 
   /* Allocate DMA-safe staging buffer */
@@ -363,9 +364,11 @@ static void s_handle_rx_error(ioHdlcSwDriver *drv) {
 }
 
 /**
- * @brief   HAL ISR callback: RX byte/chunk received or timeout.
+ * @brief Frame parser callback: RX byte/chunk received or timeout.
+ * 
+ * @note  called from the ISR of the hardware device. 
  */
-static void s_hal_on_rx(void *cb_ctx, uint32_t errmask) {
+static void s_on_rx(void *cb_ctx, uint32_t errmask) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
   size_t n = 1;
   uint8_t *b = 0;
@@ -516,7 +519,7 @@ nextoctet:
 /**
  * @brief   HAL callback: TX complete.
  */
-static void s_hal_on_tx_done(void *cb_ctx, void *framep) {
+static void s_on_tx_done(void *cb_ctx, void *framep) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
   
   /* Release completed frame */
@@ -557,6 +560,6 @@ static void s_hal_on_tx_done(void *cb_ctx, void *framep) {
 /**
  * @brief   HAL callback: RX error.
  */
-static void s_hal_on_rx_error(void *cb_ctx, uint32_t errmask) {
-  s_hal_on_rx(cb_ctx, errmask);
+static void s_on_rx_error(void *cb_ctx, uint32_t errmask) {
+  s_on_rx(cb_ctx, errmask);
 }
