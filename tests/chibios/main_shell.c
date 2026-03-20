@@ -25,9 +25,12 @@
 /*===========================================================================*/
 
 /* Select adapter based on build configuration */
-#ifdef USE_UART_ADAPTER
+#if defined(USE_UART_ADAPTER)
   extern const test_adapter_t uart_adapter;
   #define TEST_ADAPTER (&uart_adapter)
+#elif defined(USE_SPI_ADAPTER)
+  extern const test_adapter_t spi_adapter;
+  #define TEST_ADAPTER (&spi_adapter)
 #else
   extern const test_adapter_t mock_adapter;
   #define TEST_ADAPTER (&mock_adapter)

@@ -25,6 +25,9 @@
 
 #include "ioHdlcstreamport.h"
 
+/** @brief Adapter supports TWA mode only (e.g. SPI hardware). */
+#define ADAPTER_CONSTRAINT_TWA_ONLY   (1u << 0)
+
 /**
  * @brief Test adapter interface.
  * @details Provides setup/teardown and port acquisition for test endpoints.
@@ -69,7 +72,13 @@ typedef struct {
    *       Hardware adapters (UART) typically set this to NULL.
    */
   int (*configure_error_injection)(unsigned int error_rate_percent);
-  
+
+  /**
+   * @brief Bitmask of adapter hardware constraints.
+   * @details Zero means no constraints. See ADAPTER_CONSTRAINT_* defines.
+   */
+  uint32_t constraints;
+
 } test_adapter_t;
 
 #endif /* ADAPTER_INTERFACE_H */
