@@ -28,11 +28,11 @@ $(DIAGRAM_SVG_DIR)/%.svg: $(DIAGRAM_SRC_DIR)/%.puml | $(DIAGRAM_SVG_DIR)
 
 doxygen docs: docs-diagrams
 	@mkdir -p "$(DOXYGEN_OUT)/full"
-	( cat "$(DOXYFILE)" ; echo "PROJECT_NUMBER = $(VERSION)" ) | $(DOXYGEN) -
+	( cat "$(DOXYFILE)" ; echo "" ; echo "PROJECT_NUMBER = $(VERSION)" ) | $(DOXYGEN) -
 
 doxygen-full docs-full: docs-diagrams
 	@mkdir -p "$(DOXYGEN_OUT)/full"
-	( cat "$(DOXYFILE_FULL)" ; echo "PROJECT_NUMBER = $(VERSION)" ) | $(DOXYGEN) -
+	( cat "$(DOXYFILE_FULL)" ; echo "" ; echo "PROJECT_NUMBER = $(VERSION)" ) | $(DOXYGEN) -
 
 docs-clean:
 	rm -rf "$(DOXYGEN_OUT)"
