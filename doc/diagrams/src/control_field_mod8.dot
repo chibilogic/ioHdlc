@@ -1,0 +1,48 @@
+digraph control_field_mod8 {
+  graph [
+    bgcolor="transparent",
+    margin="0.1"
+  ];
+
+  node [shape=plaintext];
+
+  fields [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6"
+           COLOR="#4d6a86">
+      <TR>
+        <TD BGCOLOR="#e8eef4" WIDTH="80"><FONT FACE="Helvetica-Bold" POINT-SIZE="9"> </FONT></TD>
+        <TD BGCOLOR="#e8eef4" WIDTH="35"><FONT FACE="Helvetica-Bold" POINT-SIZE="8">bit 7</FONT></TD>
+        <TD BGCOLOR="#e8eef4" WIDTH="35"><FONT FACE="Helvetica-Bold" POINT-SIZE="8">bit 6</FONT></TD>
+        <TD BGCOLOR="#e8eef4" WIDTH="35"><FONT FACE="Helvetica-Bold" POINT-SIZE="8">bit 5</FONT></TD>
+        <TD BGCOLOR="#e8eef4" WIDTH="35"><FONT FACE="Helvetica-Bold" POINT-SIZE="8">bit 4</FONT></TD>
+        <TD BGCOLOR="#e8eef4" WIDTH="35"><FONT FACE="Helvetica-Bold" POINT-SIZE="8">bit 3</FONT></TD>
+        <TD BGCOLOR="#e8eef4" WIDTH="35"><FONT FACE="Helvetica-Bold" POINT-SIZE="8">bit 2</FONT></TD>
+        <TD BGCOLOR="#e8eef4" WIDTH="35"><FONT FACE="Helvetica-Bold" POINT-SIZE="8">bit 1</FONT></TD>
+        <TD BGCOLOR="#e8eef4" WIDTH="35"><FONT FACE="Helvetica-Bold" POINT-SIZE="8">bit 0</FONT></TD>
+      </TR>
+      <TR>
+        <TD BGCOLOR="#f0f5fa"><FONT FACE="Helvetica-Bold" POINT-SIZE="9">I-frame</FONT></TD>
+        <TD BGCOLOR="#f7fbff" COLSPAN="3"><FONT FACE="Helvetica" POINT-SIZE="9">N(R)</FONT></TD>
+        <TD BGCOLOR="#dce8f0"><FONT FACE="Helvetica" POINT-SIZE="9">P</FONT></TD>
+        <TD BGCOLOR="#f7fbff" COLSPAN="3"><FONT FACE="Helvetica" POINT-SIZE="9">N(S)</FONT></TD>
+        <TD BGCOLOR="#e8eef4"><FONT FACE="Helvetica-Bold" POINT-SIZE="9">0</FONT></TD>
+      </TR>
+      <TR>
+        <TD BGCOLOR="#f0f5fa"><FONT FACE="Helvetica-Bold" POINT-SIZE="9">S-frame</FONT></TD>
+        <TD BGCOLOR="#f7fbff" COLSPAN="3"><FONT FACE="Helvetica" POINT-SIZE="9">N(R)</FONT></TD>
+        <TD BGCOLOR="#dce8f0"><FONT FACE="Helvetica" POINT-SIZE="9">P/F</FONT></TD>
+        <TD BGCOLOR="#f7fbff" COLSPAN="2"><FONT FACE="Helvetica" POINT-SIZE="9">S</FONT></TD>
+        <TD BGCOLOR="#e8eef4"><FONT FACE="Helvetica-Bold" POINT-SIZE="9">0</FONT></TD>
+        <TD BGCOLOR="#e8eef4"><FONT FACE="Helvetica-Bold" POINT-SIZE="9">1</FONT></TD>
+      </TR>
+      <TR>
+        <TD BGCOLOR="#f0f5fa"><FONT FACE="Helvetica-Bold" POINT-SIZE="9">U-frame</FONT></TD>
+        <TD BGCOLOR="#f7fbff" COLSPAN="3"><FONT FACE="Helvetica" POINT-SIZE="9">M</FONT></TD>
+        <TD BGCOLOR="#dce8f0"><FONT FACE="Helvetica" POINT-SIZE="9">P/F</FONT></TD>
+        <TD BGCOLOR="#f7fbff" COLSPAN="2"><FONT FACE="Helvetica" POINT-SIZE="9">M</FONT></TD>
+        <TD BGCOLOR="#e8eef4"><FONT FACE="Helvetica-Bold" POINT-SIZE="9">1</FONT></TD>
+        <TD BGCOLOR="#e8eef4"><FONT FACE="Helvetica-Bold" POINT-SIZE="9">1</FONT></TD>
+      </TR>
+    </TABLE>
+  >];
+}

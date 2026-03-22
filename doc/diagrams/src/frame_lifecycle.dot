@@ -1,0 +1,24 @@
+digraph frame_states {
+  rankdir="LR";
+  bgcolor="transparent";
+  node [shape=circle, fontname=Helvetica, fontsize=8,
+        fixedsize="true", width="0.9", height="0.9"];
+  edge [fontname=Helvetica, fontsize=8];
+
+  free    [label="Free\n(pool)", shape=doublecircle];
+  owned   [label="Owned\nrc = 1"];
+  queued  [label="Queued"];
+  active  [label="Active"];
+  shared  [label="Shared\nrc > 1"];
+
+  { rank=same; owned; shared; }
+
+  free   -> owned  [label="hdlcTakeFrame()"];
+  owned  -> queued [label="enqueue"];
+  queued -> active [label="dequeue"];
+  active -> free   [label="hdlcReleaseFrame()\nrc → 0"];
+  queued -> shared [label="hdlcAddRef()", constraint=false];
+  shared -> queued [label="hdlcReleaseFrame()\nrc > 0", constraint=false];
+  shared -> free   [label="hdlcReleaseFrame()\nrc → 0"];
+  active -> queued [label="re-queue\n(retransmit)", constraint=false, style="dashed"];
+}

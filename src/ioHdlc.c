@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -20,7 +20,12 @@
  *          and data transfer (LinkUp, LinkDown, Write, Read).
  *          OS-agnostic implementation using OSAL wrappers.
  *
- * @addtogroup hdlc
+ *          This module is the integration-facing construction layer. It
+ *          validates configuration, derives frame sizing and protocol
+ *          parameters, initializes shared resources, and binds the selected
+ *          driver/pool/backend objects into a ready-to-run station.
+ *
+ * @addtogroup ioHdlc_api
  * @{
  */
 
@@ -84,6 +89,8 @@
  * @brief   Calculate optimal frame buffer size based on configuration.
  * @details Computes frame size = FFF + ADDR + CTRL + INFO + FCS + CLOSING_FLAG.
  *          Respects FFF TYPE0 limit (127 bytes) and TYPE1 limit (4095 bytes).
+ *          When transparency is enabled, worst-case byte-stuffing expansion is
+ *          applied so the pool arena can still hold fully encoded frames.
  *
  * @param[in] log2mod       Log2 of modulus (3=mod8, 7=mod128, 15=mod32768)
  * @param[in] fff_type      FFF type: 0=none, 1=TYPE0, 2=TYPE1
@@ -144,8 +151,6 @@ static uint32_t calculate_frame_size(uint8_t log2mod, uint8_t fff_type,
  *       - Frame arena memory (frame_arena, frame_arena_size)
  *       - Driver implementation (driver)
  *       - Optional: physical device and config (phydriver, phydriver_config)
- * 
- * @api
  */
 int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
                           const iohdlc_station_config_t *ioHdlcsconfp) {
@@ -361,14 +366,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
 }
 
 /**
- * @brief   Find peer by address in station's peer list.
- * @details Iterates through the circular linked list of peers.
- *
- * @param[in] s         Station descriptor
- * @param[in] peer_addr Peer address to search for
- * @return              Pointer to peer descriptor, or NULL if not found
- * 
- * @api
+ * @brief   Look up a peer by address.
+ * @param[in] ioHdlcsp    station descriptor.
+ * @param[in] peer_addr   peer protocol address.
+ * @return                matching peer descriptor, or NULL if not found.
  */
 iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
   iohdlc_station_peer_t *p;
@@ -402,7 +403,6 @@ iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
  * @note mifl is calculated as: framesize - (FFF + ADDR + CTRL + FCS)
  *       For modulo 8: framesize - (1 + 1 + 1 + 2) = framesize - 5 (if FFF enabled)
  * 
- * @api
  */
 int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
                       uint32_t addr) {
@@ -498,7 +498,6 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
  * @note Uses protocol-level retry (no application timeout parameter).
  * @note Uses app_es event source to avoid conflicts with core events.
  * 
- * @api
  */
 int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr, 
                               uint8_t mode, eventmask_t evt_mask) {
@@ -606,7 +605,6 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
  * @note Peer state is reset (queues cleared, variables reset) on success.
  * @note Uses app_es event source to avoid conflicts with core events.
  * 
- * @api
  */
 int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
                                 eventmask_t evt_mask) {
@@ -698,7 +696,6 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
  *       Flow control is thread-safe, but frame transmission ORDER is not guaranteed
  *       between concurrent writers. If ordering matters, serialize writes externally.
  * 
- * @api
  */
 ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf, 
                         size_t count, uint32_t timeout_ms) {
@@ -843,7 +840,6 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
  *       Partial read state (partial_read_frame/offset) protected by state_mutex.
  *       Frames delivered in-order as received from peer.
  * 
- * @api
  */
 ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf, 
                       size_t count, uint32_t timeout_ms) {

@@ -8,12 +8,13 @@ This document describes the **ISO 13239 HDLC** (High-Level Data Link Control) pr
 
 ### Frame Format
 
-```
-┌──────┬──────────┬─────────┬──────────────┬─────┬──────┐
-│ Flag │ Address  │ Control │     Data     │ FCS │ Flag │
-│ 0x7E │  8 bits  │ 8/16bit │   Variable   │ 16b │ 0x7E │
-└──────┴──────────┴─────────┴──────────────┴─────┴──────┘
-```
+**Classic (transparency encoding):**
+
+![Classic HDLC frame format](diagrams/svg/frame_format_classic.svg)
+
+**FFF (no transparency):**
+
+![FFF HDLC frame format](diagrams/svg/frame_format_fff.svg)
 
 ### Field Descriptions
 
@@ -35,11 +36,7 @@ This document describes the **ISO 13239 HDLC** (High-Level Data Link Control) pr
 
 **8-bit Control (Modulo 8):**
 
-```
-Information (I-frame):   [ N(R) | P | N(S) | 0 ]
-Supervisory (S-frame):   [ N(R) | P/F | S | 0 1 ]
-Unnumbered (U-frame):    [ M | P/F | M | 1 1 ]
-```
+![8-bit control field formats](diagrams/svg/control_field_mod8.svg)
 
 - **N(S)**: Send sequence number (3 bits, 0-7)
 - **N(R)**: Receive sequence number (3 bits, 0-7)
@@ -49,11 +46,7 @@ Unnumbered (U-frame):    [ M | P/F | M | 1 1 ]
 
 **16-bit Control (Modulo 128):**
 
-```
-Information (I-frame):   [ N(S) 7-bit | 0 | N(R) 7-bit | 0 ]
-Supervisory (S-frame):   [ 0000 | S | 0 1 | N(R) 7-bit | P/F ]
-Unnumbered (U-frame):    [ M | P/F | M | 1 1 | 0000 0000 ]
-```
+![16-bit control field formats](diagrams/svg/control_field_mod128.svg)
 
 #### Frame Check Sequence (FCS)
 
@@ -77,6 +70,47 @@ To ensure flag uniqueness:
 Original: 0x7E 0x03 0x7E 0x12
 Stuffed:  0x7D 0x5E 0x03 0x7D 0x5E 0x12
 ```
+
+### Frame Format Field (FFF)
+
+An optional leading octet (or pair of octets) prepended to the frame that declares its total length, enabling DMA-friendly reception without byte-by-byte flag detection.
+
+**Mutual exclusivity**: FFF and transparency (byte stuffing) are mutually exclusive — transparency alters frame length, which would invalidate the FFF-declared length.
+
+**Frame diagrams:**
+
+![Classic HDLC frame format](diagrams/svg/frame_format_classic.svg)
+
+![FFF HDLC frame format](diagrams/svg/frame_format_fff.svg)
+
+**FFF Types:**
+
+| Type  | Size    | Format                        | Max Length |
+|-------|---------|-------------------------------|------------|
+| None  | 0 bytes | No FFF                        | —          |
+| TYPE0 | 1 byte  | `0LLLLLLL` (bit 7 = 0)       | 127 bytes  |
+| TYPE1 | 2 bytes | `1000LLLL LLLLLLLL` (12-bit)  | 4095 bytes |
+
+Where L bits encode: `length = payload_len + fcs_size` (Address + Control + Data + FCS, excluding FFF itself and flags).
+
+**TX processing order:**
+
+1. Core builds frame (Address + Control + Data)
+2. Driver calculates `total_wire_len = payload_len + fcs_size`
+3. Driver writes FFF into `frame[0]` (or `frame[0..1]` for TYPE1)
+4. Driver appends FCS after payload
+5. Driver appends closing flag
+
+**RX validation:**
+
+1. Driver parses FFF from received frame
+2. Compares declared length against actual received length
+3. Mismatch → frame discarded
+
+**Minimum frame lengths:**
+
+- Without FFF: 4 bytes (`HDLC_BASIC_MIN_L`): Addr + Ctrl + FCS(2)
+- With FFF: 5 bytes (`HDLC_FRFMT_MIN_L`): FFF + Addr + Ctrl + FCS(2)
 
 ## Frame Types
 
@@ -135,7 +169,7 @@ Bit:  7   6   5   4   3   2   1   0
 | UA              | 0x63    | F   | Unnumbered Acknowledgment        |
 | DISC            | 0x43    | P   | Disconnect                       |
 | DM              | 0x0F    | F   | Disconnected Mode                |
-| FRMR            | 0x87    | F   | Frame Reject (error)             |
+| FRMR            | 0x87    | F   | Frame Reject (receive-only¹)     |
 | UI              | 0x03    | -   | Unnumbered Information (no ACK)  |
 
 **Control Byte Format (SNRM example):**
@@ -328,12 +362,12 @@ Can send 4 more frames (I7, I0, I1, I2)
 
 **Start**: When checkpoint sent (I-frame with P=1)
 **Stop**: When response with F=1 received
-**Expiry**: Retransmit unacknowledged frames, increment retry counter
+**Expiry**: Force poll (set need_p), increment retry counter (N2). If N2 exceeded → link down.
 
 **Configuration:**
 ```c
-config.reply_timeout_ms = 1000;  // 1 second
-config.max_retransmissions = 10;  // Max retries
+config.reply_timeout_ms = 100;   // 100ms (default)
+config.poll_retry_max = 5;       // Max retries (default)
 ```
 
 #### T1 Sizing Formula
@@ -349,52 +383,53 @@ T1 >= (ks × frame_tx_time_max) + wire_RTT + peer_processing + safety_margin
 - **ks × frame_tx_time_max**: Maximum queue depth latency
   - `ks`: Window size (e.g., 7 frames)
   - `frame_tx_time_max`: Time to transmit largest frame at configured baudrate
-  - Example (9600 baud, 50 bytes): `50 bytes × 10 bits/byte / 9600 bps = 52 ms`
+  - Example (2 Mbps, 256 bytes): `256 bytes × 10 bits/byte / 2,000,000 bps = 1.28 ms`
 
-- **wire_RTT**: Physical propagation delay (typically 1-10 ms for short distances)
+- **wire_RTT**: Physical propagation delay (typically 0.1-1 ms for short distances)
 
-- **peer_processing**: Time for peer to process command and generate response (typically 10-50 ms)
+- **peer_processing**: Time for peer to process command and generate response (typically 1-5 ms)
 
-- **safety_margin**: Additional buffer for system jitter and scheduling delays (typically 50-100 ms)
+- **safety_margin**: Additional buffer for system jitter and scheduling delays (typically 2-10 ms)
 
 **Example Calculation:**
 
 ```
-Baudrate: 9600 bps
-Frame size: 50 bytes
+Baudrate: 2 Mbps
+Frame size: 256 bytes
 Window size (ks): 7
-wire_RTT: 5 ms
-Peer processing: 20 ms
-Safety margin: 50 ms
+wire_RTT: 0.1 ms
+Peer processing: 2 ms
+Safety margin: 5 ms
 
-frame_tx_time = (50 × 10) / 9600 = 52 ms
-T1 >= (7 × 52) + 5 + 20 + 50 = 439 ms  →  use T1 = 500 ms
+frame_tx_time = (256 × 10) / 2,000,000 = 1.28 ms
+T1 >= (7 × 1.28) + 0.1 + 2 + 5 = 16.06 ms  →  use T1 = 20 ms
 ```
 
 **Guidelines:**
 
-- **Low baudrates (≤9600 bps)**: Increase T1 significantly (500-1000 ms)
-- **High baudrates (≥115200 bps)**: T1 can be lower (100-200 ms)
+- **Low baudrates (≤115200 bps)**: Increase T1 significantly (100-500 ms)
+- **Moderate baudrates (115200 bps – 2 Mbps)**: T1 in the range 20-100 ms
+- **High baudrates (2–10 Mbps)**: T1 can be low (5-20 ms); peer processing dominates
+- **Very high baudrates (≥10 Mbps)**: T1 dominated entirely by peer processing and OS jitter (2-10 ms)
 - **Large window sizes (ks > 7)**: Scale T1 proportionally
 - **Hardware TX queues**: Include queue depth in calculation (e.g., ISR-based TX pipeline)
 
 **Note**: This applies to **any** system with non-blocking transmission (DMA, ISR queues, etc.), not just queue-based implementations. The driver returns immediately after DMA start, but T1 must account for the physical transmission time.
 
-### T2 Timer (ACK Delay) - Optional
+### T3 Timer (Idle Poll)
 
-**Purpose**: Batch ACKs to reduce overhead
+**Purpose**: Detect prolonged idle periods; keep the link alive by forcing a poll when no activity occurs.
 
-**Start**: When I-frame received
-**Stop**: When sending response
-**Expiry**: Send RR with current N(R)
+**Duration**: `T1 × IOHDLC_DFL_T3_T1_RATIO` (default ratio = 5). With T1 = 100ms → T3 = 500ms.
 
-### T3 Timer (Idle Timeout) - Optional
+**Lifecycle:**
 
-**Purpose**: Detect link failure during idle periods
+- **Start**: After receiving F=1 response (link confirmed responsive), T1 stops, T3 starts.
+- **Restart**: On receiving F=0 frames while T3 is running (secondary still active).
+- **Stop**: When primary sends a new poll (P=1) → T1 starts, T3 stops.
+- **Expiry**: Sets the `need_p` flag → next outbound frame (I or S) carries P=1, starting a new T1 cycle.
 
-**Start**: When link becomes idle
-**Stop**: When activity detected
-**Expiry**: Send poll (RR with P=1) to test link
+![T1/T3 dual-timer cycle](diagrams/svg/t1_t3_timer_cycle.svg)
 
 ## Poll/Final Bit
 
@@ -517,15 +552,15 @@ Two bytes:    0x02 0x03 (extended address)
 - Configurable: 1-7
 
 **Modulo 128:**
-- indow size: 127 (default)
-- Configurable 1-127
+- Window size: 127 (default)
+- Configurable: 1-127
 
 ### Timeouts
 
 **Default Values:**
 ```c
-reply_timeout_ms = 1000;     // T1: 1 second
-max_retransmissions = 10;    // Max retries before link failure
+reply_timeout_ms = 100;      // T1: 100ms (default)
+poll_retry_max = 5;          // Max retries before link failure (default)
 ```
 
 **Platform-Specific:**
@@ -609,30 +644,7 @@ After stuffing:
 
 ### Frame Processing State
 
-```
-Receive Frame
-    │
-    ├─> Validate FCS ──> Error: Discard
-    │                    
-    ├─> Parse Address ──> Not for us: Discard
-    │
-    ├─> Parse Control
-    │   │
-    │   ├─> U-frame: Handle SNRM/UA/DISC/DM
-    │   │
-    │   ├─> S-frame: Handle RR/RNR/REJ
-    │   │   └─> Update V(A)
-    │   │   └─> Process N(R)
-    │   │
-    │   └─> I-frame:
-    │       ├─> Check N(S) == V(R)
-    │       │   ├─> Yes: Accept, V(R)++, deliver data
-    │       │   └─> No: Reject or discard
-    │       └─> Process N(R) (ACK)
-    │           └─> Update V(A), slide window
-    │
-    └─> Update timers, window, state
-```
+![Frame processing state](diagrams/svg/frame_processing.svg)
 
 ## Error Handling
 
@@ -640,7 +652,7 @@ Receive Frame
 
 **Detection**: CRC mismatch
 **Action**: Discard frame, do not ACK
-**Recovery**: Peer will timeout and retransmit
+**Recovery**: Checkpoint procedure (P-bit poll) or reply timeout
 
 ### Sequence Error
 
@@ -665,7 +677,9 @@ Receive Frame
 - Information field too long
 - Invalid N(S)
 
-**Action**: Send FRMR with error details, disconnect link
+**Action**: On FRMR reception, the link is reset (disconnect and re-establish). FRMR transmission is not yet implemented — the station currently discards invalid frames silently rather than sending FRMR.¹
+
+¹ See U-frame table: FRMR is receive-only in the current implementation.
 
 ## Performance Considerations
 
@@ -677,10 +691,10 @@ Throughput = (Window * Frame_Size) / RTT
 
 Example:
 Window = 7 frames
-Frame = 128 bytes
-RTT = 50ms
+Frame = 256 bytes
+RTT = 1ms (2 Mbps SPI link)
 
-Throughput = (7 * 128) / 0.05 = 17.92 KB/s
+Throughput = (7 * 256) / 0.001 = 1.75 MB/s
 ```
 
 ### Efficiency
@@ -701,8 +715,8 @@ Efficiency ≈ 128 / (128 + 6) ≈ 95.5%
 ```
 Latency = Propagation_Delay + (Frame_Size / Baud_Rate)
 
-Example (115200 bps, 128 bytes):
-Latency ≈ 0 + (1024 bits / 115200) ≈ 8.9 ms
+Example (2 Mbps, 256 bytes):
+Latency ≈ 0 + (2048 bits / 2,000,000) ≈ 1.02 ms
 ```
 
 ## References

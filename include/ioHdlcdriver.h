@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -16,9 +16,25 @@
 /**
  * @file    include/ioHdlcdriver.h
  * @brief   HDLC driver interface definition header.
- * @details
+ * @details Defines the framed-driver contract used by the station layer. A
+ *          driver implementation owns the translation between protocol frames
+ *          and the underlying transport strategy, including configuration,
+ *          start/stop lifecycle, and receive/transmit operations.
  *
- * @addtogroup hdlc_drivers
+ *          Lifecycle requirements:
+ *          - configuration is validated before start;
+ *          - start binds the driver to a transport/backend and a frame pool;
+ *          - receive/transmit operations are valid only while the driver is
+ *            started;
+ *          - stop releases runtime resources owned by the driver instance.
+ *
+ *          Ownership requirements:
+ *          - frame ownership passed to send/receive operations is defined by
+ *            the implementation and must be documented by concrete drivers;
+ *          - capability structures returned by the driver are immutable and
+ *            owned by the driver implementation.
+ *
+ * @addtogroup ioHdlc_drivers
  * @{
  */
 
@@ -34,7 +50,7 @@
 /*===========================================================================*/
 
 /**
- * @brief Driver FCS (Frame Check Sequence) capabilities
+ * @brief Driver FCS (Frame Check Sequence) capabilities.
  */
 typedef struct {
   uint8_t  supported_sizes[4];  /**< Array of supported FCS sizes (e.g., [0,2,4,0]) */
@@ -43,7 +59,7 @@ typedef struct {
 } ioHdlcDriverFcsCapabilities;
 
 /**
- * @brief Driver transparency capabilities
+ * @brief Driver transparency capabilities.
  */
 typedef struct {
   bool     hw_support;          /**< true if transparency implemented in hardware */
@@ -51,7 +67,7 @@ typedef struct {
 } ioHdlcDriverTransparencyCapabilities;
 
 /**
- * @brief Driver FFF (Frame Format Field) capabilities
+ * @brief Driver FFF (Frame Format Field) capabilities.
  */
 typedef struct {
   uint8_t  supported_types[4];  /**< Array of supported FFF sizes: 0=none, 1=TYPE0, 2=TYPE1 */
@@ -60,8 +76,8 @@ typedef struct {
 } ioHdlcDriverFffCapabilities;
 
 /**
- * @brief Complete driver capabilities
- * @note Driver must provide this via get_capabilities() before start()
+ * @brief Complete driver capabilities.
+ * @note Driver must provide this via get_capabilities() before start().
  */
 typedef struct {
   ioHdlcDriverFcsCapabilities          fcs;
@@ -86,12 +102,18 @@ typedef struct {
   ioHdlcFramePool *fpp;
 
 /**
- * HDLC driver interface
+ * @brief   Virtual method table for framed driver implementations.
  */
 struct _iohdlc_driver_vmt {
   _iohdlc_driver_methods
 };
 
+/**
+ * @brief   Generic framed driver interface object.
+ * @details Concrete implementations embed this structure as their public base
+ *          and extend it with transport-specific runtime state.
+ *          The @p fpp field points to the frame pool bound at start time.
+ */
 typedef struct {
   const struct _iohdlc_driver_vmt *vmt;
   _iohdlc_driver_data
@@ -100,9 +122,12 @@ typedef struct {
 /**
  * @brief   Hdlc driver start.
  * @details The station uses this method to start the hdlc driver instance
- *          @p ip
+ *          @p ip.
  * @note    The implementation shall call this method only once, before calling
- *          any other method.
+ *          any other runtime method.
+ * @note    Ownership of @p phyp and @p phyconfp is implementation-defined; the
+ *          concrete driver must document whether those objects are borrowed or
+ *          retained after start.
  *
  * @param[in]   ip        ioHdlcDriver instance pointer
  * @param[in]   phyp      pointer to the physical driver to use.
@@ -130,6 +155,8 @@ typedef struct {
  * @note    The implementation shall not use queuing mechanism. The station
  *          expects that the transmission of the frame to be in progress when
  *          returning from the call.
+ * @note    The concrete driver defines whether it consumes, retains, or merely
+ *          borrows the frame reference while transmission is pending.
  *
  * @param[in]   ip    ioHdlcDriver instance pointer
  * @param[in]   fp    pointer to the frame to send.
@@ -144,6 +171,11 @@ typedef struct {
  *          of @p tmo milliseconds.
  * @note    The implementation may use queuing mechanism in order to avoid
  *          frame overrun.
+ * @note    The returned frame is owned by the caller until it is released back
+ *          to the frame pool according to the selected integration model.
+ * @note    Timeout semantics depend on the driver/backend pair, but a return
+ *          value of NULL must always mean that no frame has been handed back to
+ *          the caller.
  *
  * @param[in]   ip    ioHdlcDriver instance pointer
  * @param[in]   tmo   timeout in milliseconds
@@ -158,6 +190,7 @@ typedef struct {
  * @details Query driver capabilities (FCS sizes, transparency, FFF support).
  *          Can be called before start() to validate configuration.
  * @note    Returns pointer to static const structure.
+ * @note    The returned structure must not be modified by the caller.
  *
  * @param[in]   ip    ioHdlcDriver instance pointer
  *
@@ -170,11 +203,13 @@ typedef struct {
  * @details Configure driver with FCS size, transparency, and FFF settings.
  *          Must be called after validation and before start().
  * @note    Returns errno-compatible error code.
+ * @note    Valid configuration combinations are implementation-specific and
+ *          must be validated by the concrete driver.
  *
  * @param[in]   ip            ioHdlcDriver instance pointer
  * @param[in]   fcs_size      FCS size in bytes (0, 2, 4, ...)
  * @param[in]   transparency  true to enable transparency encoding/decoding
- * @param[in]   fff           true to enable Frame Format Field
+ * @param[in]   fff           FFF type selector (0, 1, 2, ... depending on driver capabilities)
  *
  * @return                    0 on success, errno-compatible error code otherwise
  * @retval 0                  Success

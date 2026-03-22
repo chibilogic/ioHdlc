@@ -1,0 +1,35 @@
+@startuml
+hide footbox
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam ArrowColor #5a7088
+skinparam SequenceLifeLineBorderColor #5a7088
+skinparam SequenceLifeLineBackgroundColor #f7fbff
+skinparam ParticipantBorderColor #4d6a86
+skinparam ParticipantBackgroundColor #f7fbff
+skinparam ParticipantFontColor #1f2f3d
+skinparam NoteBorderColor #96a7b8
+skinparam NoteBackgroundColor #fffdf3
+
+participant "App thread" as App
+participant "Station/Core" as Core
+participant "TX runner" as Tx
+participant "Driver/Stream" as Drv
+participant Hardware as Hw
+
+App -> Core: ioHdlcWrite(peer, data, len)
+Core -> Tx: signal TX work
+Tx -> Core: take frame from pool
+Tx -> Core: encode HDLC fields
+Tx -> Drv: tx_submit(frame)
+Drv -> Hw: start TX
+Hw --> Drv: TX complete interrupt/event
+Drv --> Core: tx_callback(frame, status)
+Drv -> Hw: receive bytes / DMA buffer
+Hw --> Drv: RX ready interrupt/event
+Drv --> Core: rx_callback(buf, len, status)
+Core -> Core: parse frame and update state
+Core --> App: wake readers / app events
+
+@enduml

@@ -1,8 +1,17 @@
 /*
- * ioHdlc Exchange Test - Parametrized Version
+ * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * This software is dual-licensed:
+ *  - GNU General Public License v3.0 (or later)
+ *  - Commercial license (available from Chibilogic s.r.l.)
+ *
+ * For commercial licensing inquiries:
+ *   info@chibilogic.com
+ *
+ * See the LICENSE file for details.
  */
 /**
  * @file    test_exchange.c
@@ -494,7 +503,23 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   test_printf("  Bytes sent:       " U64_FMT "\r\n", U64_ARGS(stats_secondary.total_bytes_sent));
   test_printf("  Bytes received:   " U64_FMT "\r\n", U64_ARGS(stats_secondary.total_bytes_received));
   test_printf("\r\n");
-  
+
+#if defined(IOHDLC_ENABLE_STATISTICS)
+  test_printf("Protocol Statistics (Primary → Secondary peer):\r\n");
+  test_printf("  REJ received:     %u\r\n", peer_at_primary.stats.rej_received);
+  test_printf("  Checkpoints:      %u\r\n", peer_at_primary.stats.checkpoints);
+  test_printf("  Timeouts:         %u\r\n", peer_at_primary.stats.timeouts);
+  test_printf("  Out of sequence:  %u\r\n", peer_at_primary.stats.out_of_sequence);
+  test_printf("\r\n");
+
+  test_printf("Protocol Statistics (Secondary → Primary peer):\r\n");
+  test_printf("  REJ received:     %u\r\n", peer_at_secondary.stats.rej_received);
+  test_printf("  Checkpoints:      %u\r\n", peer_at_secondary.stats.checkpoints);
+  test_printf("  Timeouts:         %u\r\n", peer_at_secondary.stats.timeouts);
+  test_printf("  Out of sequence:  %u\r\n", peer_at_secondary.stats.out_of_sequence);
+  test_printf("\r\n");
+#endif
+
   /* Calculate and print traffic statistics based on direction */
   if (config.traffic_direction == TRAFFIC_PRI_TO_SEC) {
     uint32_t lost = (stats_primary.packets_sent > stats_secondary.packets_received) ?

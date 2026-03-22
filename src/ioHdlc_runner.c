@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -17,7 +17,16 @@
  * @file    ioHdlc_runner.c
  * @brief   Runner for HDLC station core.
  *
- * @details Manages TX/RX threads and integrates timers/events with core.
+ * @details Manages TX/RX worker threads and integrates timers/events with the
+ *          protocol core.
+ *
+ *          The runner is the execution shell around the station logic. It does
+ *          not implement protocol decisions itself; instead it creates the
+ *          threads that call into the core entry points and bridges OS timers
+ *          to protocol event flags.
+ *
+ * @addtogroup ioHdlc_runner
+ * @{
  */
 
 #include "ioHdlc_runner.h"
@@ -31,16 +40,32 @@
 /* Forward declarations for runner ops                                       */
 /*===========================================================================*/
 
+/**
+ * @brief   Runner TX thread trampoline.
+ */
 static void *HdlcTxThread(void *arg) {
   ioHdlcTxEntry(arg);
   return 0;
 }
 
+/**
+ * @brief   Runner RX thread trampoline.
+ */
 static void *HdlcRxThread(void *arg) {
   ioHdlcRxEntry(arg);
   return 0;
 }
 
+/**
+ * @brief   Start HDLC runner (TX/RX threads).
+ * @details Creates the execution contexts required by the configured station.
+ *          The station remains owned by the caller; the runner only owns the
+ *          runtime contexts it creates around it.
+ * @param[in] station   Station to start runner for.
+ * @return              0 on success, -1 on failure (check iohdlc_errno)
+ * @retval 0            Success
+ * @retval -1           Failure (errno: ENOMEM=out of memory, EAGAIN=thread creation failed)
+ */
 int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
   
   /* Allocate and initialize runner context */
@@ -85,6 +110,13 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
   return 0;
 }
 
+/**
+ * @brief   Stop HDLC runner (join TX/RX threads).
+ * @details Requests shutdown of the runner-owned execution contexts and waits
+ *          for them to terminate when required by the backend/OSAL.
+ * @param[in] station   Station to stop runner for.
+ * @return              0 on success (always succeeds)
+ */
 int32_t ioHdlcRunnerStop(iohdlc_station_t *station) {
   runner_context_t *ctx = station->runner_context;
   
@@ -123,13 +155,19 @@ static iohdlc_virtual_timer_t *s_select_timer(iohdlc_station_peer_t *peer,
   return (timer_kind == IOHDLC_TIMER_T3) ? &peer->t3_tmr : &peer->reply_tmr;
 }
 
-/* Timer callbacks (OS ISR context) -> wrap common handler. */
+/**
+ * @brief   Timer callback used to translate OS timer expiry into event flags.
+ * @note    Runs in the backend-defined timer callback context.
+ */
 static void s_timer_cb(iohdlc_virtual_timer_t *timer, void *arg) {
   (void) arg;
   timer->expired = true;  /* Mark timer as expired. */
   iohdlc_evt_broadcast_flags_isr(timer->esp, timer->evt_flag);
 }
 
+/**
+ * @brief   Start a runner-managed reply timer.
+ */
 void ioHdlcStartReplyTimer(iohdlc_station_peer_t *peer,
                                  iohdlc_timer_kind_t timer_kind,
                                  uint32_t timeout_ms) {
@@ -138,6 +176,9 @@ void ioHdlcStartReplyTimer(iohdlc_station_peer_t *peer,
   iohdlc_vt_set(timer, timeout_ms, s_timer_cb, 0);
 }
 
+/**
+ * @brief   Restart a runner-managed reply timer.
+ */
 void ioHdlcRestartReplyTimer(iohdlc_station_peer_t *peer,
                                    iohdlc_timer_kind_t timer_kind,
                                    uint32_t timeout_ms) {
@@ -148,6 +189,9 @@ void ioHdlcRestartReplyTimer(iohdlc_station_peer_t *peer,
   }
 }
 
+/**
+ * @brief   Stop a runner-managed reply timer.
+ */
 void ioHdlcStopReplyTimer(iohdlc_station_peer_t *peer,
                                 iohdlc_timer_kind_t timer_kind) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
@@ -155,6 +199,9 @@ void ioHdlcStopReplyTimer(iohdlc_station_peer_t *peer,
   timer->expired = false;  /* Clear expired flag when explicitly stopped. */
 }
 
+/**
+ * @brief   Check whether a runner-managed reply timer has expired.
+ */
 bool ioHdlcIsReplyTimerExpired(iohdlc_station_peer_t *peer,
                                      iohdlc_timer_kind_t timer_kind) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
@@ -163,7 +210,15 @@ bool ioHdlcIsReplyTimerExpired(iohdlc_station_peer_t *peer,
   return !iohdlc_vt_is_armed(timer) && timer->expired;
 }
 
+/**
+ * @brief   Wait for station events according to the runner execution model.
+ * @details This helper is runner-facing; application code usually interacts at
+ *          a higher level through station APIs instead of waiting directly on
+ *          runner events.
+ */
 uint32_t ioHdlcWaitEvents(iohdlc_station_t *station) {
   (void) iohdlc_evt_wait_any_timeout(EVENT_MASK(0), IOHDLC_WAIT_FOREVER);
   return (uint32_t) iohdlc_evt_get_and_clear_flags(&station->cm_listener);
 }
+
+/** @} */

@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -13,12 +13,26 @@
  *
  * See the LICENSE file for details.
  */
+/**
+ * @file    include/ioHdlc_events.h
+ * @brief   Core event mask definitions for the protocol engine.
+ * @details Defines the logical event bits exchanged between the protocol
+ *          state machine, runner, timers, and resource-management hooks.
+ *
+ *          These constants describe protocol-level conditions only. They do
+ *          not prescribe how an OS/backend stores, waits on, or broadcasts the
+ *          corresponding events.
+ *
+ * @addtogroup ioHdlc_runner
+ * @{
+ */
+
 #ifndef IOHDLC_EVENTS_H_
 #define IOHDLC_EVENTS_H_
-/* Event masks used for command management. */
 
 /**
- * @brief     Event flags
+ * @brief   Protocol event flags.
+ * @details Multiple flags may be combined in the same event word.
  */
 #define IOHDLC_EVT_C_RPLYTMO    0x0001  /* Command reply timer timeout. */
 #define IOHDLC_EVT_T3_TMO       0x0002  /* T3 timer timeout. */
@@ -39,3 +53,5 @@
 #define IOHDLC_EVT_PF_RECVD     0x4000  /* P/F bit received. */
 
 #endif /* IOHDLC_EVENTS_H_ */
+
+/** @} */

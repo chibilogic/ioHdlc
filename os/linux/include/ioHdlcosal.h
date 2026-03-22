@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -16,8 +16,11 @@
 /**
  * @file    ioHdlcosal.h
  * @brief   OSAL abstraction for Linux/POSIX.
+ * @details Maps the ioHdlc OS abstraction layer to Linux/POSIX primitives.
+ *          This header defines the concurrency, timer, event, memory, and
+ *          formatting building blocks used by the portable protocol layers.
  *
- * @addtogroup IOHDLC_OSAL
+ * @addtogroup ioHdlc_osal
  * @{
  */
 
@@ -25,11 +28,11 @@
 #define IOHDLCOSAL_H
 
 #ifndef _XOPEN_SOURCE
-#define _XOPEN_SOURCE 600
+#define _XOPEN_SOURCE 600  /**< Enable required POSIX/XSI interfaces on Linux. */
 #endif
 
 #ifndef _GNU_SOURCE
-#define _GNU_SOURCE
+#define _GNU_SOURCE         /**< Enable GNU extensions required by the POSIX backend. */
 #endif
 
 #include <pthread.h>
@@ -65,12 +68,18 @@
 /**
  * @brief   Event mask and flags types.
  */
-typedef uint32_t eventmask_t;
-typedef uint32_t eventflags_t;
+typedef uint32_t eventmask_t;   /**< Bitmask used to select waited events. */
+typedef uint32_t eventflags_t;  /**< Bitfield carrying broadcast event flags. */
+
+/**
+ * @brief   Opaque alias for the POSIX virtual timer type.
+ */
 typedef struct iohdlc_virtual_timer iohdlc_virtual_timer_t;
 
 /**
  * @brief   Virtual timer callback type.
+ * @param[in] vtp   Timer instance that expired.
+ * @param[in] par   Opaque user parameter supplied at arm time.
  */
 typedef void (*iohdlc_vt_callback_t)(iohdlc_virtual_timer_t *vtp, void *par);
 
@@ -94,6 +103,8 @@ typedef struct iohdlc_virtual_timer {
 
 /**
  * @brief   Thread event state.
+ * @details Per-thread storage used to emulate ChibiOS-style event waits on top
+ *          of pthread condition variables.
  */
 typedef struct {
   pthread_mutex_t lock;
@@ -176,6 +187,7 @@ typedef struct {
 } iohdlc_bsem_t;
 
 /* Alias for compatibility */
+/** @brief Compatibility alias for the binary semaphore type. */
 typedef iohdlc_bsem_t iohdlc_binary_semaphore_t;
 
 /*===========================================================================*/
@@ -210,6 +222,8 @@ void iohdlc_bsem_signal(iohdlc_bsem_t *bsem);
 
 /**
  * @brief   Reset binary semaphore.
+ * @param[in] bsem    Binary semaphore to reset.
+ * @param[in] taken   New logical state, true for taken and false for available.
  */
 static inline void iohdlc_bsem_reset(iohdlc_bsem_t *bsem, bool taken) {
   pthread_mutex_lock(&bsem->mutex);
@@ -230,6 +244,7 @@ typedef struct {
 } iohdlc_condvar_t;
 
 /* Alias for ChibiOS compatibility */
+/** @brief Compatibility alias for ChibiOS-style condition variables. */
 typedef iohdlc_condvar_t condition_variable_t;
 
 /**
@@ -292,6 +307,8 @@ void iohdlc_condvar_broadcast(iohdlc_condvar_t *cvp);
 
 /**
  * @brief   Initialize counting semaphore.
+ * @param[in] sp   Semaphore object to initialize.
+ * @param[in] n    Initial semaphore count.
  */
 static inline void iohdlc_sem_init(iohdlc_sem_t *sp, int32_t n) {
   sem_init(&sp->sem, 0, n);
@@ -299,8 +316,9 @@ static inline void iohdlc_sem_init(iohdlc_sem_t *sp, int32_t n) {
 
 /**
  * @brief   Wait on semaphore with timeout.
- *
- * @return  MSG_OK (0) if no errors.
+ * @param[in] sp   Semaphore to wait on.
+ * @param[in] ms   Timeout in milliseconds.
+ * @return  Zero on success, non-zero on timeout or POSIX error.
  */
 static inline bool iohdlc_sem_wait_timeout(iohdlc_sem_t *sp, uint32_t ms) {
   if (ms == IOHDLC_TIME_INFINITE) {
@@ -320,6 +338,7 @@ static inline bool iohdlc_sem_wait_timeout(iohdlc_sem_t *sp, uint32_t ms) {
 
 /**
  * @brief   Signal semaphore (ISR-safe, but no-op distinction on Linux).
+ * @param[in] sp   Semaphore to signal.
  */
 static inline void iohdlc_sem_signal_i(iohdlc_sem_t *sp) {
   sem_post(&sp->sem);
@@ -327,6 +346,7 @@ static inline void iohdlc_sem_signal_i(iohdlc_sem_t *sp) {
 
 /**
  * @brief   Signal semaphore (non-ISR context).
+ * @param[in] sp   Semaphore to signal.
  */
 static inline void iohdlc_sem_signal(iohdlc_sem_t *sp) {
   sem_post(&sp->sem);
@@ -350,6 +370,7 @@ typedef struct {
 
 /**
  * @brief   Initialize mutex.
+ * @param[in] m   Mutex object to initialize.
  */
 static inline void iohdlc_mutex_init(iohdlc_mutex_t *m) {
   pthread_mutexattr_t attr;
@@ -380,16 +401,22 @@ static inline void iohdlc_mutex_init(iohdlc_mutex_t *m) {
 
 /**
  * @brief   Allocate memory block.
+ * @param[in] size   Number of bytes to allocate.
+ * @return  Pointer to the allocated block, or NULL on failure.
  */
 void* iohdlc_alloc(size_t size);
 
 /**
  * @brief   Free memory block.
+ * @param[in] ptr   Block previously allocated by the OSAL allocator.
  */
 void iohdlc_free(void* ptr);
 
 /**
  * @brief   Allocate DMA-capable memory (same as regular alloc on Linux).
+ * @param[in] size    Number of bytes to allocate.
+ * @param[in] align   Requested alignment, ignored on Linux.
+ * @return  Pointer to the allocated block, or NULL on failure.
  */
 static inline void* iohdlc_dma_alloc(size_t size, size_t align) {
   (void)align;  /* Alignment ignored on Linux */
@@ -398,6 +425,7 @@ static inline void* iohdlc_dma_alloc(size_t size, size_t align) {
 
 /**
  * @brief   Free DMA memory.
+ * @param[in] ptr   DMA block previously allocated by @ref iohdlc_dma_alloc.
  */
 static inline void iohdlc_dma_free(void* ptr) {
   free(ptr);
@@ -407,7 +435,7 @@ static inline void iohdlc_dma_free(void* ptr) {
  * @brief   Generic memory allocation macros (OS-agnostic interface).
  */
 #define IOHDLC_MALLOC(size) malloc(size)
-#define IOHDLC_FREE(ptr)    free(ptr)
+#define IOHDLC_FREE(ptr)    free(ptr)  /**< Free memory allocated through the OSAL interface. */
 
 /*===========================================================================*/
 /* System Time                                                               */
@@ -415,11 +443,13 @@ static inline void iohdlc_dma_free(void* ptr) {
 
 /**
  * @brief   Get current system time in milliseconds.
+ * @return  Monotonic wall-clock time converted to milliseconds.
  */
 uint32_t iohdlc_get_systime(void);
 
 /**
  * @brief   Get current time in milliseconds (alias for compatibility).
+ * @return  Current system time in milliseconds.
  */
 static inline uint32_t iohdlc_time_now_ms(void) {
   return (uint32_t)iohdlc_get_systime();
@@ -429,10 +459,15 @@ static inline uint32_t iohdlc_time_now_ms(void) {
 /* System Lock/Unlock (No-op for POSIX userspace)                           */
 /*===========================================================================*/
 
+/** @brief No-op ISR lock for POSIX userspace integrations. */
 static inline void iohdlc_sys_lock_isr(void) { /* No-op */ }
+/** @brief No-op ISR unlock for POSIX userspace integrations. */
 static inline void iohdlc_sys_unlock_isr(void) { /* No-op */ }
+/** @brief No-op system lock for POSIX userspace integrations. */
 static inline void iohdlc_sys_lock(void) { /* No-op */ }
+/** @brief No-op system unlock for POSIX userspace integrations. */
 static inline void iohdlc_sys_unlock(void) { /* No-op */ }
+/** @brief Yield execution to the scheduler. */
 static inline void iohdlc_thread_yield(void) { sched_yield(); }
 
 /*===========================================================================*/
@@ -444,30 +479,71 @@ static inline void iohdlc_thread_yield(void) { sched_yield(); }
  * @note    Used by ioHdlcSwDriver to protect raw_recept_q access.
  */
 #define IOHDLC_RAWQ_MUTEX_DECLARE(name)   iohdlc_mutex_t name
-#define IOHDLC_RAWQ_MUTEX_INIT(m)         iohdlc_mutex_init(&(m))
-#define IOHDLC_RAWQ_LOCK(m)               iohdlc_mutex_lock(&(m))
-#define IOHDLC_RAWQ_UNLOCK(m)             iohdlc_mutex_unlock(&(m))
-#define IOHDLC_RAWQ_LOCK_ISR(m)           iohdlc_mutex_lock(&(m))
-#define IOHDLC_RAWQ_UNLOCK_ISR(m)         iohdlc_mutex_unlock(&(m))
+#define IOHDLC_RAWQ_MUTEX_INIT(m)         iohdlc_mutex_init(&(m))      /**< Initialize a raw-queue mutex. */
+#define IOHDLC_RAWQ_LOCK(m)               iohdlc_mutex_lock(&(m))      /**< Lock a raw-queue mutex. */
+#define IOHDLC_RAWQ_UNLOCK(m)             iohdlc_mutex_unlock(&(m))    /**< Unlock a raw-queue mutex. */
+#define IOHDLC_RAWQ_LOCK_ISR(m)           iohdlc_mutex_lock(&(m))      /**< ISR-context raw-queue lock alias for Linux. */
+#define IOHDLC_RAWQ_UNLOCK_ISR(m)         iohdlc_mutex_unlock(&(m))    /**< ISR-context raw-queue unlock alias for Linux. */
 
 /*===========================================================================*/
 /* Virtual Timer Operations                                                  */
 /*===========================================================================*/
 
+/**
+ * @brief   Initialize a virtual timer and bind it to an event source.
+ * @param[in] vtp        Timer object to initialize.
+ * @param[in] esp        Event source that receives the expiry notification.
+ * @param[in] evt_flag   Event flag broadcast on expiry.
+ */
 void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp,
                     iohdlc_event_source_t *esp,
                     uint32_t evt_flag);
+
+/**
+ * @brief   Arm or re-arm a virtual timer.
+ * @param[in] vtp         Timer object to arm.
+ * @param[in] delay_ms    Timeout in milliseconds.
+ * @param[in] callback    Callback invoked when the timer expires.
+ * @param[in] par         Opaque user parameter passed to the callback.
+ */
 void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp, uint32_t delay_ms,
                    iohdlc_vt_callback_t callback, void *par);
+
+/**
+ * @brief   Reset a virtual timer.
+ * @param[in] vtp   Timer object to disarm.
+ */
 void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp);
+
+/**
+ * @brief   Check whether a virtual timer is armed.
+ * @param[in] vtp   Timer object to query.
+ * @return  true if the timer is currently armed.
+ */
 bool iohdlc_vt_is_armed(iohdlc_virtual_timer_t *vtp);
 
 /*===========================================================================*/
 /* Event Source Operations                                                   */
 /*===========================================================================*/
 
+/**
+ * @brief   Initialize an event source.
+ * @param[in] esp   Event source to initialize.
+ */
 void iohdlc_evt_init(iohdlc_event_source_t *esp);
+
+/**
+ * @brief   Broadcast event flags to listeners.
+ * @param[in] esp     Event source broadcasting the flags.
+ * @param[in] flags   Flags to broadcast.
+ */
 void iohdlc_evt_broadcast_flags(iohdlc_event_source_t *esp, eventflags_t flags);
+
+/**
+ * @brief   ISR-context alias for broadcasting event flags.
+ * @param[in] esp     Event source broadcasting the flags.
+ * @param[in] flags   Flags to broadcast.
+ */
 void iohdlc_evt_broadcast_flags_isr(iohdlc_event_source_t *esp,
                                     eventflags_t flags);
 
@@ -475,12 +551,31 @@ void iohdlc_evt_broadcast_flags_isr(iohdlc_event_source_t *esp,
 /* Event Listener Operations                                                 */
 /*===========================================================================*/
 
+/**
+ * @brief   Register a listener on an event source.
+ * @param[in] esp      Event source to listen on.
+ * @param[in] elp      Listener object to register.
+ * @param[in] events   Event mask associated with the listener.
+ * @param[in] wflags   Wanted broadcast flags.
+ */
 void iohdlc_evt_register(iohdlc_event_source_t *esp,
                          iohdlc_event_listener_t *elp,
                          eventmask_t events,
                          eventflags_t wflags);
+
+/**
+ * @brief   Unregister a listener from an event source.
+ * @param[in] esp   Event source.
+ * @param[in] elp   Listener to remove.
+ */
 void iohdlc_evt_unregister(iohdlc_event_source_t *esp,
                            iohdlc_event_listener_t *elp);
+
+/**
+ * @brief   Retrieve and clear pending flags for a listener.
+ * @param[in] elp   Listener to inspect.
+ * @return  Previously pending flags.
+ */
 eventflags_t iohdlc_evt_get_and_clear_flags(iohdlc_event_listener_t *elp);
 
 /*===========================================================================*/
@@ -536,6 +631,7 @@ double iohdlc_osal_get_time_ms(void);
 
 /**
  * @brief   Sleep for milliseconds (Linux).
+ * @param[in] ms   Delay duration in milliseconds.
  */
 static inline void ioHdlc_sleep_ms(uint32_t ms) {
   struct timespec ts;
@@ -546,6 +642,7 @@ static inline void ioHdlc_sleep_ms(uint32_t ms) {
 
 /**
  * @brief   Sleep for microseconds (Linux).
+ * @param[in] us   Delay duration in microseconds.
  */
 static inline void ioHdlc_sleep_us(uint32_t us) {
   struct timespec ts;

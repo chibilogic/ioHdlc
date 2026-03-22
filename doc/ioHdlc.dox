@@ -1,0 +1,106 @@
+/**
+ * @mainpage Introduction
+ * @author Isidoro Orabona
+ *
+ * @section iohdlc_intro ioHdlc
+ * ioHdlc is a portable HDLC protocol stack compliant with ISO 13239,
+ * designed for embedded systems and real-time environments.
+ *
+ * It implements Normal Response Mode (NRM) with primary and secondary roles,
+ * in both Two-Way Simultaneous (TWS) and Two-Way Alternate (TWA) link
+ * configurations. The covered protocol surface includes connection setup and
+ * teardown (SNRM/UA/DISC/DM), I-frame data transfer with sliding-window flow
+ * control, and error recovery through REJ and checkpoint retransmission.
+ *
+ * The design priorities are performance and portability:
+ * - <b>No dynamic allocation in the critical path</b>: frames are managed
+ *   through a pre-allocated pool with reference counting; the application
+ *   arena is fixed at init time and never resized at runtime.
+ * - <b>Zero-copy frame passing</b>: frames are passed by pointer across
+ *   all layers; reference counting avoids copies and enables DMA-friendly
+ *   buffer ownership transfers.
+ * - <b>OS-agnostic core</b>: protocol logic and runner use only OSAL
+ *   primitives; the same source builds on ChibiOS and other targets
+ *   without modification (Linux is supported as a protocol test environment).
+ * - <b>Pluggable transport</b>: the stream-port abstraction decouples HDLC
+ *   framing from the byte-stream backend, making it straightforward to
+ *   target UART, SPI, or custom hardware adapters.
+ *
+ *
+ * @section iohdlc_docs_map Documentation Map
+ * - @ref ioHdlc_api "Public API"
+ * - @ref ioHdlc_core "Core and Station Model"
+ * - @ref ioHdlc_drivers "Drivers"
+ * - @ref ioHdlc_stream "Stream Port Abstraction"
+ * - @ref ioHdlc_frames "Frames and Frame Helpers"
+ * - @ref ioHdlc_pool "Frame Pools"
+ * - @ref ioHdlc_runner "Runner and Concurrency"
+ * - @ref ioHdlc_osal "OS Abstraction Layer"
+ * - @ref ioHdlc_backends "Platform Backends"
+ * - @ref ioHdlc_log "Logging"
+ */
+
+/**
+ * @defgroup ioHdlc ioHdlc
+ * @brief Root module for the ioHdlc project documentation.
+ */
+
+/**
+ * @defgroup ioHdlc_api Public API
+ * @ingroup ioHdlc
+ * @brief High-level API used by applications integrating ioHdlc.
+ */
+
+/**
+ * @defgroup ioHdlc_core Core and Station Model
+ * @ingroup ioHdlc
+ * @brief Protocol core, station state model, and event entry points.
+ */
+
+/**
+ * @defgroup ioHdlc_drivers Drivers
+ * @ingroup ioHdlc
+ * @brief Driver interfaces and software driver implementations.
+ */
+
+/**
+ * @defgroup ioHdlc_stream Stream Port Abstraction
+ * @ingroup ioHdlc
+ * @brief Transport-facing callbacks and byte-stream adapter contracts.
+ */
+
+/**
+ * @defgroup ioHdlc_frames Frames and Frame Helpers
+ * @ingroup ioHdlc
+ * @brief Frame data structures, intrusive links, queues, and low-level helpers.
+ */
+
+/**
+ * @defgroup ioHdlc_pool Frame Pools
+ * @ingroup ioHdlc
+ * @brief Frame allocation interfaces, pool helpers, and watermark semantics.
+ */
+
+/**
+ * @defgroup ioHdlc_runner Runner and Concurrency
+ * @ingroup ioHdlc
+ * @brief Execution model, runner responsibilities, and concurrency boundaries.
+ */
+
+/**
+ * @defgroup ioHdlc_osal OS Abstraction Layer
+ * @ingroup ioHdlc
+ * @brief OS-facing abstractions used by the protocol core and drivers.
+ */
+
+/**
+ * @defgroup ioHdlc_backends Platform Backends
+ * @ingroup ioHdlc
+ * @brief Platform-specific backend implementations built on top of the OSAL.
+ */
+
+/**
+ * @defgroup ioHdlc_log Logging
+ * @ingroup ioHdlc
+ * @brief Logging support for HDLC traffic and protocol debugging.
+ */

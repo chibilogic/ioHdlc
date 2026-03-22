@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -18,6 +18,11 @@
  * @brief   OS Abstraction Layer for ChibiOS.
  *
  * @details Provides OSAL types and macros mapping to ChibiOS primitives.
+ *          This header is the ChibiOS implementation of the ioHdlc OSAL
+ *          contract used by the protocol core, drivers, and platform backends.
+ *
+ * @addtogroup ioHdlc_osal
+ * @{
  */
 
 #ifndef IOHDLCOSAL_H_
@@ -470,3 +475,5 @@ static inline void iohdlc_thread_join(iohdlc_thread_t* thread) {
 #define IOHDLC_FREE(obj)    chHeapFree(obj)
 
 #endif /* IOHDLCOSAL_H_ */
+
+/** @} */

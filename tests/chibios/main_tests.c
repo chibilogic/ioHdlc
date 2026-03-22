@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -48,25 +48,21 @@ extern int test_data_exchange_twa(const test_adapter_t *adapter);
 extern bool test_A1_1_frame_loss_window_full(const test_adapter_t *adapter);
 extern bool test_A2_1_multiple_frame_loss(const test_adapter_t *adapter);
 extern bool test_A2_2_first_and_last_frame_loss(const test_adapter_t *adapter);
-
 /* Checkpoint retransmission tests - TWA mode */
 extern bool test_A1_1_frame_loss_window_full_twa(const test_adapter_t *adapter);
 extern bool test_A2_1_multiple_frame_loss_twa(const test_adapter_t *adapter);
 extern bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter);
-
 /*
  * Serial configuration for test output console.
  */
 static const SerialConfig sdcfg = {
   .speed = 115200
 };
-
 /*
  * Green LED blinker thread, times are in milliseconds.
  */
 static THD_WORKING_AREA(waThread1, 128);
 static THD_FUNCTION(Thread1, arg) {
-
   (void)arg;
   chRegSetThreadName("blinker");
   while (true) {
@@ -84,7 +80,6 @@ static THD_FUNCTION(Thread1, arg) {
     chThdSleepMilliseconds(600);
   }
 }
-
 /*
  * Test runner thread.
  */
@@ -134,7 +129,6 @@ static THD_FUNCTION(TestRunner, arg) {
   RUN_TEST(test_peer_creation);
   RUN_TEST_ADAPTER(test_snrm_handshake, TEST_ADAPTER);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
-
   /* Basic Connection Tests - TWA Mode */
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "═══════════════════════════════════════════════\r\n");
@@ -143,10 +137,8 @@ static THD_FUNCTION(TestRunner, arg) {
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "═══════════════════════════════════════════════\r\n");
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
-
   RUN_TEST_ADAPTER(test_data_exchange_twa, TEST_ADAPTER);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
-
   /* Checkpoint Retransmission Tests */
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "═══════════════════════════════════════════════\r\n");
@@ -159,7 +151,6 @@ static THD_FUNCTION(TestRunner, arg) {
   RUN_TEST_ADAPTER(test_A2_1_multiple_frame_loss, TEST_ADAPTER);
   RUN_TEST_ADAPTER(test_A2_2_first_and_last_frame_loss, TEST_ADAPTER);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
-
   /* Checkpoint Retransmission Tests - TWA */
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "═══════════════════════════════════════════════\r\n");
@@ -168,12 +159,10 @@ static THD_FUNCTION(TestRunner, arg) {
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "═══════════════════════════════════════════════\r\n");
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
-
   RUN_TEST_ADAPTER(test_A1_1_frame_loss_window_full_twa, TEST_ADAPTER);
   RUN_TEST_ADAPTER(test_A2_1_multiple_frame_loss_twa, TEST_ADAPTER);
   RUN_TEST_ADAPTER(test_A2_2_first_and_last_frame_loss_twa, TEST_ADAPTER);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
-
   /* Final summary */
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
@@ -203,7 +192,6 @@ static THD_FUNCTION(TestRunner, arg) {
     chThdSleepMilliseconds(1000);
   }
 }
-
 /*
  * Application entry point.
  */
@@ -222,12 +210,10 @@ int main(void) {
    */
   sdStart(&TEST_OUTPUT_SD, &sdcfg);
   ioHdlcSDx = (BaseSequentialStream *)&TEST_OUTPUT_SD;
-
   /*
    * Creates the blinker thread.
    */
   chThdCreateStatic(waThread1, sizeof(waThread1), NORMALPRIO-1, Thread1, NULL);
-
   /*
    * Creates the test runner thread.
    */

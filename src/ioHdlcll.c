@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -17,17 +17,20 @@
  * @file    ioHdlcll.c
  * @brief   HDLC low level common functions.
  *
- * @details Provides frame building, FCS calculation, and byte stuffing utilities.
+ * @details Provides frame building, FCS calculation, and byte stuffing
+ *          utilities.
+ *
+ *          These helpers are pure data-path transformations used by framed
+ *          drivers. They do not own frame allocation and they assume that the
+ *          caller provides buffers sized for the selected encoding strategy.
+ *
+ * @addtogroup ioHdlc_frames
+ * @{
  */
 
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
 #include "ioHdlcll.h"
-
-/**
- * HDLC low level common function.
- */
-
 
 /*===========================================================================*/
 /* Module local definitions.                                                 */
@@ -88,6 +91,9 @@ static uint16_t fcstab[256] = {
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
+/**
+ * @brief   Compute the CRC/X-25 value over a raw octet range.
+ */
 static void computeFCS(const uint8_t *buf, uint32_t l, uint16_t *crc)
 {
   uint16_t val = 0xffff;
@@ -105,11 +111,12 @@ static void computeFCS(const uint8_t *buf, uint32_t l, uint16_t *crc)
 /* Module exported functions.                                                */
 /*===========================================================================*/
 
-/*
- * @brief   Add FCS 16bit at specific offset WITHOUT modifying frame->elen.
- * @note    This is the preferred API for drivers to preserve elen stability.
- * @param[in] frame   Frame buffer
- * @param[in] offset  Offset where to write FCS (typically frame->elen)
+/**
+ * @brief   Append an FCS at an explicit offset.
+ * @details Does not modify @p frame->elen. The caller provides the payload
+ *          end offset where the FCS bytes must be written.
+ * @param[in] frame   Frame buffer.
+ * @param[in] offset  Offset where to write FCS (typically frame->elen).
  */
 void frameAddFCS_at(iohdlc_frame_t *frame, size_t offset) {
   uint16_t crc;
@@ -122,12 +129,11 @@ void frameAddFCS_at(iohdlc_frame_t *frame, size_t offset) {
   /* NOTE: Does NOT modify frame->elen! */
 }
 
-/*
- * @brief   Check FCS 16bit at specific total length.
- * @note    Preferred API for drivers with explicit length.
- * @param[in] frame     Frame buffer
- * @param[in] total_len Total length including FCS
- * @return              true if FCS valid
+/**
+ * @brief   Validate the FCS using an explicit total frame length.
+ * @param[in] frame     Frame buffer.
+ * @param[in] total_len Total length including FCS.
+ * @return              true if FCS valid.
  */
 bool frameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len) {
   uint16_t crc;
@@ -137,13 +143,12 @@ bool frameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len) {
   return crc == 0xf0b8;   /* Bit reversed of the check 0x1d0f. */
 }
 
-/*
- * @brief   Encode the frame using the octet transparency rules.
+/**
+ * @brief   Transparency-encode a source frame into a destination frame.
  * @note    This function is used by the drivers whenever is not implemented
  *          in hardware. It assumes that a valid FCS is at end of the frame.
  *          @p dst shall be != @p src
- *
- * retval   true if encode is applied.
+ * @retval  false if the destination buffer is not large enough.
  */
 bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
   const uint8_t *srcbuf = src->frame;
@@ -164,10 +169,10 @@ bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
   return encoded;
 }
 
-/*
- * @brief   Decode the frame using the octet transparency rules.
- * @note    This function is used by the drivers whenever is not implemented
- *          in hardware. The @p elen field includes the count of the FCS
+/**
+ * @brief   Transparency-decode a source frame into a destination frame.
+ * @note    The caller must ensure that @p dst has enough space for the
+ *          decoded payload. The @p elen field includes the count of the FCS.
  */
 void frameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
   const uint8_t *srcbuf = src->frame;
@@ -217,3 +222,5 @@ main() {
   printf("\n};\n");
 }
 #endif
+
+/** @} */

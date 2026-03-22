@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -16,9 +16,17 @@
 /**
  * @file    include/ioHdlcframe.h
  * @brief   HDLC frame definitions header.
- * @details
+ * @details Defines the frame representation shared by the protocol core,
+ *          drivers, and frame-pool implementations. This module also contains
+ *          intrusive queue links and helpers used to move frames across
+ *          protocol and driver queues.
  *
- * @addtogroup hdlc_types
+ *          The frame object is intentionally storage-oriented: it does not by
+ *          itself define protocol validity, synchronization, or ownership
+ *          policy. Those contracts are established by the driver, core, and
+ *          pool layers that exchange frame references.
+ *
+ * @addtogroup ioHdlc_frames
  * @{
  */
 
@@ -27,8 +35,8 @@
 
 #include "ioHdlctypes.h"
 
-#define HDLC_BASIC_MIN_L  4
-#define HDLC_FRFMT_MIN_L  5
+#define HDLC_BASIC_MIN_L  4  /**< Minimum serialized frame length without frame-format field. */
+#define HDLC_FRFMT_MIN_L  5  /**< Minimum serialized frame length when a frame-format field is present. */
 
 /*===========================================================================*/
 /* Module constants.                                         */
@@ -38,7 +46,7 @@
 /* Module data structures and types.                                         */
 /*===========================================================================*/
 
-/*
+/**
  * @brief   HDLC frame queue header (intrusive list).
  * @details Links point to other queue headers embedded in frames, not to frames directly.
  *          This allows a frame to participate in multiple queues simultaneously.
@@ -48,11 +56,13 @@ struct iohdlc_frame_q {
   struct iohdlc_frame_q *prev;
 };
 
-/*
+/**
  * @brief   Type of a HDLC frame.
  * @note    The frame includes the frame format (optional), the address,
  *          the control, and the FCS octets.
  *          Embeds two queue headers (q, q_aux) for multi-queue participation.
+ * @note    The flexible array member @p frame stores the serialized protocol
+ *          octets; its allocation size is determined by the owning pool.
  */
 struct iohdlc_frame {
   iohdlc_frame_q_t  q;            /* Primary queue link (protocol queues: i_retrans_q, etc) */
