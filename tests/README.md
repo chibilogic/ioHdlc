@@ -89,19 +89,21 @@ Tests specific to OS implementation:
 
 ### Level 2b: ChibiOS + Hardware
 
-**Status**: ⏳ To be implemented
-- Two UARTs on the same board
-- Physical loopback (TX1→RX2, TX2→RX1)
-- Real-world timing tests
+**Status**: ✅ Implemented
+- UART adapter (`adapter_uart.c`): UARTD2/FUARTD1 physical loopback at 1.2 Mbaud
+- SPI adapter (`adapter_spi.c`): master/slave, `ADAPTER_CONSTRAINT_TWA_ONLY`
+- Conditional build: `USE_UART_ADAPTER` / `USE_SPI_ADAPTER` defines
+- Same OS-agnostic scenarios run on real hardware
 
 **Note**: Allows protocol validation on real lines using a single board.
 
 ### Level 3: Core Unit Tests
 
-**Status**: ⏳ To be implemented
-- Isolated core logic tests
-- Minimal mocks for stream/OSAL
-- Focus on: frame parsing, sequence numbers, window logic
+**Status**: ✅ Implemented
+- Frame pool: 5 isolated tests (init, take/release, addref, watermark, exhaustion)
+- OSAL binary semaphore: wait/signal semantics, timeout, reset, thread safety
+- OSAL event system: broadcast, filtering, listeners, accumulation
+- Mock stream: loopback, peer connection, error injection self-test
 
 ## Build and Execution
 
@@ -246,7 +248,7 @@ CFLAGS_EXTRA="-DIOHDLC_LOG_LEVEL=2" make
 
 ### 6. Parametrized Exchange (`test_exchange.c`)
 
-Configurable throughput test with real bidirectional traffic, runtime statistics, and parametrized frame loss injection. Run with `./build/bin/test_exchange --help` for all options.
+Configurable stress test with bidirectional traffic, error injection, latency/throughput measurement, and long-running support. See [Exchange Test Tool](../doc/TEST_EXCHANGE.md) for full documentation.
 
 ### 7. OSAL Tests (Linux-specific)
 
@@ -312,156 +314,26 @@ mock_stream_config_t stream_config = {
 };
 ```
 
-## Planned Test Scenarios
-
-### A.3: Window Management Edge Cases
-
-- [ ] Wrap-around (N(S) 6→7→0)
-- [ ] ACK out-of-order frames
-- [ ] Window full with immediate ACK
-
-### A.4: Flow Control
-
-- [ ] RNR stops transmission
-- [ ] RR resumes transmission
-- [ ] RNR timeout handling
-
-### A.5: Disconnect
-
-- [ ] Clean disconnect (DISC → UA)
-- [ ] Disconnect during transmission
-- [ ] Reconnection after disconnect
-
-### B.1: Error Detection
-
-- [ ] Invalid FCS (discard frame)
-- [ ] Invalid control byte (FRMR)
-- [ ] Invalid N(R) (FRMR)
-- [ ] Information field too long
-
-### B.2: Timer Handling
-
-- [ ] T1 timeout (retransmit)
-- [ ] Max retries (link failure)
-- [ ] T3 idle timeout (optional)
-
-### B.3: REJ Recovery
-
-- [ ] Out-of-sequence frame (REJ)
-- [ ] Go-Back-N retransmission
-- [ ] REJ during full window
-
-### C.1: Multi-Peer
-
-- [ ] Two peers, independent windows
-- [ ] Peer isolation (errors don't affect others)
-- [ ] Concurrent connections
-
-### C.2: Stress Tests
-
-- [ ] Sustained high load
-- [ ] Many errors (10% error rate)
-- [ ] Rapid connect/disconnect
-
-### C.3: Concurrency & Thread Safety
-
-- [ ] Multiple writers blocked/unblocked
-- [ ] Read while window updating
-- [ ] Disconnect during I/O
-- [ ] Mutex correctness verification
-
 ## Adding New Tests
 
-1. Create file in `common/scenarios/`:
+See the [Testing Guide](../doc/TESTING.md) for a step-by-step walkthrough with accurate code examples covering:
 
-```c
-// test_my_scenario.c
-#include "../../linux/mocks/mock_stream.h"
-#include "../../../include/ioHdlc.h"
-#include <stdio.h>
-#include <string.h>
+1. Creating the scenario file in `common/scenarios/`
+2. Declaring the entry point in `test_scenarios.h`
+3. Creating a platform runner in `linux/test_runner_*.c`
+4. Adding the target to the `Makefile`
 
-#define TEST_ASSERT(cond, msg) do { \
-  if (!(cond)) { \
-    printf("[FAIL] %s\n", msg); \
-    return 1; \
-  } \
-} while (0)
-
-int main(void) {
-  printf("[TEST] test_my_scenario\n");
-  
-  // Setup
-  ioHdlcSwDriver driver;
-  ioHdlcStation station;
-  
-  // Initialize
-  ioHdlcSwDriverInit(&driver);
-  ioHdlcStationInit(&station, &config);
-  
-  // Test logic
-  TEST_ASSERT(condition, "Description");
-  
-  // Cleanup
-  ioHdlcStationDeinit(&station);
-  
-  printf("[PASS] test_my_scenario\n");
-  return 0;
-}
-```
-
-2. Add to `Makefile` (Linux):
-
-```makefile
-TEST_BINS += test_my_scenario
-
-test_my_scenario: $(COMMON_DIR)/scenarios/test_my_scenario.c $(DEPS)
-	$(CC) $(CFLAGS) $(INCLUDES) $< $(SRCS) -o $@ $(LDFLAGS)
-```
-
-3. Build and run:
-
-```bash
-cd tests/linux
-make
-./test_my_scenario
-```
-
-## Next Steps
-
-1. **Implement REJ error recovery tests**
-   - Out-of-sequence detection
-   - Go-Back-N retransmission
-   - REJ timing
-
-2. **Implement flow control tests**
-   - RNR/RR sequences
-   - Backpressure handling
-   - Buffer management
-
-3. **Implement disconnect tests**
-   - DISC/UA sequence
-   - Disconnect during I/O
-   - Reconnection handling
-
-4. **Implement stress tests**
-   - High throughput
-   - Many errors
-   - Long-running tests
-
-5. **Add hardware tests (ChibiOS)**
-   - Physical UART loopback
-   - Real-world timing
-   - DMA integration
 
 ## Development Notes
 
-- **Mock Stream**: Uses circular buffers in memory with pthread for synchronization
+For design rationale and architectural details, see [Test Architecture](../doc/TEST_ARCHITECTURE.md).
+
+- **Mock Stream**: Circular buffers with OSAL-based synchronization (mutexes, condition variables). Portable across Linux and ChibiOS.
 - **Peer Connection**: `mock_stream_connect()` allows bidirectional communication
 - **Loopback**: Optional, TX automatically goes to RX for single-station tests
-- **Error Injection**: ✅ Implemented - supports selective frame corruption via callback
-- **Timing**: Configurable delay_us to simulate real latency (optional)
-- **Platform Support**: ✅ Linux and ChibiOS fully supported
+- **Error Injection**: Selective frame corruption via callback filter (see [Error Injection Framework](#error-injection-framework))
+- **Timing**: Configurable `delay_us` to simulate real latency (optional)
+- **Platform Support**: Linux (POSIX) and ChibiOS fully supported, with mock and hardware adapters
 
 ## Documentation
 

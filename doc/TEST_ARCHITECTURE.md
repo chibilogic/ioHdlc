@@ -1,182 +1,112 @@
-# Test Architecture - OS-Agnostic Design
+# Test Architecture
 
-## Philosophy
+## Design Philosophy
 
-The ioHdlc test architecture follows the principle of **maximum portability**: tests that use only abstract interfaces are shared across all platforms, while only OS-specific tests remain separate.
+The ioHdlc test system mirrors the library's own portability model: **test logic written once, compiled for every platform**.
 
-## Test Structure
+Guiding principles:
 
-### OS-Agnostic Tests
+- **No `#ifdef` in test scenarios** -- all platform isolation flows through abstraction layers (OSAL, adapter vtable).
+- **Zero dynamic allocation** -- tests use pre-allocated memory arenas, matching the embedded deployment model.
+- **VMT-based dispatch** -- the adapter abstraction follows the same virtual method table pattern as `ioHdlcStreamPort`, keeping test infrastructure consistent with library design.
 
-**Source:** `tests/common/scenarios/`
+## Layered Structure
 
-These tests use **only abstract interfaces** defined in the ioHdlc core:
+The test system is organized in layers, each depending only on those below it:
 
-1. **test_basic.c**
-   - Interface: `ioHdlc` core (stations, peers, handshake)
-   - Tests: Station/peer creation, SNRM/UA, timeout
-   - Portability: ✅ Works on any platform
-
-2. **test_window_management.c**
-   - Interface: `ioHdlc` core (sequencing, window control)
-   - Tests: Window size limits, window sliding, acknowledgment
-   - Portability: ✅ Works on Linux, ChibiOS, generic RTOS
-
-3. **test_checkpoint_tws.c**
-   - Interface: `ioHdlc` core with mock stream error injection
-   - Tests: Single frame loss, multiple frame loss, checkpoint retransmission
-   - Portability: ✅ Works on all platforms
-
-**Characteristics:**
-- No `#include` of OS-specific headers
-- No direct calls to pthread, malloc, etc.
-- Only VMT-based interfaces and abstract macros
-- Same source code compiled for all platforms
-
-### Platform-Specific Tests
-
-#### Linux
-
-**Source:** `tests/linux/`
-
-1. **mock_stream.c**
-   - Tests mock stream implementation with pthread
-   - Uses `mock_stream.h` (POSIX-specific)
-   - Validates circular buffers, loopback, peer connection
-
-#### ChibiOS
-
-**Source:** `tests/chibios/`
-
-- ✅ Mock stream with ChibiOS threads and virtual timers
-- Tests with simulated UART
-- Integration testing on embedded target
-
-## Build System
-
-### Linux Makefile
-
-```makefile
-# Common tests (OS-agnostic)
-COMMON_TEST_SRCS = \
-    $(COMMON_DIR)/scenarios/test_basic.c \
-    $(COMMON_DIR)/scenarios/test_window_management.c \
-    $(COMMON_DIR)/scenarios/test_checkpoint_tws.c
-
-# Linux-specific mocks
-LINUX_MOCKS = \
-    $(MOCKS_DIR)/mock_stream.c \
-    $(MOCKS_DIR)/tssi_stubs.c
+```
+  7  Platform config        test_config_linux.c, test_config_chibios.c
+  6  Platform runners        test_runner_*.c (Linux), main_tests.c (ChibiOS)
+  5  Test scenarios          common/scenarios/*.c
+  4  Mock infrastructure     mock_stream, mock_stream_adapter
+  3  Adapter abstraction     adapter_interface.h, adapter_mock, adapter_uart, adapter_spi
+  2  Test framework          test_framework.h (parametrized tests, statistics, packets)
+  1  Assertion primitives    test_helpers.h (TEST_ASSERT, RUN_TEST, TEST_SUITE)
 ```
 
-### ChibiOS Makefile
+**Layer 1 -- Assertion Primitives** (`test_helpers.h`): Macros for assertions (`TEST_ASSERT`, `TEST_ASSERT_EQ`, `_GOTO` variants), test runners (`RUN_TEST`, `RUN_TEST_ADAPTER`), and suite reporting (`TEST_SUITE_START/END`). Pure C, no OS dependencies.
 
-```makefile
-# Same common tests
-COMMON_TEST_SRCS = \
-    $(COMMON_DIR)/scenarios/test_basic.c \
-    $(COMMON_DIR)/scenarios/test_window_management.c \
-    $(COMMON_DIR)/scenarios/test_checkpoint_tws.c
+**Layer 2 -- Test Framework** (`test_framework.h`): Structures for parametrized testing: `test_config_t` (mode, duration, traffic direction, error rate), `test_statistics_t` (latency, throughput, loss), `test_packet_t` (sequenced packets for validation). Used by `test_exchange.c`.
 
-# ChibiOS-specific mocks
-CHIBIOS_MOCKS = \
-    $(MOCKS_DIR)/mock_stream_chibios.c \
-    $(MOCKS_DIR)/tssi_stubs.c
-```
+**Layer 3 -- Adapter Abstraction** (`adapter_interface.h`): Decouples test scenarios from the stream backend. The `test_adapter_t` vtable provides `init`, `deinit`, `reset`, `get_port_a`, `get_port_b`, `configure_error_injection`, and a `constraints` bitmask. This allows the same scenario to run against `mock_adapter` (in-process loopback), `adapter_uart` (ChibiOS physical UART), or `adapter_spi` (ChibiOS SPI).
 
-## Advantages
+**Layer 4 -- Mock Infrastructure** (`mock_stream.h`, `mock_stream_adapter.h`): `mock_stream` provides bidirectional byte streams with circular buffers, loopback mode, peer connection, and error injection via filter callbacks. `mock_stream_adapter` bridges `mock_stream` to the `ioHdlcStreamPort` interface, managing an RX thread for asynchronous frame reception.
 
-### 1. Maximum Reuse
-- Write the test **once**
-- Run it on **all platforms**
-- Maintain **a single copy**
+**Layers 5-7** are scenario code, platform runners, and platform-specific configuration. See [Writing New Tests](TESTING.md) for details.
 
-### 2. Portability Guarantee
-If `test_basic.c` compiles and passes on Linux, we know that:
-- The `ioHdlc` core interface is correctly implemented
-- The macros work correctly
-- The behavior is consistent cross-platform
+## The Adapter Abstraction
 
-### 3. Maintainability
-- Bug fix: modify in one place
-- New tests: automatically available for all platforms
-- Refactoring: reduced impact
+The adapter layer exists so that **one scenario source file runs against any backend**:
 
-### 4. Uniform Coverage
-Each platform gets:
-- ✅ Complete basic tests (10+ assertions)
-- ✅ Window management tests (11+ assertions)
-- ✅ Checkpoint retransmission tests (45+ assertions)
-- ✅ Platform-specific tests
+| Adapter | Platform | Backend | Constraints |
+|---------|----------|---------|-------------|
+| `mock_adapter` | All | In-process mock stream | None |
+| `adapter_uart` | ChibiOS | Physical UART loopback | None |
+| `adapter_spi` | ChibiOS | Physical SPI | `ADAPTER_CONSTRAINT_TWA_ONLY` |
 
-## Guidelines for New Tests
+The `constraints` field lets adapters declare hardware limitations. Test runners check constraints before executing scenarios that require specific link modes.
 
-### Test should be OS-agnostic if:
-- ✅ Uses only interfaces defined in `include/*.h`
-- ✅ Uses only public macros (`hdlcXxx`, `iohdlc_xxx`)
-- ✅ Makes no assumptions about threading model
-- ✅ Does not use OS-specific types (`pthread_t`, `Thread*`)
+The error injection interface (`configure_error_injection`) is optional -- hardware adapters set it to `NULL`.
 
-→ **Put in `tests/common/scenarios/`**
+## Runner / Scenario Separation
 
-### Test should be platform-specific if:
-- ❌ Uses OS-specific APIs (pthread, chThdCreate)
-- ❌ Tests OSAL implementation
-- ❌ Tests specific mocks/drivers
-- ❌ Requires specific hardware
+Test scenarios (`common/scenarios/`) do not contain `main()`. This is a deliberate design choice:
 
-→ **Put in `tests/<platform>/mocks/` or `tests/<platform>/`**
+- **Linux**: each scenario gets its own runner (`test_runner_*.c`) producing an independent binary. This allows parallel execution, isolated failures, and selective re-runs.
+- **ChibiOS**: a single `main_tests.c` calls all scenarios sequentially within one firmware image, since flashing is expensive.
 
-## Future Examples
+Runners handle adapter init/deinit per test, wiring the platform-specific entry point to the portable scenario logic.
 
-### OS-Agnostic (common)
-```c
-// test_rej_recovery.c - Common
-#include "ioHdlc.h"
-#include "ioHdlcframe.h"
+## Memory Management
 
-int test_rej_sequence(void) {
-    iohdlc_frame_t *frame = hdlcTakeFrame(pool);
-    // ... test REJ frame sequencing ...
-    hdlcReleaseFrame(pool, frame);
-}
-```
+All test memory is pre-allocated in `test_arenas.h`:
 
-### Platform-Specific (linux)
-```c
-// test_pthread_safety.c - Linux
-#include "ioHdlcosal.h"
-#include <pthread.h>
+| Arena | Size | Purpose |
+|-------|------|---------|
+| `shared_arena_primary` | 8 KB | Primary station frame pool |
+| `shared_arena_secondary` | 8 KB | Secondary station frame pool |
+| `shared_arena_single` | 8 KB | Single-station tests (e.g. frame pool) |
 
-int test_concurrent_allocation(void) {
-    pthread_t threads[10];
-    // ... test thread-safety ...
-}
-```
+Tests execute sequentially (never in parallel), so arenas are safely reused across tests. This model matches the library's no-malloc design and works identically on Linux and embedded targets.
 
-## Current Metrics
+## Threading Model
 
-**OS-Agnostic Tests:**
-- test_basic.c: 10+ assertions, 2 scenarios
-- test_window_management.c: 11+ assertions, 2 scenarios
-- test_checkpoint_tws.c: 45+ assertions, 3 scenarios
-- **Total: 66+ portable assertions**
+Each protocol test typically creates two HDLC stations, each with TX and RX threads (4 threads total). The mock stream synchronizes access using OSAL mutexes and condition variables.
 
-**Platform-Specific Tests:**
-- Linux mock_stream: Error injection, loopback validation
-- ChibiOS mock_stream: ChibiOS threads, virtual timers
+Adapter `init()`/`deinit()` per test ensures clean state -- no cross-test contamination from leftover threads or buffered data.
 
-**Coverage:**
-- Basic functionality: 100% (init, deinit, handshake)
-- Window management: 80% (size limits, sliding, acknowledgment)
-- Checkpoint retransmission: 100% (single/multiple frame loss)
-- Error recovery: 30% (checkpoint implemented, REJ pending)
-- Flow control: 0% (RNR/RR not yet tested)
+## Platform Portability
 
-## Next Steps
+| Component | Linux | ChibiOS |
+|-----------|-------|---------|
+| OSAL | POSIX pthreads | ChibiOS/RT threads |
+| Mock stream | Circular buffer + pthread sync | Circular buffer + ChibiOS sync |
+| Mock adapter | `adapter_mock.c` (shared) | `adapter_mock.c` (shared) |
+| UART adapter | -- | `adapter_uart.c` |
+| SPI adapter | -- | `adapter_spi.c` |
+| Test scenarios | All from `common/scenarios/` | All from `common/scenarios/` |
+| Platform tests | OSAL bsem/events, mock stream | Hardware-specific |
+| Config/CLI | `test_config_linux.c` (getopt) | `test_config_chibios.c` (shell) |
 
-1. Implement test_rej_recovery.c (OS-agnostic)
-2. Implement test_flow_control.c (OS-agnostic - RNR/RR)
-3. Implement test_disconnect.c (OS-agnostic - DISC/UA)
-4. Add CI to run tests on multiple platforms
-5. Add hardware tests for ChibiOS (physical UART loopback)
+## Testing Levels
+
+| Level | Status | Description |
+|-------|--------|-------------|
+| 1: Linux Mock | Implemented | POSIX OSAL, in-memory mock stream. Fast iteration, CI-friendly. |
+| 2a: ChibiOS Mock | Implemented | Real ChibiOS OSAL, mock stream on target. Validates RTOS integration. |
+| 2b: ChibiOS + Hardware | Implemented | Physical UART loopback (UARTD2/FUARTD1 at 1.2 Mbaud) and SPI (master/slave, TWA-only). Conditional build via `USE_UART_ADAPTER`/`USE_SPI_ADAPTER`. |
+| 3: Core Unit Tests | Implemented | Isolated tests for frame pool (init, ref-counting, watermarks, exhaustion), OSAL primitives (binary semaphore, event system), and mock stream infrastructure. |
+
+## Adding a New Platform
+
+1. Implement `test_config_<platform>.c` -- configuration parsing for the platform.
+2. Implement one or more adapters conforming to `test_adapter_t`.
+3. Create runner entry points that link the common scenarios.
+4. All scenario code and framework code are reused unchanged.
+
+See the project's CLAUDE.md for the library-side OSAL porting steps.
+
+## References
+
+- [Test Suite README](../tests/README.md) -- what tests exist, how to build and run, implemented/planned checklists
+- [Testing Guide](TESTING.md) -- how to write new tests, framework API, debugging

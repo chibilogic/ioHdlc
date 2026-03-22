@@ -26,7 +26,7 @@ REPEAT_BRIEF           = YES
 ALWAYS_DETAILED_SEC    = NO
 INLINE_INHERITED_MEMB  = NO
 FULL_PATH_NAMES        = NO
-STRIP_FROM_PATH        = /home/isiora/Chibilogic/ioHdlc
+STRIP_FROM_PATH        =
 SHORT_NAMES            = NO
 JAVADOC_AUTOBRIEF      = NO
 QT_AUTOBRIEF           = NO
@@ -94,14 +94,17 @@ INPUT                  = README.md \
                          os/linux/include \
                          os/linux/src \
                          os/chibios/include \
-                         os/chibios/src
+                         os/chibios/src \
+                         tests
 INPUT_ENCODING         = UTF-8
 FILE_PATTERNS          = *.h \
                          *.c \
                          *.md \
                          *.dox
 RECURSIVE              = YES
-EXCLUDE                = tests \
+EXCLUDE                = tests/common \
+                         tests/linux \
+                         tests/chibios \
                          notinrepo \
                          os/chibios/ioHdlcBinding.mk
 EXCLUDE_PATTERNS       = */build/* \

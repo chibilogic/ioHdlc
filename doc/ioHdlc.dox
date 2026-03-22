@@ -26,17 +26,6 @@
  *   framing from the byte-stream backend, making it straightforward to
  *   target UART, SPI, or custom hardware adapters.
  *
- * @section iohdlc_reading Recommended Reading Order
- * - Start from the project README for a high-level overview.
- * - Continue with the @ref ioHdlc_api module to understand the public entry
- *   points and integration surface.
- * - Read @ref ioHdlc_core, @ref ioHdlc_drivers, and @ref ioHdlc_stream to
- *   understand how protocol logic, framing, and transport abstraction fit
- *   together.
- * - Read @ref ioHdlc_pool and @ref ioHdlc_runner if your integration needs
- *   direct control over memory ownership or execution model.
- * - Read @ref ioHdlc_osal and @ref ioHdlc_backends when porting ioHdlc to a
- *   new platform or studying a backend implementation.
  *
  * @section iohdlc_docs_map Documentation Map
  * - @ref ioHdlc_api "Public API"

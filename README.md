@@ -72,6 +72,28 @@ stream-port adapter — the protocol core and runner require no modifications.
 
 ---
 
+## Use Cases
+
+- **Point-to-point serial links** — UART or RS-485 between an MCU and a
+  peripheral, or between two boards. The sliding window provides flow control
+  and error recovery over a single physical link without the overhead of a
+  full network stack.
+- **Industrial protocols and fieldbus** — HDLC serves as the data-link layer
+  for standards such as IEC 62056 (smart metering) and PROFIBUS-like profiles.
+  ioHdlc provides framing, sequencing, and retransmission; the application
+  protocol builds on top.
+- **Inter-processor communication** — SPI or UART between a main processor and
+  a coprocessor (modem, sensor hub, radio) where reliable framing is needed
+  without TCP/IP. TWA mode fits half-duplex transports naturally.
+- **Telemetry and remote links** — Radio, satellite, or powerline channels
+  with limited bandwidth and high error rates. The sliding window and
+  checkpoint retransmission are designed for lossy, high-latency links.
+- **Secure board-to-board links** — HDLC provides the reliable, ordered byte
+  stream that TLS requires, enabling encrypted communication between boards
+  (e.g. over SPI at >10 Mb/s) without a full TCP/IP stack.
+
+---
+
 ## Quick Start
 
 A minimal primary station setup:
