@@ -6,7 +6,9 @@ The ioHdlc test architecture follows the principle of **maximum portability**: t
 
 ## Test Structure
 
-### OS-Agnostic Tests (`tests/common/scenarios/`)
+### OS-Agnostic Tests
+
+**Source:** `tests/common/scenarios/`
 
 These tests use **only abstract interfaces** defined in the ioHdlc core:
 
@@ -33,14 +35,18 @@ These tests use **only abstract interfaces** defined in the ioHdlc core:
 
 ### Platform-Specific Tests
 
-#### Linux (`tests/linux/`)
+#### Linux
+
+**Source:** `tests/linux/`
 
 1. **mock_stream.c**
    - Tests mock stream implementation with pthread
    - Uses `mock_stream.h` (POSIX-specific)
    - Validates circular buffers, loopback, peer connection
 
-#### ChibiOS (`tests/chibios/`)
+#### ChibiOS
+
+**Source:** `tests/chibios/`
 
 - ✅ Mock stream with ChibiOS threads and virtual timers
 - Tests with simulated UART

@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -105,6 +105,18 @@ static const struct _iohdlc_fmempool_vmt vmt = {
     .addref = addref
 };
 
+/**
+ * @brief   Initialize a fixed-memory frame pool.
+ * @details Binds the pool to a caller-owned memory arena and prepares the
+ *          internal allocator state.
+ * @note    The arena must remain valid for the full lifetime of @p fmpp.
+ *
+ * @param[in] fmpp        Frame memory pool instance
+ * @param[in] arena       Pointer to caller-owned memory arena
+ * @param[in] arenasize   Size of arena in bytes
+ * @param[in] framesize   Size of each frame payload
+ * @param[in] framealign  Alignment requirement (power of 2)
+ */
 void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
               size_t framesize, uint32_t framealign) {
   uint32_t n, es;

@@ -1,0 +1,37 @@
+digraph iohdlc_tx_data_flow {
+  graph [
+    rankdir=TB,
+    splines=ortho,
+    nodesep=0.35,
+    ranksep=0.4,
+    bgcolor="transparent"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#f7fbff",
+    color="#4d6a86",
+    penwidth=1.2,
+    fontname="Helvetica",
+    fontsize=11,
+    margin="0.14,0.08"
+  ];
+
+  edge [
+    color="#5a7088",
+    penwidth=1.1,
+    arrowsize=0.8
+  ];
+
+  App [label="Application\nioHdlcWrite(...)"];
+  Station [label="Station API\nvalidate and enqueue"];
+  TxThread [label="TX runner entry\nioHdlcTxEntry()"];
+  Frame [label="Frame preparation\ntake frame and build fields"];
+  Policy [label="Driver policy\nFFF / transparency / FCS"];
+  Driver [label="Software driver\nframed HDLC output"];
+  Backend [label="Stream backend\nstream port ops"];
+  Wire [label="Transport / wire"];
+
+  App -> Station -> TxThread -> Frame -> Policy -> Driver -> Backend -> Wire;
+}

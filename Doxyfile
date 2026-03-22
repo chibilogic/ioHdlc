@@ -1,0 +1,220 @@
+# Doxyfile for the ioHdlc full/internal reference profile.
+#
+# This profile is intentionally broad: it includes public interfaces, protocol
+# internals, runners, OSAL layers, and platform backends.
+
+#---------------------------------------------------------------------------
+# Project related configuration options
+#---------------------------------------------------------------------------
+
+DOXYFILE_ENCODING      = UTF-8
+PROJECT_NAME           = ioHdlc
+PROJECT_NUMBER         = 0.1
+PROJECT_BRIEF          = "Full and internal reference for ioHdlc"
+
+OUTPUT_DIRECTORY       = build/doxygen/full
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = NO
+OUTPUT_LANGUAGE        = English
+
+#---------------------------------------------------------------------------
+# Reference-manual oriented behaviour.
+#---------------------------------------------------------------------------
+
+BRIEF_MEMBER_DESC      = YES
+REPEAT_BRIEF           = YES
+ALWAYS_DETAILED_SEC    = NO
+INLINE_INHERITED_MEMB  = NO
+FULL_PATH_NAMES        = NO
+STRIP_FROM_PATH        = /home/isiora/Chibilogic/ioHdlc
+SHORT_NAMES            = NO
+JAVADOC_AUTOBRIEF      = NO
+QT_AUTOBRIEF           = NO
+MULTILINE_CPP_IS_BRIEF = NO
+PYTHON_DOCSTRING       = NO
+INHERIT_DOCS           = YES
+SEPARATE_MEMBER_PAGES  = NO
+TAB_SIZE               = 2
+OPTIMIZE_OUTPUT_FOR_C  = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+SUBGROUPING            = YES
+TYPEDEF_HIDES_STRUCT   = NO
+
+#---------------------------------------------------------------------------
+# Extraction policy for the full reference.
+#---------------------------------------------------------------------------
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_LOCAL_METHODS  = YES
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = NO
+HIDE_FRIEND_COMPOUNDS  = YES
+HIDE_IN_BODY_DOCS      = NO
+INTERNAL_DOCS          = NO
+ENABLED_SECTIONS       = IOHDLC_INTERNAL
+
+#---------------------------------------------------------------------------
+# Output shaping.
+#---------------------------------------------------------------------------
+
+SHOW_INCLUDE_FILES     = YES
+SHOW_GROUPED_MEMB_INC  = NO
+INLINE_INFO            = YES
+SORT_MEMBER_DOCS       = YES
+MAX_INITIALIZER_LINES  = 30
+SHOW_USED_FILES        = YES
+SHOW_FILES             = YES
+SHOW_NAMESPACES        = NO
+
+#---------------------------------------------------------------------------
+# Warning policy.
+#---------------------------------------------------------------------------
+
+QUIET                  = NO
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = NO
+WARN_FORMAT            = "$file:$line: $text"
+WARN_LOGFILE           = build/doxygen/full/warnings.log
+
+#---------------------------------------------------------------------------
+# Input selection for the full reference.
+#---------------------------------------------------------------------------
+
+INPUT                  = README.md \
+                         doc \
+                         include \
+                         src \
+                         os/linux/include \
+                         os/linux/src \
+                         os/chibios/include \
+                         os/chibios/src
+INPUT_ENCODING         = UTF-8
+FILE_PATTERNS          = *.h \
+                         *.c \
+                         *.md \
+                         *.dox
+RECURSIVE              = YES
+EXCLUDE                = tests \
+                         notinrepo \
+                         os/chibios/ioHdlcBinding.mk
+EXCLUDE_PATTERNS       = */build/* \
+                         *~ \
+                         \#*\#
+IMAGE_PATH             = doc
+
+#---------------------------------------------------------------------------
+# Reference browsing and source relations.
+#---------------------------------------------------------------------------
+
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+REFERENCES_LINK_SOURCE = NO
+SOURCE_TOOLTIPS        = YES
+VERBATIM_HEADERS       = NO
+
+#---------------------------------------------------------------------------
+# HTML output.
+#---------------------------------------------------------------------------
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_FILE_EXTENSION    = .html
+HTML_HEADER            = doc/resources/header_html
+HTML_FOOTER            = doc/resources/footer_html
+LAYOUT_FILE            = doc/resources/layout.xml
+HTML_EXTRA_STYLESHEET  = doc/resources/custom.css
+HTML_DYNAMIC_SECTIONS  = YES
+HTML_INDEX_NUM_ENTRIES = 100
+DISABLE_INDEX          = NO
+GENERATE_TREEVIEW      = YES
+TREEVIEW_WIDTH         = 250
+SEARCHENGINE           = YES
+SERVER_BASED_SEARCH    = NO
+EXTERNAL_SEARCH        = NO
+
+#---------------------------------------------------------------------------
+# Other output formats are intentionally disabled.
+#---------------------------------------------------------------------------
+
+GENERATE_LATEX         = NO
+GENERATE_RTF           = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO
+GENERATE_DOCBOOK       = NO
+
+#---------------------------------------------------------------------------
+# Preprocessing and include handling.
+#---------------------------------------------------------------------------
+
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+SEARCH_INCLUDES        = YES
+INCLUDE_PATH           = include \
+                         os/linux/include \
+                         os/chibios/include
+PREDEFINED             = __cplusplus=0 \
+                         EVENT_MASK(x)=x \
+                         IOHDLC_ASSERT(x,y)= \
+                         IOHDLC_RAWQ_MUTEX_DECLARE(x)= \
+                         IOHDLC_RAWQ_MUTEX_INIT(x)= \
+                         IOHDLC_RAWQ_LOCK(x)= \
+                         IOHDLC_RAWQ_UNLOCK(x)= \
+                         IOHDLC_RAWQ_LOCK_ISR(x)= \
+                         IOHDLC_RAWQ_UNLOCK_ISR(x)= \
+                         IOHDLC_IS_PRI(x)=0 \
+                         IOHDLC_IS_SEC(x)=0 \
+                         IOHDLC_USE_TWA(x)=0 \
+                         IOHDLC_IS_NRM(x)=0 \
+                         IOHDLC_IS_DISC(x)=0 \
+                         IOHDLC_P_ISRCVED(x)=0 \
+                         IOHDLC_F_ISRCVED(x)=0 \
+                         IOHDLC_ACK_F(x)= \
+                         IOHDLC_ACK_P(x)= \
+                         IOHDLC_SET_NEED_P(x,y)= \
+                         IOHDLC_CLR_NEED_P(x)= \
+                         IOHDLC_NEED_P(x)=0 \
+                         IOHDLC_PEER_BUSY(x)=0 \
+                         IOHDLC_PEER_DISC(x)=0 \
+                         IOHDLC_IS_BUSY(x)=0 \
+                         IOHDLC_ST_IDLE(x)=0
+SKIP_FUNCTION_MACROS   = NO
+
+#---------------------------------------------------------------------------
+# Graph generation is enabled in the full reference.
+#---------------------------------------------------------------------------
+
+HAVE_DOT               = YES
+HIDE_UNDOC_RELATIONS   = YES
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = YES
+GROUP_GRAPHS           = YES
+UML_LOOK               = NO
+UML_LIMIT_NUM_FIELDS   = 10
+DOT_UML_DETAILS        = NO
+DOT_WRAP_THRESHOLD     = 17
+TEMPLATE_RELATIONS     = NO
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+GRAPHICAL_HIERARCHY    = YES
+DIRECTORY_GRAPH        = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+DOT_GRAPH_MAX_NODES    = 80
+MAX_DOT_GRAPH_DEPTH    = 2
+DOT_TRANSPARENT        = YES
+DOT_MULTI_TARGETS      = YES
+GENERATE_LEGEND        = YES
+DOT_CLEANUP            = YES

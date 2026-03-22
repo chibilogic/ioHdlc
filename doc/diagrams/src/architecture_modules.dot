@@ -1,0 +1,49 @@
+digraph iohdlc_architecture_modules {
+  graph [
+    rankdir=TB,
+    splines=ortho,
+    nodesep=0.45,
+    ranksep=0.55,
+    bgcolor="transparent"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#f7fbff",
+    color="#4d6a86",
+    penwidth=1.2,
+    fontname="Helvetica",
+    fontsize=11,
+    margin="0.14,0.08"
+  ];
+
+  edge [
+    color="#5a7088",
+    penwidth=1.1,
+    arrowsize=0.8
+  ];
+
+  App [label="Application\nblocking API"];
+  API [label="Public API\ninclude/ioHdlc.h"];
+  Core [label="Protocol core\nsrc/ioHdlc_core.c"];
+  Frames [label="Frames and queues\nframe + ll + queue helpers"];
+  Pool [label="Frame pool\nallocation and refcount"];
+  Driver [label="Driver and stream abstraction\ndriver + stream port + swdriver"];
+  Runner [label="Runner\nexecution model"];
+  OSAL [label="OS abstraction layer\nthreads, events, timers, sync"];
+  Backend [label="Platform backends\nos/linux, os/chibios"];
+  Transport [label="Physical transport\nUART, SPI, DMA, custom links"];
+
+  App -> API;
+  API -> Core;
+  Core -> Frames;
+  Core -> Pool;
+  Core -> Driver;
+  Runner -> Core;
+  Runner -> OSAL;
+  Driver -> OSAL;
+  Pool -> OSAL;
+  Driver -> Backend;
+  Backend -> Transport;
+}

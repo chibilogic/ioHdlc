@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -16,9 +16,15 @@
 /**
  * @file    include/ioHdlcfmempool.h
  * @brief   HDLC frame pool factory abstraction
- * @details
+ * @details Declares the fixed-memory pool implementation of
+ *          @ref ioHdlcFramePool. This pool allocates frame objects from a
+ *          caller-provided arena and is typically the default choice for
+ *          embedded integrations that require deterministic memory usage.
  *
- * @addtogroup hdlc_types
+ *          The arena storage is owned by the caller. The pool object borrows
+ *          that memory for its entire lifetime after initialization.
+ *
+ * @addtogroup ioHdlc_pool
  * @{
  */
 
@@ -48,6 +54,8 @@ struct _iohdlc_fmempool_vmt {
 
 /**
  * @brief   HDLC frame mem pool class.
+ * @details Extends @ref ioHdlcFramePool with the OSAL memory-pool object used
+ *          to manage the backing arena.
  */
 typedef struct {
   const struct _iohdlc_fmempool_vmt *vmt;
@@ -57,6 +65,7 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
+  /** @ingroup ioHdlc_pool */
   void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize, size_t framesize, uint32_t framealign);
 #ifdef __cplusplus
 }

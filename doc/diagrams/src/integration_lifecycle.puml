@@ -1,0 +1,35 @@
+@startuml
+hide footbox
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam ArrowColor #5a7088
+skinparam SequenceLifeLineBorderColor #5a7088
+skinparam SequenceLifeLineBackgroundColor #f7fbff
+skinparam ParticipantBorderColor #4d6a86
+skinparam ParticipantBackgroundColor #f7fbff
+skinparam ParticipantFontColor #1f2f3d
+skinparam NoteBorderColor #96a7b8
+skinparam NoteBackgroundColor #fffdf3
+
+actor Application as App
+participant "Station/Core" as Sta
+participant Runner as Run
+participant "Driver/Stream" as Drv
+participant "Remote peer" as Peer
+
+App -> Sta: ioHdlcStationInit(...)
+App -> Sta: ioHdlcAddPeer(...)
+App -> Run: start runner/backend
+Run -> Drv: arm RX/TX callbacks
+App -> Sta: ioHdlcStationLinkUp(...)
+Sta -> Drv: submit link-setup frames
+Drv -> Peer: transmit HDLC frames
+Peer --> Drv: UA / RR / I-frames
+Drv --> Sta: RX completion callbacks
+App -> Sta: ioHdlcWrite(...) / ioHdlcRead(...)
+Sta -> Drv: data and supervisory traffic
+App -> Sta: ioHdlcStationLinkDown(...)
+App -> Run: stop runner/backend
+
+@enduml

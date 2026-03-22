@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="644px" preserveAspectRatio="none" style="width:347px;height:644px;" version="1.1" viewBox="0 0 347 644" width="347px" zoomAndPan="magnify"><defs/><g><line style="stroke: #5A7088; stroke-width: 1.0;" x1="174" x2="174" y1="34.2969" y2="172.8281"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 1.0,4.0;" x1="174" x2="174" y1="172.8281" y2="213.6328"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="174" x2="174" y1="213.6328" y2="632.625"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="286.5" x2="286.5" y1="34.2969" y2="172.8281"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 1.0,4.0;" x1="286.5" x2="286.5" y1="172.8281" y2="213.6328"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="286.5" x2="286.5" y1="213.6328" y2="632.625"/><rect fill="#F7FBFF" height="30.2969" style="stroke: #4D6A86; stroke-width: 1.5;" width="64" x="142" y="3"/><text fill="#1F2F3D" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="50" x="149" y="22.9951">Primary</text><rect fill="#F7FBFF" height="30.2969" style="stroke: #4D6A86; stroke-width: 1.5;" width="87" x="243.5" y="3"/><text fill="#1F2F3D" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="73" x="250.5" y="22.9951">Secondary</text><rect fill="#EEEEEE" height="3" style="stroke: #EEEEEE; stroke-width: 1.0;" width="332.5" x="3" y="64.8633"/><line style="stroke: #000000; stroke-width: 1.0;" x1="3" x2="335.5" y1="64.8633" y2="64.8633"/><line style="stroke: #000000; stroke-width: 1.0;" x1="3" x2="335.5" y1="67.8633" y2="67.8633"/><rect fill="#EEEEEE" height="23.1328" style="stroke: #000000; stroke-width: 2.0;" width="114" x="112.25" y="54.2969"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="95" x="118.25" y="70.3638">Normal cycle</text><polygon fill="#5A7088" points="275,107.5625,285,111.5625,275,115.5625,279,111.5625" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="174" x2="281" y1="111.5625" y2="111.5625"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="87" x="181" y="106.4966">I-frame (P=1)</text><path d="M92,92.4297 L92,117.4297 L169,117.4297 L169,102.4297 L159,92.4297 L92,92.4297 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M159,92.4297 L159,102.4297 L169,102.4297 L159,92.4297 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="98" y="109.4966">T1 starts</text><polygon fill="#5A7088" points="185,150.2617,175,154.2617,185,158.2617,181,154.2617" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 2.0,2.0;" x1="179" x2="286" y1="154.2617" y2="154.2617"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="191" y="149.1958">RR (F=1)</text><path d="M92,127.5625 L92,167.5625 L169,167.5625 L169,137.5625 L159,127.5625 L92,127.5625 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M159,127.5625 L159,137.5625 L169,137.5625 L159,127.5625 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="54" x="98" y="144.6294">T1 stops</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="98" y="159.7622">T3 starts</text><text fill="#000000" font-family="sans-serif" font-size="11" lengthAdjust="spacingAndGlyphs" textLength="20" x="220.5" y="197.0386">idle</text><path d="M56,218.6328 L56,258.6328 L169,258.6328 L169,228.6328 L159,218.6328 L56,218.6328 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M159,218.6328 L159,228.6328 L169,228.6328 L159,218.6328 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="65" x="62" y="235.6997">T3 expires</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="92" x="62" y="250.8325">need_p = true</text><polygon fill="#5A7088" points="275,291.5977,285,295.5977,275,299.5977,279,295.5977" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="174" x2="281" y1="295.5977" y2="295.5977"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="57" x="181" y="290.5317">RR (P=1)</text><path d="M92,268.8984 L92,308.8984 L169,308.8984 L169,278.8984 L159,268.8984 L92,268.8984 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M159,268.8984 L159,278.8984 L169,278.8984 L159,268.8984 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="54" x="98" y="285.9653">T3 stops</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="98" y="301.0981">T1 starts</text><polygon fill="#5A7088" points="185,341.8633,175,345.8633,185,349.8633,181,345.8633" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 2.0,2.0;" x1="179" x2="286" y1="345.8633" y2="345.8633"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="191" y="340.7974">RR (F=1)</text><path d="M92,319.1641 L92,359.1641 L169,359.1641 L169,329.1641 L159,319.1641 L92,319.1641 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M159,319.1641 L159,329.1641 L169,329.1641 L159,319.1641 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="54" x="98" y="336.231">T1 stops</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="98" y="351.3638">T3 starts</text><rect fill="#EEEEEE" height="3" style="stroke: #EEEEEE; stroke-width: 1.0;" width="332.5" x="3" y="384.9961"/><line style="stroke: #000000; stroke-width: 1.0;" x1="3" x2="335.5" y1="384.9961" y2="384.9961"/><line style="stroke: #000000; stroke-width: 1.0;" x1="3" x2="335.5" y1="387.9961" y2="387.9961"/><rect fill="#EEEEEE" height="23.1328" style="stroke: #000000; stroke-width: 2.0;" width="86" x="126.25" y="374.4297"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="67" x="132.25" y="390.4966">T1 expiry</text><polygon fill="#5A7088" points="275,427.6953,285,431.6953,275,435.6953,279,431.6953" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="174" x2="281" y1="431.6953" y2="431.6953"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="87" x="181" y="426.6294">I-frame (P=1)</text><path d="M92,412.5625 L92,437.5625 L169,437.5625 L169,422.5625 L159,412.5625 L92,412.5625 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M159,412.5625 L159,422.5625 L169,422.5625 L159,412.5625 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="98" y="429.6294">T1 starts</text><line style="stroke: #5A7088; stroke-width: 2.0;" x1="269" x2="279" y1="458.8281" y2="468.8281"/><line style="stroke: #5A7088; stroke-width: 2.0;" x1="269" x2="279" y1="468.8281" y2="458.8281"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="174" x2="274" y1="463.8281" y2="463.8281"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="89" x="181" y="458.7622">(no response)</text><path d="M8,476.8281 L8,516.8281 L169,516.8281 L169,486.8281 L159,476.8281 L8,476.8281 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M159,476.8281 L159,486.8281 L169,486.8281 L159,476.8281 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="65" x="14" y="493.895">T1 expires</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="140" x="14" y="509.0278">N2++, need_p = true</text><polygon fill="#5A7088" points="275,542.2266,285,546.2266,275,550.2266,279,546.2266" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="174" x2="281" y1="546.2266" y2="546.2266"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="57" x="181" y="541.1606">RR (P=1)</text><path d="M79,527.0938 L79,552.0938 L169,552.0938 L169,537.0938 L159,527.0938 L79,527.0938 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M159,527.0938 L159,537.0938 L169,537.0938 L159,527.0938 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="69" x="85" y="544.1606">T1 restarts</text><polygon fill="#5A7088" points="185,592.4922,175,596.4922,185,600.4922,181,596.4922" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 2.0,2.0;" x1="179" x2="286" y1="596.4922" y2="596.4922"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="191" y="591.4263">RR (F=1)</text><path d="M8,562.2266 L8,617.2266 L169,617.2266 L169,572.2266 L159,562.2266 L8,562.2266 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M159,562.2266 L159,572.2266 L169,572.2266 L159,562.2266 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="54" x="14" y="579.2935">T1 stops</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="14" y="594.4263">T3 starts</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="140" x="14" y="609.5591">checkpoint retransmit</text><!--MD5=[34bf8e7757b15d845de6f0cae3abcad5]
+@startuml
+hide footbox
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam ArrowColor #5a7088
+skinparam SequenceLifeLineBorderColor #5a7088
+skinparam SequenceLifeLineBackgroundColor #f7fbff
+skinparam ParticipantBorderColor #4d6a86
+skinparam ParticipantBackgroundColor #f7fbff
+skinparam ParticipantFontColor #1f2f3d
+skinparam NoteBorderColor #96a7b8
+skinparam NoteBackgroundColor #fffdf3
+
+participant Primary as P
+participant Secondary as S
+
+== Normal cycle ==
+
+P -> S: I-frame (P=1)
+note left: T1 starts
+
+S - -> P: RR (F=1)
+note left: T1 stops\nT3 starts
+
+... idle ...
+
+note left of P: T3 expires\nneed_p = true
+
+P -> S: RR (P=1)
+note left: T3 stops\nT1 starts
+
+S - -> P: RR (F=1)
+note left: T1 stops\nT3 starts
+
+== T1 expiry ==
+
+P -> S: I-frame (P=1)
+note left: T1 starts
+
+P ->x S: (no response)
+note left of P: T1 expires\nN2++, need_p = true
+
+P -> S: RR (P=1)
+note left: T1 restarts
+
+S - -> P: RR (F=1)
+note left: T1 stops\nT3 starts\ncheckpoint retransmit
+
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 11:22:07 CET 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 21.0.10+7-Ubuntu-122.04
+Operating System: Linux
+Default Encoding: UTF-8
+Language: it
+Country: IT
+--></g></svg>

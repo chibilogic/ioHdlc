@@ -285,7 +285,9 @@ TEST_ASSERT_STRING_EQUAL(expected, actual, "Strings differ");
 
 ## Existing Test Scenarios
 
-### Basic Tests (`test_basic.c`)
+### Basic Tests
+
+**Source:** `test_basic.c`
 
 #### test_init_deinit
 - **Purpose**: Verify initialization and cleanup
@@ -297,7 +299,9 @@ TEST_ASSERT_STRING_EQUAL(expected, actual, "Strings differ");
 - **Assertions**: 8
 - **Coverage**: Connection establishment, frame parsing
 
-### Window Management (`test_window_management.c`)
+### Window Management
+
+**Source:** `test_window_management.c`
 
 #### test_window_size_7
 - **Purpose**: Window size limits
@@ -309,7 +313,9 @@ TEST_ASSERT_STRING_EQUAL(expected, actual, "Strings differ");
 - **Assertions**: 6
 - **Coverage**: V(A) updates, window management
 
-### Checkpoint Retransmission (`test_checkpoint_tws.c`)
+### Checkpoint Retransmission
+
+**Source:** `test_checkpoint_tws.c`
 
 #### test_A1_1_frame_loss_window_full
 - **Purpose**: Single frame loss with checkpoint recovery
@@ -732,5 +738,4 @@ This testing infrastructure provides:
 
 For more information, see:
 - [Test Architecture](TEST_ARCHITECTURE.md)
-- [Debug Guide](DEBUG_GUIDE.md)
 - [Protocol Details](PROTOCOL.md)

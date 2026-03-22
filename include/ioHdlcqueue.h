@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -16,9 +16,14 @@
 /**
  * @file    include/ioHdlcqueue.h
  * @brief   HDLC queue definitions header.
- * @details
+ * @details Defines intrusive queue helpers for moving frame queue headers
+ *          between protocol and driver queues without copying frame payloads.
  *
- * @addtogroup hdlc_types
+ *          These helpers manipulate queue links only. They do not change frame
+ *          ownership or reference counts, and they rely on the caller to
+ *          provide the required locking discipline.
+ *
+ * @addtogroup ioHdlc_frames
  * @{
  */
 
@@ -36,6 +41,7 @@
 
 /**
  * @brief   Init the @p qp frame queue.
+ * @details Initializes an empty circular queue head.
  */
 static inline void ioHdlc_frameq_init(iohdlc_frame_q_t *qp) {
   qp->next = (iohdlc_frame_q_t *)qp;
@@ -53,6 +59,8 @@ static inline bool ioHdlc_frameq_isempty(const iohdlc_frame_q_t *qp) {
  * @brief   Insert the frame queue header @p fqp into the @p qp frame queue.
  * @param   qp   Queue head.
  * @param   fqp  Queue header embedded in frame (e.g., &frame->q or &frame->q_aux).
+ * @note    The caller must ensure that @p fqp is not currently linked in
+ *          another queue.
  */
 static inline void ioHdlc_frameq_insert(iohdlc_frame_q_t *qp, iohdlc_frame_q_t *fqp) {
   fqp->next = (iohdlc_frame_q_t *)qp;
@@ -64,6 +72,7 @@ static inline void ioHdlc_frameq_insert(iohdlc_frame_q_t *qp, iohdlc_frame_q_t *
 /**
  * @brief   Remove a frame queue header from the @p qp queue in natural fifo order.
  * @return  Pointer to removed queue header (use IOHDLC_FRAME_FROM_Q or _Q_AUX to get frame).
+ * @note    Calling this helper on an empty queue is invalid.
  */
 static inline iohdlc_frame_q_t *ioHdlc_frameq_remove(iohdlc_frame_q_t *qp) {
   iohdlc_frame_q_t *rfqp = qp->next;
@@ -76,6 +85,7 @@ static inline iohdlc_frame_q_t *ioHdlc_frameq_remove(iohdlc_frame_q_t *qp) {
  * @brief   Remove a frame from the @p qp queue in natural fifo order and
  *          lookahead the next frame queue header in @p *next_fqp without removing it.
  * @return  Pointer to removed queue header.
+ * @note    Calling this helper on an empty queue is invalid.
  */
 static inline iohdlc_frame_q_t *ioHdlc_frameq_remove_la(
   iohdlc_frame_q_t *qp,
@@ -96,6 +106,7 @@ static inline iohdlc_frame_q_t *ioHdlc_frameq_remove_la(
 /**
  * @brief   Remove a frame queue header from the @p qp queue in lifo order.
  * @return  Pointer to removed queue header.
+ * @note    Calling this helper on an empty queue is invalid.
  */
 static inline iohdlc_frame_q_t *ioHdlc_frameq_lifo_remove(iohdlc_frame_q_t *qp) {
   iohdlc_frame_q_t *rfqp = qp->prev;
@@ -107,6 +118,7 @@ static inline iohdlc_frame_q_t *ioHdlc_frameq_lifo_remove(iohdlc_frame_q_t *qp) 
 /**
  * @brief   Delete the frame queue header @p fqp from its own queue.
  * @param   fqp  Queue header embedded in frame (e.g., &frame->q).
+ * @note    This helper does not reinitialize @p fqp after unlinking it.
  */
 static inline void ioHdlc_frameq_delete(iohdlc_frame_q_t *fqp) {
   fqp->prev->next = fqp->next;
@@ -116,6 +128,7 @@ static inline void ioHdlc_frameq_delete(iohdlc_frame_q_t *fqp) {
 /**
  * @brief   Move a set of consecutive frame queue headers [@p source_from_fqp, @p source_to_fqp]
  *          from their own queue to the head of a destination @p dest_qp queue
+ * @details The moved range keeps its internal order.
  */
 static inline void ioHdlc_frameq_move(iohdlc_frame_q_t *dest_qp,
     iohdlc_frame_q_t *source_from_fqp, iohdlc_frame_q_t *source_to_fqp) {

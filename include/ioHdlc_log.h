@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -19,7 +19,12 @@
  * @details Provides compile-time configurable logging for transmitted and
  *          received HDLC frames. Zero overhead when disabled.
  *
- * @addtogroup hdlc_log
+ *          This facility is observational only: it must not be used to encode
+ *          protocol decisions or timing-sensitive behaviour. When enabled, the
+ *          active backend must still tolerate the added formatting cost in the
+ *          selected execution context.
+ *
+ * @addtogroup ioHdlc_log
  * @{
  */
 
@@ -99,89 +104,64 @@ const char* sfun_to_str(iohdlc_log_sfun_t fun);
 /**
  * @brief   Runtime enable/disable flag.
  * @note    Can be modified at runtime to control logging dynamically.
+ * @note    Integrations must provide the required synchronization if this flag
+ *          is changed concurrently with active logging calls.
  */
 extern bool iohdlc_log_enabled;
 
-/**
- * @brief   Log an I-frame (Information frame).
- *
- * @param[in] dir       Direction (TX or RX)
- * @param[in] saddr     Station address (local)
- * @param[in] addr      Address field in frame
- * @param[in] ns        N(S) sequence number
- * @param[in] nr        N(R) sequence number
- * @param[in] pf        P/F bit value
- * @param[in] len       Payload length in bytes
- * @param[in] pending   Pending frame count (for window tracking)
- * @param[in] window    Window size (ks)
- * @param[in] flags     Optional flags (RETX, REJ, etc.)
- */
+/** @ingroup ioHdlc_log */
 void iohdlc_log_iframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
                         uint32_t ns, uint32_t nr, bool pf, size_t len,
                         uint32_t pending, uint32_t window, uint8_t flags);
 
-/**
- * @brief   Log an S-frame (Supervisory frame).
- *
- * @param[in] dir       Direction (TX or RX)
- * @param[in] saddr     Station address (local)
- * @param[in] addr      Address field in frame
- * @param[in] fun       S-frame function (RR, RNR, REJ, SREJ)
- * @param[in] nr        N(R) sequence number
- * @param[in] pf        P/F bit value
- * @param[in] pending   Pending frame count (for window tracking)
- * @param[in] flags     Optional flags (BUSY, etc.)
- */
+/** @ingroup ioHdlc_log */
 void iohdlc_log_sframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
                         iohdlc_log_sfun_t fun, uint32_t nr, bool pf,
                         uint32_t pending, uint8_t flags);
 
-/**
- * @brief   Log a U-frame (Unnumbered frame).
- *
- * @param[in] dir       Direction (TX or RX)
- * @param[in] saddr     Station address (local)
- * @param[in] addr      Address field in frame
- * @param[in] fun       U-frame function (SNRM, UA, DISC, etc.)
- * @param[in] pf        P/F bit value
- */
+/** @ingroup ioHdlc_log */
 void iohdlc_log_uframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
                         iohdlc_log_ufun_t fun, bool pf);
 
-/**
- * @brief   Log a msg.
- *
- * @param[in] dir       Direction (TX or RX)
- * @param[in] msg       Message to log
- */
+/** @ingroup ioHdlc_log */
 void iohdlc_log_msg(iohdlc_log_dir_t dir, uint8_t saddr, const char *msg, ...);
 
 /*===========================================================================*/
 /* Logging macros (compile-time conditional)                                 */
 /*===========================================================================*/
 
+/** @brief Log an I-frame when logging is enabled. */
 #define IOHDLC_LOG_IFRAME(dir, saddr, addr, ns, nr, pf, len, pending, window, flags) \
   iohdlc_log_iframe(dir, saddr, addr, ns, nr, pf, len, pending, window, flags)
 
+/** @brief Log an S-frame when logging is enabled. */
 #define IOHDLC_LOG_SFRAME(dir, saddr, addr, fun, nr, pf, pending, flags) \
   iohdlc_log_sframe(dir, saddr, addr, fun, nr, pf, pending, flags)
 
+/** @brief Log a U-frame when logging is enabled. */
 #define IOHDLC_LOG_UFRAME(dir, saddr, addr, fun, pf) \
   iohdlc_log_uframe(dir, saddr, addr, fun, pf)
 
+/** @brief Log a warning-level message when logging is enabled. */
 #define IOHDLC_LOG_WARN(dir, saddr, msg, ...) \
   iohdlc_log_msg(dir, saddr, msg, ##__VA_ARGS__)
 
+/** @brief Log a generic message when logging is enabled. */
 #define IOHDLC_LOG_MSG(dir, saddr, msg, ...) \
   iohdlc_log_msg(dir, saddr, msg, ##__VA_ARGS__)
   
 #else /* IOHDLC_LOG_LEVEL == OFF */
 
 /* No-op macros when logging disabled (zero overhead) */
+/** @brief No-op I-frame logging macro when logging is disabled. */
 #define IOHDLC_LOG_IFRAME(...) ((void)0)
+/** @brief No-op S-frame logging macro when logging is disabled. */
 #define IOHDLC_LOG_SFRAME(...) ((void)0)
+/** @brief No-op U-frame logging macro when logging is disabled. */
 #define IOHDLC_LOG_UFRAME(...) ((void)0)
+/** @brief No-op generic logging macro when logging is disabled. */
 #define IOHDLC_LOG_MSG(...) ((void)0)
+/** @brief No-op warning logging macro when logging is disabled. */
 #define IOHDLC_LOG_WARN(...) ((void)0)
 
 #endif /* IOHDLC_LOG_LEVEL > OFF */

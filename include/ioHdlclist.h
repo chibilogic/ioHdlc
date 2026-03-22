@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -16,9 +16,13 @@
 /**
  * @file    include/ioHdlclist.h
  * @brief   HDLC peer list definitions header.
- * @details
+ * @details Defines the minimal intrusive doubly-linked list helpers used to
+ *          keep track of station peers.
  *
- * @addtogroup hdlc_types
+ *          These helpers are intentionally allocation-free and assume that the
+ *          caller enforces list membership invariants and synchronization.
+ *
+ * @addtogroup ioHdlc_frames
  * @{
  */
 
@@ -36,6 +40,7 @@
 
 /**
  * @brief   Init the @p lp peer list.
+ * @details Initializes an empty circular list head.
  */
 static inline void ioHdlc_peerl_init(iohdlc_peer_list_t *lp) {
   lp->next = (iohdlc_station_peer_t *)lp;
@@ -51,6 +56,8 @@ static inline bool ioHdlc_peerl_isempty(const iohdlc_peer_list_t *lp) {
 
 /**
  * @brief   Insert the station state @p ssp into the @p lp peer list.
+ * @note    The caller must ensure that @p ssp is not already linked in
+ *          another peer list.
  */
 static inline void ioHdlc_peerl_insert(iohdlc_peer_list_t *lp, iohdlc_station_peer_t *ssp) {
 
@@ -62,6 +69,7 @@ static inline void ioHdlc_peerl_insert(iohdlc_peer_list_t *lp, iohdlc_station_pe
 
 /**
  * @brief   Delete the station state @p ssp from its own list.
+ * @note    This helper does not reinitialize @p ssp after removal.
  */
 static inline void ioHdlc_peerl_delete(iohdlc_station_peer_t *ssp) {
 

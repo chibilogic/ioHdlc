@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -16,9 +16,27 @@
 /**
  * @file    include/ioHdlcframepool.h
  * @brief   HDLC frame pool definitions header.
- * @details
+ * @details Defines the frame-pool abstraction used to allocate and recycle
+ *          frame buffers. Pool implementations are responsible for ownership
+ *          tracking, reference-count-aware release semantics, and optional
+ *          watermark notifications.
  *
- * @addtogroup hdlc_types
+ *          Ownership model:
+ *          - frames are allocated by the pool and returned to the pool;
+ *          - addref/release semantics allow frames to be shared across layers;
+ *          - the concrete pool implementation defines its own synchronization
+ *            strategy, but users should assume that frame ownership must be
+ *            explicit and balanced.
+ *
+ *          Integration guidance:
+ *          - drivers and core logic should treat the pool as the sole allocator
+ *            for frame objects;
+ *          - callers should balance every successful take/addref path with a
+ *            matching release path;
+ *          - watermark callbacks are advisory integration hooks, not protocol
+ *            events.
+ *
+ * @addtogroup ioHdlc_pool
  * @{
  */
 
@@ -29,11 +47,15 @@
 #include <stdint.h>  /* for uint32_t, uint8_t */
 #include <stdbool.h> /* for bool */
 
-/* Forward declaration - iohdlc_frame_t is defined in ioHdlcframe.h */
+/**
+ * @brief   Forward declaration of the shared frame type.
+ */
 typedef struct iohdlc_frame iohdlc_frame_t;
 
 /**
  * @brief   Frame pool watermark state.
+ * @details Exposes whether the pool is in its normal range or below the low
+ *          watermark threshold configured by the integration.
  */
 typedef enum {
   IOHDLC_POOL_NORMAL = 0,    /**< Free frames above high threshold */
@@ -41,15 +63,15 @@ typedef enum {
 } iohdlc_pool_state_t;
 
 /**
- * @brief @p ioHdlcFramePool interface methods
+ * @brief   @p ioHdlcFramePool interface methods.
  */
 #define _iohdlc_framepool_methods                   \
   iohdlc_frame_t * (*take)(void *ip);               \
   void (*release)(void *ip, iohdlc_frame_t *fp);    \
   void (*addref)(iohdlc_frame_t *fp);               \
 
-/*
- * @brief   @p ioHdlcFramePool specific data.
+/**
+ * @brief   Common storage shared by all frame-pool implementations.
  */
 #define _iohdlc_framepool_data                      \
   size_t framesize;                                 \
@@ -66,6 +88,8 @@ typedef enum {
 
 /**
  * @brief   @p ioHdlcFramePool vmt.
+ * @details Concrete pool implementations expose allocation and reference
+ *          management through this table.
  */
 struct _iohdlc_framepool_vmt {
   _iohdlc_framepool_methods
@@ -73,6 +97,8 @@ struct _iohdlc_framepool_vmt {
 
 /**
  * @brief   HDLC frame pool base class.
+ * @details The base class stores both the allocation interface and the pool
+ *          state required for watermark tracking.
  */
 typedef struct {
   const struct _iohdlc_framepool_vmt *vmt;
@@ -88,6 +114,9 @@ typedef struct {
  *
  * @return            the pointer to the allocated frame.
  * @retval NULL       if a free frame is not available.
+ * @note              The caller becomes responsible for eventually balancing
+ *                    the ownership through @ref hdlcReleaseFrame or equivalent
+ *                    reference-count operations.
  */
 #define hdlcTakeFrame(fpp)          ((fpp)->vmt->take(fpp))
 
@@ -99,6 +128,8 @@ typedef struct {
  *
  * @param[in]   fpp   ioHdlcFramePool instance pointer
  * @param[in]   fp    the pointer to the frame that is being released.
+ * @note              The frame is returned to the pool only when its reference
+ *                    count reaches zero.
  */
 #define hdlcReleaseFrame(fpp, fp)   ((fpp)->vmt->release(fpp, fp))
 
@@ -144,6 +175,14 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
+/**
+ * @brief   Configure low and high watermark callbacks for a frame pool.
+ * @details The callback context and the exact execution context in which the
+ *          callbacks run are implementation-defined and must be documented by
+ *          the concrete pool implementation.
+ * @note    Callbacks should be used to react to memory pressure, not as a
+ *          substitute for explicit pool accounting in application code.
+ */
   void hdlcPoolConfigWatermark(ioHdlcFramePool *fpp, uint8_t low_pct, 
                                 uint8_t high_pct, void (*on_low)(void *),
                                 void (*on_normal)(void *), void *cb_arg);

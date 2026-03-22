@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -16,6 +16,16 @@
 /**
  * @file    ioHdlcosal.c
  * @brief   OSAL implementation for Linux/POSIX.
+ * @details Adapts the ioHdlc OS abstraction layer to POSIX primitives such as
+ *          pthread mutexes, condition variables, thread-local storage, and
+ *          timing facilities.
+ *
+ *          This module is intentionally semantic, not mechanical: several
+ *          helpers emulate ChibiOS-like behaviour on top of pthreads so the
+ *          higher layers can remain OS-agnostic.
+ *
+ * @addtogroup ioHdlc_osal
+ * @{
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -55,6 +65,8 @@ static void thread_events_key_init(void) {
 
 /**
  * @brief   Get or create thread-local event state.
+ * @details Each thread receives its own pending-event storage so event waits
+ *          can mimic the per-thread semantics used by the original OS model.
  */
 static iohdlc_thread_events_t* get_thread_events(void) {
   pthread_once(&thread_events_key_once, thread_events_key_init);
@@ -570,3 +582,5 @@ double iohdlc_osal_get_time_ms(void) {
   double elapsed_usec = (now.tv_usec - first_tv.tv_usec);
   return elapsed_sec * 1000.0 + elapsed_usec / 1000.0;
 }
+
+/** @} */

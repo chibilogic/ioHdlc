@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -18,6 +18,15 @@
  * @brief   HDLC software driver.
  * @details Integrates RX multi-chunk state machine + protocol logic
  *          (FCS, transparency).
+ *
+ *          This module is the reference framed-driver implementation layered
+ *          on top of @ref ioHdlcStreamPort. It converts transport callbacks
+ *          into frame objects, validates and transforms received data, and
+ *          serializes outbound frames according to the configured FCS, FFF,
+ *          and transparency policy.
+ *
+ * @addtogroup ioHdlc_drivers
+ * @{
  */
 
 #include "ioHdlcswdriver.h"
@@ -81,6 +90,13 @@ static const struct _iohdlc_driver_vmt s_vmt = {
 /* Public API                                                                */
 /*===========================================================================*/
 
+/**
+ * @brief   Initialize software HDLC driver.
+ * @details Initializes the driver object to a valid pre-start state.
+ *          After initialization, the caller may configure the driver and then
+ *          start it through the generic framed-driver API.
+ * @param[in] drv   Driver instance to initialize.
+ */
 void ioHdlcSwDriverInit(ioHdlcSwDriver *drv) {
   drv->vmt = &s_vmt;
   drv->fpp = NULL;
@@ -355,6 +371,11 @@ static int32_t drv_configure(void *instance, uint8_t fcs_size, bool transparency
 /* RX Multi-Chunk State Machine (Internal)                                  */
 /*===========================================================================*/
 
+/**
+ * @brief   Abort the current RX frame under construction.
+ * @details Releases any partially assembled frame and resets the staging byte
+ *          so the RX state machine can restart on the next delimiter.
+ */
 static void s_handle_rx_error(ioHdlcSwDriver *drv) {
   if (drv->rx_in_frame) {
     hdlcReleaseFrame(drv->fpp, drv->rx_in_frame);
@@ -364,9 +385,12 @@ static void s_handle_rx_error(ioHdlcSwDriver *drv) {
 }
 
 /**
- * @brief Frame parser callback: RX byte/chunk received or timeout.
- * 
- * @note  called from the ISR of the hardware device. 
+ * @brief   Frame parser callback: RX byte/chunk received or timeout.
+ * @details This is the heart of the software RX path. It consumes one staged
+ *          byte or one FFF-sized chunk at a time, recognizes frame delimiters,
+ *          handles timeout/error conditions, and enqueues completed frames for
+ *          the blocking receive API.
+ * @note    Runs in the callback context defined by the selected stream port.
  */
 static void s_on_rx(void *cb_ctx, uint32_t errmask) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
@@ -510,14 +534,16 @@ newframe:
 
 nextoctet:
   /* Arm next RX byte/chunk */
-  chDbgAssert(n != 0, "Invalid RX chunk size");
+  IOHDLC_ASSERT(n != 0, "Invalid RX chunk size");
   iohdlc_sys_lock_isr();
   (void)drv->port.ops->rx_submit(drv->port.ctx, b, n);
   iohdlc_sys_unlock_isr();
 }
 
 /**
- * @brief   HAL callback: TX complete.
+ * @brief   Frame sender callback: TX complete.
+ * @details Releases the completed frame and, on non-mock backends, kicks the
+ *          next queued transmission from the auxiliary TX queue.
  */
 static void s_on_tx_done(void *cb_ctx, void *framep) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
@@ -558,8 +584,10 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
 }
 
 /**
- * @brief   HAL callback: RX error.
+ * @brief   Frame parser callback: RX error.
  */
 static void s_on_rx_error(void *cb_ctx, uint32_t errmask) {
   s_on_rx(cb_ctx, errmask);
 }
+
+/** @} */

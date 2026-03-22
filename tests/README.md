@@ -7,46 +7,45 @@ Test infrastructure for ioHdlc organized in three testing levels.
 ```
 tests/
 ├── common/                     # Shared across all platforms
-│   ├── test_helpers.h/c        # Test framework
-│   └── scenarios/              # OS-agnostic test scenarios
-│       ├── test_basic.c              # Basic initialization/connection
-│       ├── test_window_management.c  # Window control tests
-│       ├── test_checkpoint_tws.c     # Checkpoint retransmission tests
-│       └── ...                        # Future test scenarios
+│   ├── adapters/               # Adapter abstraction for test scenarios
+│   │   ├── adapter_interface.h       # Abstract adapter interface
+│   │   └── adapter_mock.h/c          # Mock adapter (in-process loopback)
+│   ├── mocks/                  # Mock stream implementations
+│   │   ├── mock_stream.h/c           # Core mock stream (byte-level)
+│   │   └── mock_stream_adapter.h/c   # Adapter wrapper over mock stream
+│   ├── scenarios/              # OS-agnostic test scenarios
+│   │   ├── test_basic_connection.c       # Station/peer creation, SNRM handshake, data exchange (TWS)
+│   │   ├── test_basic_connection_twa.c   # Data exchange in TWA mode
+│   │   ├── test_checkpoint_tws.c         # Checkpoint retransmission (TWS)
+│   │   ├── test_checkpoint_twa.c         # Checkpoint retransmission (TWA)
+│   │   ├── test_exchange.c               # Parametrized bidirectional throughput test
+│   │   └── test_frame_pool.c             # Frame pool allocation, refcount, watermarks
+│   ├── test_arenas.h/c         # Pre-allocated memory arenas for tests
+│   ├── test_framework.h/c      # Assertion and reporting primitives
+│   ├── test_helpers.h/c        # Station/peer setup helpers
+│   └── test_scenarios.h        # Scenario entry-point declarations
 │
-├── linux/                      # Linux/POSIX implementation
-│   ├── mocks/                  # Mock implementations
-│   │   ├── mock_stream.h       # Mock stream (simulates UART)
-│   │   ├── mock_stream.c       # Buffer-based stream with loopback
-│   │   └── tssi_stubs.c        # Test stubs
-│   │
-│   ├── main_tests.c            # Test runner
-│   └── Makefile                # Builds common + linux tests
+├── linux/                      # Linux/POSIX test runners
+│   ├── scenarios/              # Linux-specific standalone tests
+│   │   ├── test_mock_stream.c        # Mock stream self-test
+│   │   ├── test_osal_bsem.c          # OSAL binary semaphore tests
+│   │   └── test_osal_events.c        # OSAL event system tests
+│   ├── test_config_linux.c     # Linux adapter/runner factory used by all test runners
+│   ├── test_runner_*.c         # One entry-point file per scenario (links common scenario)
+│   └── Makefile                # Builds all binaries into build/bin/
 │
-└── chibios/                    # ChibiOS/RT embedded implementation
-    ├── mocks/                  # ChibiOS-specific mocks
-    │   ├── mock_stream_chibios.h
-    │   ├── mock_stream_chibios.c
-    │   └── tssi_stubs.c
-    │
-    ├── main_tests.c            # ChibiOS test runner
-    ├── Makefile                # ChibiOS build system
-    └── README.md               # Platform-specific notes
-
-os/
-├── linux/                      # OSAL for Linux/POSIX
-│   ├── include/
-│   │   └── ioHdlcosal.h        # OSAL header (pthread, semaphores)
-│   └── src/
-│       ├── ioHdlcosal.c        # OSAL implementation
-│       └── ioHdlcfmempool.c    # Frame pool implementation
-│
-└── chibios/                    # OSAL for ChibiOS
-    ├── include/
-    │   └── ioHdlcosal.h
-    └── src/
-        ├── ioHdlcosal.c
-        └── ioHdlcfmempool.c
+└── chibios/                    # ChibiOS/RT target
+    ├── adapters/               # Hardware adapters (UART, SPI)
+    │   ├── adapter_uart.c
+    │   └── adapter_spi.c
+    ├── board_config/           # STM32/Nucleo board files
+    ├── conf/                   # ChibiOS kernel and HAL configuration
+    ├── main_tests.c            # Automated test runner (flashed, runs on target)
+    ├── main_exchange.c         # Interactive exchange entry point
+    ├── main_shell.c            # Serial shell entry point
+    ├── test_config_chibios.c   # ChibiOS adapter/runner factory
+    ├── Makefile
+    └── README*.md              # Platform-specific notes
 ```
 
 ## Testing Philosophy
@@ -123,15 +122,25 @@ make clean
 
 ### Individual Tests
 
+Built binaries are placed in `tests/linux/build/bin/`.
+
 ```bash
-# Run only basic tests
-./test_basic
+cd tests/linux
 
-# Run window management tests
-./test_window_management
+# Protocol tests
+./build/bin/test_basic_connection
+./build/bin/test_basic_connection_twa
+./build/bin/test_checkpoint_tws
+./build/bin/test_checkpoint_twa
+./build/bin/test_frame_pool
 
-# Run checkpoint retransmission tests
-./test_checkpoint_tws
+# Parametrized exchange test
+./build/bin/test_exchange --help
+
+# OSAL and mock infrastructure tests
+./build/bin/test_osal_bsem
+./build/bin/test_osal_events
+./build/bin/test_mock_stream
 ```
 
 ### ChibiOS Tests
@@ -152,7 +161,8 @@ make
 ### With GDB
 
 ```bash
-gdb ./test_basic
+cd tests/linux
+gdb ./build/bin/test_basic_connection
 (gdb) run
 (gdb) bt
 ```
@@ -160,44 +170,52 @@ gdb ./test_basic
 ### With Valgrind (memory leaks)
 
 ```bash
-valgrind --leak-check=full ./test_basic
+cd tests/linux
+valgrind --leak-check=full ./build/bin/test_basic_connection
 ```
 
 ### With Thread Sanitizer (race conditions)
 
 ```bash
-# Recompile with sanitizer
+cd tests/linux
 make clean
 CFLAGS_EXTRA="-fsanitize=thread" make
-./test_basic
+./build/bin/test_basic_connection
 ```
 
 ### Verbose Logging
 
+Log levels 1–3: 1 = frame summaries, 2 = frame data, 3 = full hex dump.
+
 ```bash
-# Compile with debug logging
+cd tests/linux
 make clean
-CFLAGS_EXTRA="-DIOHDLC_LOG_LEVEL=4" make
-./test_checkpoint_tws
+CFLAGS_EXTRA="-DIOHDLC_LOG_LEVEL=2" make
+./build/bin/test_checkpoint_tws
 ```
 
 ## Implemented Test Scenarios
 
-### 1. Basic Tests (`test_basic.c`)
+### 1. Basic Connection — TWS (`test_basic_connection.c`)
 
-- [x] **test_init_deinit**: Station initialization and cleanup
-- [x] **test_snrm_handshake_frames**: SNRM → UA handshake
+- [x] **test_station_creation**: Station initialisation and peer setup
+- [x] **test_peer_creation**: Peer registration and address validation
+- [x] **test_snrm_handshake**: SNRM → UA handshake, link-up event
+- [x] **test_data_exchange**: Bidirectional byte-stream transfer over an established TWS link
 
-**Assertions**: 10+
+### 2. Basic Connection — TWA (`test_basic_connection_twa.c`)
 
-### 2. Window Management (`test_window_management.c`)
+- [x] **test_data_exchange_twa**: Bidirectional transfer in TWA (Two-Way Alternate) mode
 
-- [x] **test_window_size_7**: Window size limits (modulo 8)
-- [x] **test_window_slides_on_ack**: Window advancement on ACK
+### 3. Frame Pool (`test_frame_pool.c`)
 
-**Assertions**: 11+
+- [x] **test_pool_init**: Pool initialisation and capacity reporting
+- [x] **test_take_release**: Allocate and release cycles
+- [x] **test_addref**: Reference-count increment and deferred release
+- [x] **test_watermark**: LOW/NORMAL watermark callback triggering
+- [x] **test_exhaust_pool**: Behaviour when pool is fully allocated
 
-### 3. Checkpoint Retransmission (`test_checkpoint_tws.c`)
+### 4. Checkpoint Retransmission — TWS (`test_checkpoint_tws.c`)
 
 #### A.1: Single Frame Loss
 
@@ -220,7 +238,21 @@ CFLAGS_EXTRA="-DIOHDLC_LOG_LEVEL=4" make
 
 **Assertions**: 45+ (15 per test)
 
-**Total Assertions**: 33+ across all tests
+### 5. Checkpoint Retransmission — TWA (`test_checkpoint_twa.c`)
+
+- [x] **test_A1_1_frame_loss_window_full_twa**: Single I-frame loss with checkpoint recovery in TWA mode
+- [x] **test_A2_1_multiple_frame_loss_twa**: Two non-adjacent I-frame losses in TWA mode
+- [x] **test_A2_2_first_and_last_frame_loss_twa**: First and last I-frame of a window lost in TWA mode
+
+### 6. Parametrized Exchange (`test_exchange.c`)
+
+Configurable throughput test with real bidirectional traffic, runtime statistics, and parametrized frame loss injection. Run with `./build/bin/test_exchange --help` for all options.
+
+### 7. OSAL Tests (Linux-specific)
+
+- [x] **test_osal_bsem** (`linux/scenarios/test_osal_bsem.c`): Binary semaphore wait/signal semantics
+- [x] **test_osal_events** (`linux/scenarios/test_osal_events.c`): Event source broadcast and listener wake-up
+- [x] **test_mock_stream** (`linux/scenarios/test_mock_stream.c`): Mock stream loopback and error injection self-test
 
 ## Error Injection Framework
 
@@ -436,5 +468,4 @@ make
 For more information, see:
 - [Testing Guide](../doc/TESTING.md) - Comprehensive testing documentation
 - [Test Architecture](../doc/TEST_ARCHITECTURE.md) - Test infrastructure details
-- [Debug Guide](../doc/DEBUG_GUIDE.md) - Debugging tips and tools
 - [Protocol Details](../doc/PROTOCOL.md) - HDLC protocol implementation

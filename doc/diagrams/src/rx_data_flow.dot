@@ -1,0 +1,35 @@
+digraph iohdlc_rx_data_flow {
+  graph [
+    rankdir=TB,
+    splines=ortho,
+    nodesep=0.35,
+    ranksep=0.4,
+    bgcolor="transparent"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#f7fbff",
+    color="#4d6a86",
+    penwidth=1.2,
+    fontname="Helvetica",
+    fontsize=11,
+    margin="0.14,0.08"
+  ];
+
+  edge [
+    color="#5a7088",
+    penwidth=1.1,
+    arrowsize=0.8
+  ];
+
+  Wire [label="Transport / wire"];
+  Backend [label="Stream backend / hardware\nRX progress or error"];
+  Driver [label="Software driver RX path\nre-arm, validate, parse"];
+  Core [label="Core\nioHdlcOnRxFrame()"];
+  State [label="Protocol state update\nN(S)/N(R), U/S/I handling"];
+  App [label="Application\nread wakeup / app events"];
+
+  Wire -> Backend -> Driver -> Core -> State -> App;
+}

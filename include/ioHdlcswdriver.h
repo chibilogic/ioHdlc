@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -18,6 +18,26 @@
  * @brief   HDLC software driver (unified framing + protocol logic).
  * @details Implements ioHdlcDriver interface with software transparency and FCS.
  *          Uses ioHdlcStreamPort for transport abstraction (UART, SPI, Mock, etc).
+ *          This header documents the reference software driver that bridges the
+ *          framed driver contract to a byte-stream transport.
+ *
+ *          Intended use:
+ *          - configure the driver before starting it;
+ *          - bind it to a stream-port implementation and a frame pool at start;
+ *          - let the stream backend deliver RX/TX/error callbacks;
+ *          - stop it to release runtime resources owned by the driver.
+ *
+ *          This is a software reference implementation. It is useful both as a
+ *          production driver on simple targets and as documentation of the
+ *          expected behaviour of custom driver implementations.
+ *
+ *          Execution model notes:
+ *          - callback context is inherited from the selected stream backend;
+ *          - the blocking receive API is layered on top of the internal RX
+ *            queue and synchronization objects stored in this driver.
+ *
+ * @addtogroup ioHdlc_drivers
+ * @{
  */
 
 #ifndef IOHDLCSWDRIVER_H
@@ -39,6 +59,16 @@ extern "C" {
  * @brief   HDLC software driver structure.
  * @details Implements complete HDLC protocol with software transparency and FCS.
  *          Integrates RX multi-chunk state machine, protocol logic, and blocking API.
+ *          The structure stores both persistent configuration and runtime state.
+ *
+ *          Ownership notes:
+ *          - @p port is copied into the driver at start time;
+ *          - @p rx_stagep is allocated and freed by the driver;
+ *          - frames queued in RX/TX paths remain subject to frame-pool
+ *            reference management.
+ *
+ *          Callers should treat the runtime fields as internal implementation
+ *          state even though the structure is visible in the header.
  */
 typedef struct ioHdlcSwDriver {
   /* ioHdlcDriver interface */
@@ -71,17 +101,14 @@ typedef struct ioHdlcSwDriver {
   bool     started;
 } ioHdlcSwDriver;
 
-/**
- * @brief   Initialize software HDLC driver.
- * @param[in] drv   Driver instance to initialize
- */
+/** @ingroup ioHdlc_drivers */
 void ioHdlcSwDriverInit(ioHdlcSwDriver *drv);
 
 /**
  * @brief   Stop software HDLC driver.
  * @details Stops port operations (terminates RX thread) and releases resources.
  *          Safe to call multiple times (idempotent).
- * @param[in] drv   Driver instance to stop
+ * @param[in] drv   Driver instance to stop.
  */
 static inline void ioHdlcSwDriverStop(ioHdlcSwDriver *drv) {
   hdlcStop((ioHdlcDriver *)drv);
@@ -92,3 +119,5 @@ static inline void ioHdlcSwDriverStop(ioHdlcSwDriver *drv) {
 #endif
 
 #endif /* IOHDLCSWDRIVER_H */
+
+/** @} */

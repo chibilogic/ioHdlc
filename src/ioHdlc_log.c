@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -182,6 +182,13 @@ void iohdlc_log_uframe(iohdlc_log_dir_t dir, uint8_t saddr, uint8_t addr,
              pf ? (is_final ? 'F' : 'P') : '-');
 }
 
+/**
+ * @brief   Log a msg.
+ *
+ * @param[in] dir       Direction (TX or RX).
+ * @param[in] saddr     Local station address associated with the message.
+ * @param[in] msg       Message to log.
+ */
 void iohdlc_log_msg(iohdlc_log_dir_t dir, uint8_t saddr, const char *msg, ...) {
   if (!iohdlc_log_enabled)
     return;

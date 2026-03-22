@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -52,7 +52,6 @@ static void chb_txend_cb(UARTDriver *uartp) {
   void *framep = ctx->tx_framep;
   /* clear busy */
   ctx->tx_framep = NULL;
-  /* Signal semaphore to unblock waiting TX thread */
   ctx->cbs->on_tx_done(ctx->cbs->cb_ctx, framep);
 }
 
@@ -181,9 +180,6 @@ void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
   obj->cbs   = NULL;
   obj->tx_framep = NULL;
   obj->rx_busy = false;
-  
-  /* Initialize TX semaphore as available to allow first transmission.
-   * Will be taken by first tx_submit, then signaled by txend_cb */
 
   port->ctx = obj;
   port->ops = &chibios_ops;

@@ -1,0 +1,46 @@
+@startuml
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam ArrowColor #5a7088
+skinparam ActivityBorderColor #4d6a86
+skinparam ActivityBackgroundColor #f7fbff
+skinparam ActivityFontColor #1f2f3d
+skinparam ActivityDiamondBorderColor #4d6a86
+skinparam ActivityDiamondBackgroundColor #f7fbff
+skinparam ActivityDiamondFontColor #1f2f3d
+
+start
+:Receive Frame;
+
+if (Validate FCS) then (OK)
+else (Error)
+  :Discard\n(FCS error);
+  stop
+endif
+
+if (Parse Address) then (OK)
+else (Not ours)
+  :Discard\n(not for us);
+  stop
+endif
+
+:Parse Control;
+
+switch (Frame type?)
+case (U-frame)
+  :Handle U-frame\nSNRM / UA / DISC / DM;
+case (S-frame)
+  :Handle S-frame\nRR / RNR / REJ\nUpdate V(A), process N(R);
+case (I-frame)
+  if (N(S) == V(R)?) then (Yes)
+    :Accept\nV(R)++, deliver data;
+  else (No)
+    :Reject or discard\n(sequence error);
+  endif
+  :Process N(R) ACK\nUpdate V(A), slide window;
+endswitch
+
+:Update timers,\nwindow, state;
+
+stop
+@enduml

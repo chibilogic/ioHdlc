@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -16,9 +16,16 @@
 /**
  * @file    include/ioHdlcll.h
  * @brief   HDLC low level header.
- * @details
+ * @details Declares low-level frame transformation helpers used by software
+ *          drivers and test utilities to add/check FCS fields and apply
+ *          transparency encoding.
  *
- * @addtogroup hdlc_lowlevel
+ *          These helpers operate on already allocated frame buffers. They do
+ *          not allocate memory and they do not define ownership transfer.
+ *          Callers remain responsible for buffer sizing, frame lifetime, and
+ *          offset selection when using the explicit-offset variants.
+ *
+ * @addtogroup ioHdlc_frames
  * @{
  */
 
@@ -43,16 +50,22 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-  /* Legacy API (modifies frame->elen) */
+  /** @ingroup ioHdlc_frames */
   void frameAddFCS(iohdlc_frame_t *frame);
+
+  /** @ingroup ioHdlc_frames */
   bool frameCheckFCS(const iohdlc_frame_t *frame);
-  
-  /* New API (works at specific offset, does NOT modify elen) */
+
+  /** @ingroup ioHdlc_frames */
   void frameAddFCS_at(iohdlc_frame_t *frame, size_t offset);
+
+  /** @ingroup ioHdlc_frames */
   bool frameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len);
-  
-  /* Transparency encoding/decoding */
+
+  /** @ingroup ioHdlc_frames */
   bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
+
+  /** @ingroup ioHdlc_frames */
   void frameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
 #ifdef __cplusplus
 }

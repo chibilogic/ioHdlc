@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -23,6 +23,15 @@
  *          - Checkpoint retransmission (ISO 13239 5.6.2.1)
  *          - REJ exception handling with overlap detection
  *          - Support Frame Format Field TYPE0 and TYPE1
+ *
+ *          This module owns the protocol-state transitions for peers once
+ *          frames have been admitted by the driver layer. It consumes and
+ *          produces frame references under the ownership rules established by
+ *          the station frame pool and uses runner events/timers as deferred
+ *          execution triggers.
+ *
+ * @addtogroup ioHdlc_core
+ * @{
  */
 
 #include "ioHdlc_core.h"
@@ -56,17 +65,32 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
+/**
+ * @brief   Mark a peer as disconnected and wake blocked transmitters.
+ * @param[in] p   Peer state to update.
+ */
 static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p) {
   p->ss_state &= ~IOHDLC_SS_ST_CONN;
   iohdlc_condvar_broadcast(&p->tx_cv);  
 }
 
+/**
+ * @brief   Mark a peer as connected and wake blocked transmitters.
+ * @param[in] p   Peer state to update.
+ */
 static void ioHdlcSetConnected(iohdlc_station_peer_t *p) {
   p->ss_state |= IOHDLC_SS_ST_CONN;
   iohdlc_condvar_broadcast(&p->tx_cv);  
 }
 
-/* Clear and release all frames in a queue. */
+/**
+ * @brief   Drain a frame queue and release every frame back to the pool.
+ * @details Used during peer reset paths so retransmission, receive, and
+ *          pending-transmit queues cannot leak frame references across state
+ *          transitions.
+ * @param[in] p   Owning peer state.
+ * @param[in] q   Queue to drain.
+ */
 static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
   while (!ioHdlc_frameq_isempty(q)) {
     iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(q);
@@ -110,13 +134,21 @@ static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
   return true;  /* Retry allowed. */
 }
 
-/* Reset peer UM state variables. */
+/**
+ * @brief   Reset unnumbered-frame negotiation state for a peer.
+ * @param[in] p   Peer state to reset.
+ */
 static void resetPeerUm(iohdlc_station_peer_t *p) {
   p->um_state = 0;
   p->um_cmd = 0;
 }
 
-/* Reset peer protocol variables, queues and reply timer. */
+/**
+ * @brief   Reset peer protocol state, timers, and owned queues.
+ * @details This is the heavy-weight reset path used after mode changes,
+ *          accepted disconnects, and similar protocol boundary transitions.
+ * @param[in] p   Peer state to reset.
+ */
 static void resetPeerVars(iohdlc_station_peer_t *p) {
   ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
   ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
@@ -130,13 +162,21 @@ static void resetPeerVars(iohdlc_station_peer_t *p) {
   iohdlc_sem_init(&p->i_recept_sem, 0);
 }
 
-/* Check if u_cmd is a connection U command */
+/**
+ * @brief   Check whether a U-frame opcode requests a connection mode change.
+ * @param[in] u_cmd   U-frame opcode to classify.
+ * @return  true if the opcode is one of the supported connect-mode commands.
+ */
 static bool isConnectionUCommand(uint8_t u_cmd) {
   return (u_cmd == IOHDLC_U_SNRM) || (u_cmd == IOHDLC_U_SARM) ||
          (u_cmd == IOHDLC_U_SABM);
 }
 
-/* Set tx_fn and rx_fn based on mode, or reset to NULL if disconnected. */
+/**
+ * @brief   Bind mode-specific TX/RX handlers on the station object.
+ * @param[in] s      Station descriptor.
+ * @param[in] mode   Operating mode to bind.
+ */
 static void setModeFunctions(iohdlc_station_t *s, uint8_t mode) {
   if (mode == IOHDLC_OM_NRM) {
     s->tx_fn = nrmTx;
@@ -154,14 +194,14 @@ static void setModeFunctions(iohdlc_station_t *s, uint8_t mode) {
   }
 }
 
-/*
- * @brief Check if there is a send opportunity in NRM mode.
- * @note  In NRM, a send opportunity exists:
- *        - Primary TWA: when F has been received (no P in flight).
- *        - Primary TWS: always permitted.
- *        - Secondary (TWA/TWS): when P has been received.
- * @param[in] s   Station descriptor
- * @return  true if station can transmit based on P/F bit protocol rules
+/**
+ * @brief   Check whether NRM rules currently allow transmission.
+ * @note    In NRM, a send opportunity exists:
+ *          - Primary TWA: when F has been received and no poll is outstanding.
+ *          - Primary TWS: always permitted.
+ *          - Secondary TWA/TWS: when P has been received.
+ * @param[in] s   Station descriptor.
+ * @return  true if the station can transmit under current P/F rules.
  */
 static bool nrmSendOpportunity(iohdlc_station_t *s) {
   return IOHDLC_IS_PRI(s) ?
@@ -169,22 +209,22 @@ static bool nrmSendOpportunity(iohdlc_station_t *s) {
       IOHDLC_P_ISRCVED(s);
 }
 
-/*
- * @brief Check if there is a send opportunity in ABM/ARM modes.
- * @note  In asynchronous modes:
- *        - TWA: send opportunity exists when idle state is detected (IOHDLC_FLG_IDL).
- *        - TWS: send opportunity always exists.
- * @param[in] s   Station descriptor
- * @return  true if station can transmit
+/**
+ * @brief   Check whether asynchronous modes currently allow transmission.
+ * @note    In asynchronous modes:
+ *          - TWA: transmission is allowed when line-idle state is detected.
+ *          - TWS: transmission is always permitted.
+ * @param[in] s   Station descriptor.
+ * @return  true if the station can transmit.
  */
 static bool abmSendOpportunity(iohdlc_station_t *s) {
   return !IOHDLC_USE_TWA(s) || IOHDLC_ST_IDLE(s);
 }
 
-/*
- * @brief Generic send opportunity check (dispatches to mode-specific function).
- * @param[in] s   Station descriptor
- * @return  true if station can transmit
+/**
+ * @brief   Dispatch send-opportunity evaluation to the current mode.
+ * @param[in] s   Station descriptor.
+ * @return  true if the active operating mode permits transmission.
  */
 static bool sendOpportunity(iohdlc_station_t *s) {
   return IOHDLC_IS_NRM(s) ? nrmSendOpportunity(s) : abmSendOpportunity(s);
@@ -198,8 +238,8 @@ static bool sendOpportunity(iohdlc_station_t *s) {
  * @brief   Peer round-robin helper.
  * @details Advances @p s->c_peer to the next peer in the circular list.
  *          If the list is empty returns NULL and leaves @p c_peer unchanged.
- * @param[in] s   Station descriptor
- * @return  Next distinct peer, or NULL if there is no next
+ * @param[in] s   Station descriptor.
+ * @return  Next distinct peer, or NULL if there is no next.
  */
 iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
   IOHDLC_ASSERT(s != NULL, "ioHdlcNextPeer: station is NULL");
@@ -216,6 +256,13 @@ iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
   return s->c_peer;
 }
 
+/**
+ * @brief   Process an unnumbered frame in the context of the current peer.
+ * @details Handles both command and response U-frames, including connection
+ *          establishment, disconnect handling, and reply-timer completion.
+ * @param[in] s    Station descriptor.
+ * @param[in] fp   Received U-frame.
+ */
 static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Handle U-frames common to all modes (NRM, ABM, ARM, etc.).
      Per ISO 13239, currently supports:
@@ -373,6 +420,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 /* NRM RX helper functions.                                                  */
 /*===========================================================================*/
 
+/**
+ * @brief   Extract the N(S) value from an I-frame.
+ * @param[in] s    Station descriptor.
+ * @param[in] fp   Received or queued frame.
+ * @return  The decoded N(S) sequence number.
+ */
 static uint32_t extractNS(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Extract N(S) from control field based on modmask. */
   if (s->modmask == 7) {
@@ -384,6 +437,12 @@ static uint32_t extractNS(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   }
 }
 
+/**
+ * @brief   Extract the N(R) value from an I-frame or S-frame.
+ * @param[in] s    Station descriptor.
+ * @param[in] fp   Received or queued frame.
+ * @return  The decoded N(R) sequence number.
+ */
 static uint32_t extractNR(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Extract N(R) from control field based on modmask. */
   if (s->modmask == 7) {
@@ -395,6 +454,13 @@ static uint32_t extractNR(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   }
 }
 
+/**
+ * @brief   Validate a received N(R) against the current transmit window.
+ * @param[in] s    Station descriptor.
+ * @param[in] p    Peer state.
+ * @param[in] nr   Received acknowledgment number.
+ * @return  true if @p nr falls within the valid acknowledged-to-sent range.
+ */
 static bool isNRValid(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
                       uint32_t nr) {
   /* N(R) is INVALID if it identifies:
@@ -410,6 +476,15 @@ static bool isNRValid(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   return nr_offset <= vs_offset;
 }
 
+/**
+ * @brief   Consume acknowledgments up to a received N(R).
+ * @details Releases acknowledged frames from the retransmission queue and
+ *          updates checkpoint tracking as required.
+ * @param[in] s    Station descriptor.
+ * @param[in] p    Peer state.
+ * @param[in] nr   Received acknowledgment number.
+ * @return  true if one or more queued frames were released.
+ */
 static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
                       uint32_t nr) {
   /* Remove acknowledged frames from retransmission queue.
@@ -447,6 +522,15 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   return released_frames;
 }
 
+/**
+ * @brief   Move checkpoint-retransmission frames back to the transmit queue.
+ * @details Implements checkpoint recovery by selecting all outstanding frames
+ *          preceding the last poll/final checkpoint and moving them to the
+ *          transmit queue head.
+ * @param[in] s   Station descriptor.
+ * @param[in] p   Peer state.
+ * @return  true if at least one frame was scheduled for retransmission.
+ */
 static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
   /* Move frames from i_retrans_q back to i_trans_q for checkpoint retransmission.
      Per ISO 13239 5.6.2.1: Both Primary and Secondary do this.
@@ -503,21 +587,17 @@ static bool checkpointRetransmit(iohdlc_station_t *s, iohdlc_station_peer_t *p) 
 }
 
 /**
- * @brief Handles checkpoint and acknowledgment processing for HDLC station communication.
- *
- * This function processes the received sequence number (N(R)) and poll/final bit
- * to manage the station's transmission window, handle acknowledgments, and determine
- * if checkpoint conditions have been met.
- *
- * @param[in] s Pointer to the HDLC station structure
- * @param[in] p Pointer to the peer station structure
- * @param[in] nr Received sequence number N(R) indicating the next frame expected by peer
- * @param[in] pf Poll/Final bit value from the received frame
- * @param[out] should_signal_tx_out Flag indicating if transmission should be signaled
- * @param[out] checkpoint_moved_out Flag indicating if the checkpoint has been advanced
- * @param[out] broadcast_flags_out Pointer to flags for broadcast event notifications
- *
- * @return false if N(R) is invalid.
+ * @brief   Process acknowledgment and checkpoint side effects for a received frame.
+ * @details Validates the received N(R), releases acknowledged frames, updates
+ *          P/F state, and manages reply/t3 timers according to the local role.
+ * @param[in] s                      Station descriptor.
+ * @param[in] p                      Peer state.
+ * @param[in] nr                     Received N(R) value.
+ * @param[in] pf                     Poll/final bit extracted from the frame.
+ * @param[out] should_signal_tx_out  Set when waiting writers should be woken.
+ * @param[out] checkpoint_moved_out  Set when checkpoint retransmission moved frames.
+ * @param[out] broadcast_flags_out   Accumulated core event flags to broadcast.
+ * @return  true on success, false if the received N(R) is invalid.
  */
 static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                                    uint32_t nr,
@@ -593,6 +673,17 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
   return true;
 }
 
+/**
+ * @brief   Process an I-frame after common acknowledgment handling.
+ * @details Validates N(S), enqueues accepted frames for the reader side, and
+ *          raises REJ or local-busy conditions when needed.
+ * @param[in] s                    Station descriptor.
+ * @param[in] p                    Peer state.
+ * @param[in] fp                   Received I-frame.
+ * @param[in] pf                   Poll/final bit extracted from the frame.
+ * @param[out] broadcast_flags_out Accumulated core event flags to broadcast.
+ * @return  true if the frame was accepted and queued for upper-layer reading.
+ */
 static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
                          iohdlc_frame_t *fp,
                          bool pf,
@@ -664,6 +755,14 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   return true;  /* Frame accepted */
 }
 
+/**
+ * @brief   Process an S-frame after common acknowledgment handling.
+ * @param[in] s                    Station descriptor.
+ * @param[in] p                    Peer state.
+ * @param[in] fp                   Received S-frame.
+ * @param[in] pf                   Poll/final bit extracted from the frame.
+ * @param[out] broadcast_flags_out Accumulated core event flags to broadcast.
+ */
 static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
                          iohdlc_frame_t *fp,
                          bool pf,
@@ -746,6 +845,13 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   }
 }
 
+/**
+ * @brief   Receive-side handler for NRM mode.
+ * @details Processes I-frames and S-frames once common U-frame handling has
+ *          already been excluded by the RX entry loop.
+ * @param[in] s    Station descriptor.
+ * @param[in] fp   Received frame owned by the core until accepted or released.
+ */
 void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Handle I-frames and S-frames specific to NRM mode.*/
   
@@ -854,16 +960,35 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   hdlcReleaseFrame(&s->frame_pool, fp);
 }
 
+/**
+ * @brief   Placeholder receive-side handler for ARM mode.
+ * @param[in] s    Station descriptor.
+ * @param[in] fp   Received frame.
+ * @note    ARM receive logic is not implemented yet.
+ */
 void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     (void)s;
     (void)fp;
 }
 
+/**
+ * @brief   Placeholder receive-side handler for ABM mode.
+ * @param[in] s    Station descriptor.
+ * @param[in] fp   Received frame.
+ * @note    ABM receive logic is not implemented yet.
+ */
 void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     (void)s;
     (void)fp;
 }
 
+/**
+ * @brief   RX worker entry point for the runner.
+ * @details Pulls frames from the framed driver, detects idle-line conditions,
+ *          dispatches U-frames directly, and delegates I/S frames to the
+ *          mode-specific RX handler.
+ * @param[in] stationp   Opaque pointer to the station instance.
+ */
 void ioHdlcRxEntry(void *stationp) {
   iohdlc_station_t *s = (iohdlc_station_t *)stationp;
   if (!s) return;
@@ -1018,6 +1143,17 @@ static void buildSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   /* FFF will be valorized by driver (driver knows FCS size) */
 }
 
+/**
+ * @brief   Prepare an S-frame for deferred transmission.
+ * @details Allocates a frame from the pool, chooses the correct P/F behaviour
+ *          for the current role and mode, and builds the outgoing S-frame if
+ *          transmission is currently allowed.
+ * @param[in] s       Station descriptor.
+ * @param[in] p       Peer state.
+ * @param[in] s_fun   Supervisory function code to emit.
+ * @return  A prepared frame ready for @ref sendFrame, or NULL if none can be
+ *          prepared at this time.
+ */
 static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                        uint8_t s_fun) {
   if (!sendOpportunity(s))
@@ -1061,6 +1197,16 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
   return fp;
 }
 
+/**
+ * @brief   NRM transmit-side scheduler.
+ * @details Consumes pending core events, sends connection-management U-frames,
+ *          transmits I-frames within the current window and P/F rules, and
+ *          emits opportunistic or recovery S-frames when required.
+ * @param[in] s         Station descriptor.
+ * @param[in] p         Peer state for the currently selected peer.
+ * @param[in] cm_flags  Pending core event flags to serve.
+ * @return  Residual event flags that still require later handling.
+ */
 uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                 uint32_t cm_flags) {
 
@@ -1291,6 +1437,14 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   return cm_flags;
 }
 
+/**
+ * @brief   Placeholder transmit-side scheduler for ABM mode.
+ * @param[in] s         Station descriptor.
+ * @param[in] p         Peer state.
+ * @param[in] cm_flags  Pending core event flags.
+ * @return  Always returns 0 in the current stub implementation.
+ * @note    ABM transmit logic is not implemented yet.
+ */
 uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
   /* S requested
@@ -1306,6 +1460,14 @@ uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   return 0;
 }
 
+/**
+ * @brief   Placeholder transmit-side scheduler for ARM mode.
+ * @param[in] s         Station descriptor.
+ * @param[in] p         Peer state.
+ * @param[in] cm_flags  Pending core event flags.
+ * @return  Always returns 0 in the current stub implementation.
+ * @note    ARM transmit logic is not implemented yet.
+ */
 uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
   /* S requested
@@ -1321,6 +1483,13 @@ uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   return 0;
 }
 
+/**
+ * @brief   TX worker entry point for the runner.
+ * @details Waits for core events, serves connection-management requests, and
+ *          dispatches transmit work to the mode-specific TX scheduler for the
+ *          current peer.
+ * @param[in] stationp   Opaque pointer to the station instance.
+ */
 void ioHdlcTxEntry(void *stationp) {
   iohdlc_station_t *s = (iohdlc_station_t *)stationp;
   iohdlc_station_peer_t *p;
@@ -1475,3 +1644,5 @@ void ioHdlcTxEntry(void *stationp) {
   ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_REPLY);
   ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_T3);
 }
+
+/** @} */

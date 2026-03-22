@@ -1,0 +1,29 @@
+digraph frame_format_fff {
+  graph [
+    bgcolor="transparent",
+    margin="0.1"
+  ];
+
+  node [shape=plaintext];
+
+  frame [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="8"
+           COLOR="#4d6a86">
+      <TR>
+        <TD WIDTH="50" BGCOLOR="#e8eef4"><FONT FACE="Helvetica" POINT-SIZE="10">Flag<BR/>0x7E</FONT></TD>
+        <TD WIDTH="55" BGCOLOR="#dce8f0"><FONT FACE="Helvetica" POINT-SIZE="10">FFF<BR/>1/2 B</FONT></TD>
+        <TD WIDTH="70" BGCOLOR="#f7fbff"><FONT FACE="Helvetica" POINT-SIZE="10">Address<BR/>8 bits</FONT></TD>
+        <TD WIDTH="70" BGCOLOR="#f7fbff"><FONT FACE="Helvetica" POINT-SIZE="10">Control<BR/>8/16 bit</FONT></TD>
+        <TD WIDTH="120" BGCOLOR="#f7fbff"><FONT FACE="Helvetica" POINT-SIZE="10">Data<BR/>Variable</FONT></TD>
+        <TD WIDTH="60" BGCOLOR="#f7fbff"><FONT FACE="Helvetica" POINT-SIZE="10">FCS<BR/>16 bit</FONT></TD>
+        <TD WIDTH="50" BGCOLOR="#e8eef4"><FONT FACE="Helvetica" POINT-SIZE="10">Flag<BR/>0x7E</FONT></TD>
+      </TR>
+    </TABLE>
+  >];
+
+  note [label=<
+    <FONT FACE="Helvetica" POINT-SIZE="9" COLOR="#5a7088">FFF declares total length of Address..FCS</FONT>
+  >];
+
+  frame -> note [style=invis];
+}

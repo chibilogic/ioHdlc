@@ -2,10 +2,10 @@
  * ioHdlc
  * Copyright (C) 2024 Isidoro Orabona
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This software is dual-licensed:
- *  - GNU Lesser General Public License v3.0 (or later)
+ *  - GNU General Public License v3.0 (or later)
  *  - Commercial license (available from Chibilogic s.r.l.)
  *
  * For commercial licensing inquiries:
@@ -13,6 +13,20 @@
  *
  * See the LICENSE file for details.
  */
+/**
+ * @file    os/linux/src/ioHdlcfmempool.c
+ * @brief   Linux fixed-memory frame pool implementation.
+ * @details Implements @ref ioHdlcFrameMemPool using a mutex-protected free
+ *          list over a caller-provided arena.
+ *
+ *          The backend keeps allocation deterministic while delegating common
+ *          watermark policy to the shared pool helpers. Callback invocation is
+ *          intentionally performed after releasing the internal mutex.
+ *
+ * @addtogroup ioHdlc_backends
+ * @{
+ */
+
 #include "ioHdlcosal.h"
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
@@ -21,10 +35,6 @@
 #include "ioHdlcpool_common.h"
 #include <string.h>
 #include <assert.h>
-/**
- * HDLC frame pool implementation for Linux using free-list.
- */
-
 /*===========================================================================*/
 /* Module local functions.                                                   */
 /*===========================================================================*/
@@ -96,6 +106,8 @@ static void release(void *ip, iohdlc_frame_t *fp) {
 
 /**
  * @brief   Add reference to frame (with locking).
+ * @note    This path uses an atomic increment; the backend still expects the
+ *          wider ownership model to prevent invalid lifetime races.
  */
 static void addref(iohdlc_frame_t *fp) {
   /* Note: In real implementation should have per-frame lock or atomic ops.
@@ -115,10 +127,13 @@ static const struct _iohdlc_fmempool_vmt vmt = {
 /*===========================================================================*/
 
 /**
- * @brief   Initialize HDLC frame memory pool.
+ * @brief   Initialize a fixed-memory frame pool.
+ * @details Binds the pool to a caller-owned memory arena and prepares the
+ *          internal allocator state.
+ * @note    The arena must remain valid for the full lifetime of @p fmpp.
  *
- * @param[in] fmpp        Frame pool object
- * @param[in] arena       Memory arena for frames
+ * @param[in] fmpp        Frame memory pool instance
+ * @param[in] arena       Pointer to caller-owned memory arena
  * @param[in] arenasize   Size of arena in bytes
  * @param[in] framesize   Size of each frame payload
  * @param[in] framealign  Alignment requirement (power of 2)
@@ -164,6 +179,8 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
 
 /**
  * @brief   Configure watermark thresholds and callbacks.
+ * @details Recomputes hysteresis thresholds and applies any resulting state
+ *          transition after releasing the internal pool lock.
  */
 void hdlcPoolConfigWatermark(ioHdlcFramePool *fpp, uint8_t low_pct, 
                              uint8_t high_pct, void (*on_low)(void *),
@@ -207,3 +224,5 @@ void hdlcPoolConfigWatermark(ioHdlcFramePool *fpp, uint8_t low_pct,
     }
   }
 }
+
+/** @} */
