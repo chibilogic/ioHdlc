@@ -93,24 +93,27 @@ connector.
 
 ### Why DATA_READY Is Required
 
-SPI is a master-driven bus: the master generates the clock for every transfer.
-The STM32F411's SPI peripheral has no hardware FIFO and no built-in flow
-control, so the master has no way to know when the slave has a frame ready
-to send.
+SPI is a master-driven bus: the master generates the clock for every
+transfer. This means the master has no way to know when the slave has a
+frame ready to send -- regardless of whether the SPI peripheral has a
+hardware FIFO or not.
+
+Without an out-of-band signal, the only alternative is continuous receive
+polling with single-byte transactions. On the STM32F411's SPI peripheral,
+which lacks a hardware FIFO, the per-transaction overhead makes this
+approach impractical even at moderate data rates.
 
 The **DATA_READY (DR)** line solves this. The slave asserts DR (active high)
-when it has queued a frame for transmission. The master monitors DR via a GPIO
-interrupt (PAL event callback) and initiates a receive DMA transfer only when
-data is actually available.
+when it has queued a frame for transmission. The master monitors DR via a
+GPIO interrupt (PAL event callback) and initiates a DMA receive transfer
+only when data is actually available.
 
-Without DR the master would either poll blindly -- wasting bus bandwidth and
-CPU -- or rely on fixed timing, which breaks under variable frame sizes and
-retransmissions. On basic SPI peripherals like the F411's, **DR is required
-for reliable operation**.
+Even on MCUs with more capable SPI peripherals, DR remains beneficial: it
+eliminates polling overhead entirely and allows the master to use efficient
+DMA transfers sized to the actual frame length.
 
-@note On MCUs with more advanced SPI peripherals (hardware FIFO, built-in
-slave-ready signaling), the DR line may not be necessary. The
-`IOHDLC_SPI_USE_DR` compile flag controls whether DR support is included.
+@note The `IOHDLC_SPI_USE_DR` compile flag controls whether DR support is
+included in the build.
 
 ### Building for SPI
 
