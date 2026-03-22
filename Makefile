@@ -2,6 +2,7 @@ DOXYGEN ?= doxygen
 DOXYFILE ?= Doxyfile
 DOXYFILE_FULL ?= doc/build/Doxyfile_full
 DOXYGEN_OUT ?= build/doxygen
+VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo "dev")
 DOT ?= dot
 PLANTUML ?= plantuml
 DIAGRAM_SRC_DIR ?= doc/diagrams/src
@@ -27,11 +28,11 @@ $(DIAGRAM_SVG_DIR)/%.svg: $(DIAGRAM_SRC_DIR)/%.puml | $(DIAGRAM_SVG_DIR)
 
 doxygen docs: docs-diagrams
 	@mkdir -p "$(DOXYGEN_OUT)/full"
-	$(DOXYGEN) "$(DOXYFILE)"
+	( cat "$(DOXYFILE)" ; echo "PROJECT_NUMBER = $(VERSION)" ) | $(DOXYGEN) -
 
 doxygen-full docs-full: docs-diagrams
 	@mkdir -p "$(DOXYGEN_OUT)/full"
-	$(DOXYGEN) "$(DOXYFILE_FULL)"
+	( cat "$(DOXYFILE_FULL)" ; echo "PROJECT_NUMBER = $(VERSION)" ) | $(DOXYGEN) -
 
 docs-clean:
 	rm -rf "$(DOXYGEN_OUT)"

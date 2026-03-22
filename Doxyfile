@@ -9,7 +9,8 @@
 
 DOXYFILE_ENCODING      = UTF-8
 PROJECT_NAME           = ioHdlc
-PROJECT_NUMBER         = 0.1
+PROJECT_NUMBER         = dev
+# Overridden by Makefile via git describe. Edit only as fallback.
 PROJECT_BRIEF          = "Full and internal reference for ioHdlc"
 
 OUTPUT_DIRECTORY       = build/doxygen/full
