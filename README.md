@@ -162,6 +162,7 @@ make -C tests/linux test-osal   # OSAL tests only
 - [HDLC Protocol Details](doc/PROTOCOL.md)
 - [Testing Guide](doc/TESTING.md)
 - [Test Architecture](doc/TEST_ARCHITECTURE.md)
+- [Getting Started with Hardware](doc/GETTING_STARTED_HARDWARE.md)
 
 ---
 

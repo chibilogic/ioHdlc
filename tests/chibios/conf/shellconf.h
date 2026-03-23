@@ -39,7 +39,7 @@
 /**
  * @brief   Enable shell command completion
  */
-#define SHELL_USE_COMPLETION        TRUE
+#define SHELL_USE_COMPLETION        FALSE
 
 /**
  * @brief   Shell Maximum Completions

@@ -6,11 +6,57 @@ from wiring to running a first HDLC exchange over real UART or SPI hardware.
 ## What You Need
 
 - **STM32 Nucleo-F411RE** board (any revision)
-- **4-6 female-female jumper wires** (for Morpho header connections)
+- **2-5 female-female jumper wires** (2 for UART, 5 for SPI)
 - **USB micro-B cable** (for ST-Link programming and console)
 - **Serial terminal**: `screen`, `minicom`, or PuTTY
-- **ARM GCC toolchain**: `arm-none-eabi-gcc` 10.x or later
-- **OpenOCD** or **STM32CubeProgrammer** for flashing
+
+## Build Environment
+
+### ARM GCC Toolchain
+
+The `arm-none-eabi-gcc` toolchain (10.x or later) must be in your PATH.
+
+**Debian / Ubuntu:**
+
+```bash
+sudo apt install gcc-arm-none-eabi
+```
+
+Alternatively, download the toolchain from the
+[Arm Developer website](https://developer.arm.com/downloads/-/gnu-rm) and
+add its `bin/` directory to your PATH.
+
+### ChibiOS/RT Source Tree
+
+The Makefile expects ChibiOS to be located next to the ioHdlc directory:
+
+```
+workspace/
+├── ChibiOS/       ← ChibiOS/RT source tree
+└── ioHdlc/        ← this repository
+```
+
+If your ChibiOS checkout is elsewhere, create a symbolic link:
+
+```bash
+# From the workspace directory that contains ioHdlc
+ln -s /path/to/your/ChibiOS ChibiOS
+```
+
+Or override the path on the command line:
+
+```bash
+make shell CHIBIOS=/path/to/ChibiOS
+```
+
+### OpenOCD (optional)
+
+Needed for flashing via command line. Drag-and-drop flashing via the
+Nucleo's USB mass storage device does not require OpenOCD.
+
+```bash
+sudo apt install openocd
+```
 
 ## Console Output
 
@@ -39,7 +85,7 @@ The UART test uses two UART peripherals on the same board, cross-connected
 to form a loopback: USART1 (Endpoint A, primary) talks to USART6 (Endpoint B,
 secondary). Both stations run on the same MCU.
 
-**4 wires, all on the CN10 Morpho connector (right side of the board):**
+**2 wires, both on the CN10 Morpho connector (right side of the board):**
 
 ![UART loopback wiring](resources/wiring_uart.png)
 
@@ -143,8 +189,9 @@ make exchange USE_SPI_ADAPTER=1 CFLAGS_EXTRA="-DIOHDLC_SPI_USE_DR"
 ### SPI Operates in TWA Mode
 
 The SPI adapter sets the `ADAPTER_CONSTRAINT_TWA_ONLY` flag. The exchange
-tool detects this automatically and uses Two-Way Alternate mode. If you
-explicitly pass `--tws`, the tool will print an error and exit.
+tool detects this and selects TWA mode automatically -- there is no need
+to pass `--twa` explicitly. If you explicitly pass `--tws`, the tool will
+print an error and exit.
 
 ## Flashing
 
@@ -223,7 +270,7 @@ iohdlc> exchange --count=10 --size=64
 ```
 
 The output is the same, but the adapter reports `SPI Hardware (SPI1 + SPI2)`.
-TWA mode is selected automatically.
+TWA mode is selected automatically by the adapter constraint.
 
 ### Stress test
 

@@ -9,7 +9,7 @@
 
 # Compiler options
 ifeq ($(USE_OPT),)
-  USE_OPT = -Og -ggdb -fomit-frame-pointer -falign-functions=16
+  USE_OPT = -O2 -ggdb -fomit-frame-pointer -falign-functions=16
 endif
 
 # C specific options
@@ -107,7 +107,7 @@ COMMON_SCENARIOS_DIR = $(COMMON_DIR)/scenarios
 CONFDIR = ./conf
 
 # ChibiOS location
-CHIBIOS := $(HOME)/Chibilogic/ChibiOS
+CHIBIOS := ../../../ChibiOS
 
 MCU = cortex-m4
 
@@ -241,19 +241,6 @@ INCDIR = $(CONFDIR) \
 # Compiler settings
 ##############################################################################
 
-# Toolchain with absolute path (no PATH dependency)
-TRGT = $(HOME)/ARM/bin/arm-none-eabi-
-CC   = $(TRGT)gcc
-CPPC = $(TRGT)g++
-LD   = $(TRGT)gcc
-CP   = $(TRGT)objcopy
-AS   = $(TRGT)gcc -x assembler-with-cpp
-AR   = $(TRGT)ar
-OD   = $(TRGT)objdump
-SZ   = $(TRGT)size
-HEX  = $(CP) -O ihex
-BIN  = $(CP) -O binary
-
 # ARM-specific options
 AOPT =
 
@@ -282,16 +269,15 @@ endif
 # Set USE_SPI_ADAPTER=1  to build with hardware SPI adapter
 ifdef USE_UART_ADAPTER
   TEST_ADAPTER_SRCS = adapters/adapter_uart.c
-  UDEFS += -DUSE_UART_ADAPTER
+  UDEFS += -DUSE_UART_ADAPTER -DIOHDLC_ENABLE_STATISTICS
 else ifdef USE_SPI_ADAPTER
   TEST_ADAPTER_SRCS = adapters/adapter_spi.c
-  UDEFS += -DUSE_SPI_ADAPTER
-	UDEFS += -DSTM32_SPI_SLAVE_GRACEFUL_STOP
+  UDEFS += -DUSE_SPI_ADAPTER -DIOHDLC_SPI_USE_DR -DIOHDLC_ENABLE_STATISTICS
 else
   TEST_ADAPTER_SRCS = $(COMMON_DIR)/adapters/adapter_mock.c \
                       $(COMMON_DIR)/mocks/mock_stream.c \
                       $(COMMON_DIR)/mocks/mock_stream_adapter.c
-  UDEFS += -DUSE_MOCK_ADAPTER
+  UDEFS += -DUSE_MOCK_ADAPTER -DIOHDLC_ENABLE_STATISTICS
 endif
 
 # ASM defines
@@ -311,6 +297,7 @@ ULIBS =
 ##############################################################################
 
 RULESPATH = $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk
+include $(RULESPATH)/arm-none-eabi.mk
 include $(RULESPATH)/rules.mk
 
 ##############################################################################

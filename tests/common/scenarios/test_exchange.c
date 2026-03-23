@@ -34,6 +34,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef IOHDLC_LOG_LEVEL
+#define IOHDLC_LOG_LEVEL 0
+#endif
+
 static iohdlc_station_t *st_pri, *st_sec;
 /*===========================================================================*/
 /* Configuration                                                             */
@@ -216,6 +220,10 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   /* Reset global state for multiple runs */
   test_running_global = true;
 
+  memset(&config, 0, sizeof config);
+  if (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY)
+    config.use_twa = true;
+
   /* Parse configuration */
   if (!test_parse_config(&config, argc, argv)) {
     return 1;
@@ -225,8 +233,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   if (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY) {
     if (!config.use_twa) {
       test_printf("Error: adapter '%s' requires TWA mode.\r\n"
-                  "       --tws is not supported on SPI adapters.\r\n"
-                  "       Use --twa or omit the mode option (default is TWA for SPI).\r\n",
+                  "       --tws is not supported on this adapter.\r\n"
+                  "       Use --twa or omit the mode option (default is TWA for this adapter).\r\n",
                   adapter->name);
       return 1;
     }

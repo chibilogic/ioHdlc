@@ -89,7 +89,6 @@ static void print_usage(void) {
 bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   /* Default configuration */
   cfg->mode = IOHDLC_OM_NRM;
-  cfg->use_twa = false;
   cfg->duration_type = TEST_BY_COUNT;
   cfg->duration_value = 100;
   cfg->exchanges_per_iteration = 10;
