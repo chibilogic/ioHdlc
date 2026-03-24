@@ -282,6 +282,24 @@ iohdlc> exchange --count=1000 --size=120 --exchanges=50
 
 See [Exchange Test Tool](TEST_EXCHANGE.md) for all available options.
 
+## Performance
+
+Even on the Nucleo-F411RE -- a low-cost Cortex-M4 board with basic
+peripherals -- ioHdlc achieves substantial throughput:
+
+| Transport | Mode | Throughput |
+|-----------|------|------------|
+| UART (1.2 Mbaud) | Full-duplex (TWS) | >1.2 Mb/s bidirectional |
+| SPI | Half-duplex (TWA) | >1.5 Mb/s unidirectional |
+
+These figures are measured with the `exchange` tool using maximum-size
+frames (120 bytes) and sustained traffic. The UART rate is limited by the
+baud rate. The SPI rate is limited by the DMA round-trip, and the F411's
+basic SPI peripheral which lacks a hardware FIFO and other DMA-friendly
+features found on higher-end STM32 families --
+significantly better throughput (x10) is expected on MCUs with more capable SPI.
+Both transports use DMA for zero-copy frame transfers.
+
 ## Mock Adapter (No Hardware)
 
 To run protocol tests without any wiring, build with the mock adapter:

@@ -87,6 +87,7 @@ TEST_EXCHANGE = test_exchange
 TEST_FRAME_POOL = test_frame_pool
 TEST_CHECKPOINT_TWS = test_checkpoint_tws
 TEST_CHECKPOINT_TWA = test_checkpoint_twa
+TEST_FRMR = test_frmr
 TEST_OSAL_BSEM = test_osal_bsem
 TEST_OSAL_EVENTS = test_osal_events
 
@@ -113,6 +114,7 @@ AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION_TWA)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_FRAME_POOL)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWS)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWA)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_FRMR)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
 
@@ -181,7 +183,7 @@ $(OBJ_DIR)/test_runner_%.o: $(LINUX_DIR)/test_runner_%.c
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 # Link test binaries
-$(BIN_DIR)/$(TEST_MOCK_STREAM): $(OBJ_DIR)/test_mock_stream.o $(MOCK_OBJS) $(COMMON_OBJS) $(OSAL_MINIMAL)
+$(BIN_DIR)/$(TEST_MOCK_STREAM): $(OBJ_DIR)/test_mock_stream.o $(MOCK_OBJS) $(COMMON_OBJS) $(OSAL_MINIMAL) $(OBJ_DIR)/ioHdlcll.o
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
@@ -207,6 +209,10 @@ $(BIN_DIR)/$(TEST_CHECKPOINT_TWS): $(OBJ_DIR)/test_runner_checkpoint_tws.o $(OBJ
 	@$(CC) $^ -o $@ $(LDFLAGS)
 	
 $(BIN_DIR)/$(TEST_CHECKPOINT_TWA): $(OBJ_DIR)/test_runner_checkpoint_twa.o $(OBJ_DIR)/test_checkpoint_twa.o $(ALL_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/$(TEST_FRMR): $(OBJ_DIR)/test_runner_frmr.o $(OBJ_DIR)/test_frmr.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 

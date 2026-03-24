@@ -120,6 +120,16 @@
 /** @endcond */
 
 #define IOHDLC_PF_BIT     0x10  /**< Poll/final bit in the first control octet for modulo 8. */
+
+/**
+ * @name    FRMR reason bits (ISO 13239, 5.5.3.1)
+ * @{
+ */
+#define IOHDLC_FRMR_W    0x01  /**< @brief Control field invalid or not implemented. */
+#define IOHDLC_FRMR_X    0x02  /**< @brief Information field not permitted. */
+#define IOHDLC_FRMR_Y    0x04  /**< @brief Invalid N(R). */
+#define IOHDLC_FRMR_Z    0x08  /**< @brief Information field exceeded maximum length. */
+/** @} */
 #define IOHDLC_PFx_BIT    0x01  /**< Poll/final bit in non-first control octets for extended modes. */
 
 /**
@@ -383,6 +393,13 @@ struct iohdlc_station_peer {
   uint8_t poll_retry_max;       /* Maximum number of retries allowed for poll frames.
                                    When poll_retry_count >= poll_retry_max, the link
                                    is considered down. */
+
+  /* FRMR exception condition state (ISO 13239, 5.5.3). */
+  volatile bool frmr_condition;       /* true = frame reject exception active. */
+  uint8_t  frmr_rejected_ctrl[2];     /* Control field of the rejected frame
+                                         (1 byte mod 8, 2 bytes mod 128). */
+  uint8_t  frmr_reason;              /* IOHDLC_FRMR_W/X/Y/Z reason bits. */
+  bool     frmr_cr;                  /* C/R bit of the rejected frame. */
 
 #if defined(IOHDLC_ENABLE_STATISTICS)
   /* statistics counters. */

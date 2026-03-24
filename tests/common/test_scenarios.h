@@ -76,6 +76,12 @@ bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter);
 bool test_checkpoint_with_rej_twa(void);
 bool test_checkpoint_window_full_twa(void);
 
+/*===========================================================================*/
+/* Test: FRMR                                                                */
+/*===========================================================================*/
+
+bool test_frmr_invalid_nr(const test_adapter_t *adapter);
+
 #ifdef __cplusplus
 }
 #endif

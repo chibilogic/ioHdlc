@@ -112,6 +112,15 @@ static void computeFCS(const uint8_t *buf, uint32_t l, uint16_t *crc)
 /*===========================================================================*/
 
 /**
+ * @brief   Compute FCS-16 over a raw byte buffer.
+ */
+void ioHdlcComputeFCS(const uint8_t *buf, size_t len, uint16_t *fcs) {
+  uint16_t crc;
+  computeFCS(buf, (uint32_t)len, &crc);
+  *fcs = crc ^ 0xFFFF;
+}
+
+/**
  * @brief   Append an FCS at an explicit offset.
  * @details Does not modify @p frame->elen. The caller provides the payload
  *          end offset where the FCS bytes must be written.
