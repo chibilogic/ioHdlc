@@ -330,12 +330,22 @@ iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
   if (ioHdlc_peerl_isempty((const iohdlc_peer_list_t *)head))
     return NULL;
 
-  /* Compute next with wrap to list head. */
-  s->c_peer = s->c_peer->next;
-  if (s->c_peer == head)
-    s->c_peer = head->next;
+  /* Round-robin advance, skipping disconnected peers that have no
+     pending connection request (um_cmd).  Stop if we wrap around
+     to the starting peer to avoid an infinite loop. */
+  iohdlc_station_peer_t *start = s->c_peer;
+  do {
+    s->c_peer = s->c_peer->next;
+    if (s->c_peer == head)
+      s->c_peer = head->next;
 
-  return s->c_peer;
+    /* Accept: connected peer, or disconnected peer with pending um_cmd. */
+    if (!IOHDLC_PEER_DISC(s->c_peer) || s->c_peer->um_cmd != 0)
+      return s->c_peer;
+
+  } while (s->c_peer != start);
+
+  return s->c_peer;  /* All peers idle/disconnected: stay on current. */
 }
 
 /**
@@ -1029,8 +1039,13 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Common checkpoint and acknowledgment processing for all I/S frames. */
   if (!handleCheckpointAndAck(s, p, nr, pf, &should_signal_tx, &checkpoint_moved, &broadcast_flags)) {
     /* Invalid N(R): set FRMR exception condition (ISO 13239, 5.5.3).
-       The control field of the rejected frame is available in ctrl. */
-    setFrmrCondition(s, p, &ctrl, s->ctrl_size, (addr != s->addr), IOHDLC_FRMR_Y);
+       Extract full control field (1 or 2 bytes) from the frame. */
+    {
+      uint8_t rejected_ctrl[2];
+      rejected_ctrl[0] = IOHDLC_FRAME_CTRL(s, fp, 0);
+      rejected_ctrl[1] = (s->ctrl_size > 1) ? IOHDLC_FRAME_CTRL(s, fp, 1) : 0;
+      setFrmrCondition(s, p, rejected_ctrl, s->ctrl_size, (addr != s->addr), IOHDLC_FRMR_Y);
+    }
     iohdlc_mutex_unlock(&p->state_mutex);
     hdlcReleaseFrame(&s->frame_pool, fp);
     return;
@@ -1546,6 +1561,19 @@ skip_i_frames:
     /* Send the prepared S-frame. */
     (void) sendFrame(s, sframe_to_send);
   }
+
+  /* Multipoint: if primary has nothing pending for this peer, no FRMR
+     condition, and the P/F cycle is closed (F received), advance to
+     the next peer in the round-robin. */
+  if (IOHDLC_IS_PRI(s) && IOHDLC_F_ISRCVED(s) && !p->frmr_condition &&
+      ioHdlc_frameq_isempty(&p->i_trans_q) &&
+      ioHdlc_frameq_isempty(&p->i_retrans_q)) {
+    iohdlc_station_peer_t *prev = p;
+    iohdlc_station_peer_t *next = ioHdlcNextPeer(s);
+    if (next != NULL && next != prev)
+      IOHDLC_SET_NEED_P(s, next);
+  }
+
   iohdlc_mutex_unlock(&p->state_mutex);
 
   return cm_flags;

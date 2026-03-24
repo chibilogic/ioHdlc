@@ -541,31 +541,37 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   for (retry_count = 0; retry_count < LINKUP_MAX_RETRIES; retry_count++) {
     /* Set unnumbered command in peer descriptor */
     p->um_cmd = u_cmd;
-    
+
     /* Clear disconnected-mode flag (we're attempting connection) */
     p->ss_state &= ~IOHDLC_SS_ST_DISM;
 
     /* Signal TX task to send the command */
     ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
 
-    /* Wait for app event with timeout */
+    /* Wait for app event with timeout.
+       Multiple threads may call LinkUp on different peers concurrently.
+       Verify that the event is for our peer before accepting it;
+       if not, re-wait with the same timeout. */
     uint32_t timeout_ms = s->reply_timeout_ms * p->poll_retry_max;
-    eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
+    for (;;) {
+      eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
+      if (evt == 0) break;  /* Timeout: fall through to retry */
 
-    if (evt != 0) {
-      /* Event received: check which one */
       eventflags_t flags = iohdlc_evt_get_and_clear_flags(&listener);
-      
-      if (flags & IOHDLC_APP_LINK_UP) {
-        /* Success: link established */
+
+      if ((flags & IOHDLC_APP_LINK_UP) &&
+          (p->ss_state & IOHDLC_SS_ST_CONN)) {
+        /* Our peer is connected. */
         iohdlc_evt_unregister(&s->app_es, &listener);
         return 0;
-      } else if (flags & IOHDLC_APP_LINK_REFUSED) {
-        /* DM received: peer refused connection */
+      }
+      if ((flags & IOHDLC_APP_LINK_REFUSED) && IOHDLC_PEER_DISC(p)) {
+        /* Our peer was refused. */
         iohdlc_evt_unregister(&s->app_es, &listener);
         iohdlc_errno = ECONNREFUSED;
         return -1;
       }
+      /* Event was for another peer: re-wait. */
     }
     /* Timeout: retry */
   }
@@ -637,26 +643,29 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
   for (retry_count = 0; retry_count < LINKDOWN_MAX_RETRIES; retry_count++) {
     /* Set DISC command in peer descriptor */
     p->um_cmd = IOHDLC_U_DISC;
-    
+
     /* Clear disconnected-mode flag (not yet confirmed) */
     p->ss_state &= ~IOHDLC_SS_ST_DISM;
 
     /* Signal TX task to send DISC */
     ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
 
-    /* Wait for app event with timeout */
+    /* Wait for app event with timeout.
+       Verify that the event is for our peer before accepting it. */
     uint32_t timeout_ms = s->reply_timeout_ms * p->poll_retry_max;
-    eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
+    for (;;) {
+      eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
+      if (evt == 0) break;  /* Timeout: fall through to retry */
 
-    if (evt != 0) {
-      /* Event received: check which one */
       eventflags_t flags = iohdlc_evt_get_and_clear_flags(&listener);
-      
-      if (flags & IOHDLC_APP_LINK_DOWN) {
-        /* Success: link terminated */
+
+      if ((flags & IOHDLC_APP_LINK_DOWN) &&
+          !(p->ss_state & IOHDLC_SS_ST_CONN)) {
+        /* Our peer is disconnected. */
         iohdlc_evt_unregister(&s->app_es, &listener);
         return 0;
       }
+      /* Event was for another peer: re-wait. */
     }
     /* Timeout: retry */
   }
