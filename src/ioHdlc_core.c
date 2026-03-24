@@ -156,10 +156,92 @@ static void resetPeerVars(iohdlc_station_peer_t *p) {
   p->ss_state = 0;
   p->poll_retry_count = 0;
   p->i_pending_count = 0;
+  p->frmr_condition = false;
   clearFrameQ(p, &p->i_retrans_q);
   clearFrameQ(p, &p->i_recept_q);
   clearFrameQ(p, &p->i_trans_q);
   iohdlc_sem_init(&p->i_recept_sem, 0);
+}
+
+/**
+ * @brief   Set FRMR exception condition on a peer.
+ * @details Records the rejected frame's control field and reason, then
+ *          triggers the TX path to send FRMR at the next opportunity.
+ *
+ * @param[in] s             Station descriptor.
+ * @param[in] p             Peer state.
+ * @param[in] rejected_ctrl Pointer to the control byte(s) of the rejected frame.
+ * @param[in] ctrl_size     Number of control bytes (1 for mod 8, 2 for mod 128).
+ * @param[in] is_command    true if the rejected frame was a command.
+ * @param[in] reason        IOHDLC_FRMR_W/X/Y/Z reason bits.
+ */
+static void setFrmrCondition(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                              const uint8_t *rejected_ctrl, uint8_t ctrl_size,
+                              bool is_command, uint8_t reason) {
+  p->frmr_condition = true;
+  p->frmr_rejected_ctrl[0] = rejected_ctrl[0];
+  p->frmr_rejected_ctrl[1] = (ctrl_size > 1) ? rejected_ctrl[1] : 0;
+  p->frmr_reason = reason;
+  p->frmr_cr = is_command;
+
+  /* Trigger TX to send FRMR response. */
+  p->um_rsp = IOHDLC_U_FRMR;
+  p->um_state |= IOHDLC_UM_RCVED;
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_UM_RECVD);
+}
+
+/**
+ * @brief   Build FRMR response frame with information field.
+ * @details Encodes the rejected control field, current V(S)/V(R), C/R bit,
+ *          and W/X/Y/Z reason bits per ISO 13239, 5.5.3.1.
+ *
+ * @param[in] s       Station descriptor.
+ * @param[in] p       Peer state (V(S), V(R) taken at TX time).
+ * @param[in] fp      Frame to build into.
+ * @param[in] set_pf  true to set the P/F bit.
+ */
+static void buildFrmrResponse(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                               iohdlc_frame_t *fp, bool set_pf) {
+  /* Address: response uses station address. */
+  IOHDLC_FRAME_ADDR(s, fp) = s->addr;
+
+  /* Control: FRMR U-frame with optional F bit.
+     U-frame control is always 1 byte, regardless of modulo. */
+  IOHDLC_FRAME_CTRL(s, fp, 0) = IOHDLC_U_FRMR | IOHDLC_U_ID;
+  if (set_pf)
+    IOHDLC_FRAME_CTRL(s, fp, 0) |= IOHDLC_PF_BIT;
+
+  /* Information field starts after FFF + addr(1) + ctrl(1). */
+  uint8_t *info = &fp->frame[s->frame_offset + 2];
+  uint8_t info_len;
+
+  if (s->ctrl_size == 1) {
+    /* Modulo 8: 3-byte info field (ISO 13239, 5.5.3.1).
+       Byte 0: rejected control field
+       Byte 1: [V(S) bits 2-0] [C/R] [V(R) bits 2-0] [0]
+       Byte 2: [0] [0] [0] [0] [W] [X] [Y] [Z] */
+    info[0] = p->frmr_rejected_ctrl[0];
+    info[1] = (uint8_t)(((p->vs & 0x07) << 1) |
+                         (p->frmr_cr ? 0x10 : 0) |
+                         ((p->vr & 0x07) << 5));
+    info[2] = p->frmr_reason;
+    info_len = 3;
+  } else {
+    /* Modulo 128: 5-byte info field (ISO 13239, 5.5.3.1).
+       Byte 0-1: rejected control field (2 bytes)
+       Byte 2:   [V(S) bits 6-0] [0]
+       Byte 3:   [V(R) bits 6-0] [C/R]
+       Byte 4:   [0] [0] [0] [0] [W] [X] [Y] [Z] */
+    info[0] = p->frmr_rejected_ctrl[0];
+    info[1] = p->frmr_rejected_ctrl[1];
+    info[2] = (uint8_t)((p->vs & 0x7F) << 1);
+    info[3] = (uint8_t)(((p->vr & 0x7F) << 1) | (p->frmr_cr ? 0x01 : 0));
+    info[4] = p->frmr_reason;
+    info_len = 5;
+  }
+
+  /* elen: FFF + addr(1) + ctrl(1) + info */
+  fp->elen = (uint16_t)(s->frame_offset + 2 + info_len);
 }
 
 /**
@@ -295,11 +377,20 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   if (is_command) {
     /* U-frame command received (we are Secondary or Combined in ABM).
        Per 5.5.3.3: if already UM_RCVED in progress, ignore additional
-       commands until response sent. */
+       commands until response sent -- UNLESS this is a mode setting
+       command or DISC during FRMR condition, which must be accepted
+       to allow recovery (ISO 13239, 5.5.3). */
     if (p->um_state & IOHDLC_UM_RCVED) {
-      hdlcReleaseFrame(&s->frame_pool, fp);
-      iohdlc_mutex_unlock(&p->state_mutex);
-      return;
+      if (p->frmr_condition &&
+          (isConnectionUCommand(u_cmd) || u_cmd == IOHDLC_U_DISC)) {
+        /* Mode setting or DISC clears FRMR condition: accept the command. */
+        p->frmr_condition = false;
+        p->um_state &= ~IOHDLC_UM_RCVED;
+      } else {
+        hdlcReleaseFrame(&s->frame_pool, fp);
+        iohdlc_mutex_unlock(&p->state_mutex);
+        return;
+      }
     }
     
     /* Register command and P bit. */
@@ -402,8 +493,11 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       
     } else if (u_cmd == IOHDLC_U_FRMR) {
       /* FRMR received: peer detected protocol error.
-         TODO: Log error, consider link recovery. */
+         Per ISO 13239, recovery is a higher-layer responsibility.
+         At minimum the primary must issue a mode setting command (SNRM). */
+      IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "FRMR received from peer");
       resetPeerUm(p);
+      ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_FRMR_RECEIVED);
     }
     
     /* Mark F received and clear UM_SENT. */
@@ -615,8 +709,7 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
   /* Validate N(R) before processing.*/
   if (!isNRValid(s, p, nr)) {
     /* Protocol error: invalid N(R) received.
-       TODO: Send FRMR with Y bit set (invalid N(R)).
-       For now: discard frame. */
+       Send FRMR with Y bit set (invalid N(R)).*/
     IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "Invalid N(R) %u, V(S)=%u, N(R)=%u",
                   nr, p->vs, p->nr);
     return false;
@@ -892,7 +985,21 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
      This prevents TX from observing intermediate state where checkpoint/ACK
      is complete but I-frame validation/state update is not yet done. */
   iohdlc_mutex_lock(&p->state_mutex);
-  
+
+  /* FRMR exception active: per ISO 13239 5.5.3, do not accept I/S frames
+     except for examining P bit and N(R). Re-trigger FRMR on each poll. */
+  if (p->frmr_condition) {
+    if (pf) {
+      /* Poll received: re-trigger FRMR transmission. */
+      p->um_rsp = IOHDLC_U_FRMR;
+      p->um_state |= IOHDLC_UM_RCVED;
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_UM_RECVD);
+    }
+    iohdlc_mutex_unlock(&p->state_mutex);
+    hdlcReleaseFrame(&s->frame_pool, fp);
+    return;
+  }
+
 #if defined(IOHDLC_LOG_R) && IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
     const uint8_t addr2 = IOHDLC_FRAME_ADDR(s, fp);
     bool is_final = s->addr != addr2;
@@ -921,7 +1028,9 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 
   /* Common checkpoint and acknowledgment processing for all I/S frames. */
   if (!handleCheckpointAndAck(s, p, nr, pf, &should_signal_tx, &checkpoint_moved, &broadcast_flags)) {
-    /* Protocol error occurred during checkpoint/ack processing. */
+    /* Invalid N(R): set FRMR exception condition (ISO 13239, 5.5.3).
+       The control field of the rejected frame is available in ctrl. */
+    setFrmrCondition(s, p, &ctrl, s->ctrl_size, (addr != s->addr), IOHDLC_FRMR_Y);
     iohdlc_mutex_unlock(&p->state_mutex);
     hdlcReleaseFrame(&s->frame_pool, fp);
     return;
@@ -1245,9 +1354,13 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
   iohdlc_mutex_unlock(&p->state_mutex);
 
-  /* I-frame transmission: follow NRM rules (TWA vs TWS, Primary vs Secondary). */
-  
+  /* I-frame transmission: follow NRM rules (TWA vs TWS, Primary vs Secondary).
+     FRMR exception: suppress I-frame transmission per ISO 13239, 5.5.3. */
+
   bool i_frame_sent = false;  /* Track if at least one I-frame was sent. */
+  if (p->frmr_condition)
+    goto skip_i_frames;  /* FRMR active: no I-frame transmission. */
+
   while (true) {
     /* Lock to check window and dequeue frame atomically */
     iohdlc_mutex_lock(&p->state_mutex);
@@ -1389,6 +1502,7 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       break;
   }
 
+skip_i_frames:
   iohdlc_mutex_lock(&p->state_mutex);
 
   /* Check cm_flags again after re-acquiring the mutex. */
@@ -1600,7 +1714,10 @@ void ioHdlcTxEntry(void *stationp) {
         /* Build and send UM response. */
         iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
         if (fp != NULL) {
-          buildUFrame(s, p, fp, p->um_rsp, setf, false);
+          if (p->um_rsp == IOHDLC_U_FRMR)
+            buildFrmrResponse(s, p, fp, setf);
+          else
+            buildUFrame(s, p, fp, p->um_rsp, setf, false);
 
 #if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
           /* Extract values for logging before send */

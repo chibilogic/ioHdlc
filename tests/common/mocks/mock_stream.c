@@ -31,6 +31,31 @@ __attribute__((weak)) void iohdlc_log_msg(iohdlc_log_dir_t a, uint8_t b, const c
 #endif
 
 /*===========================================================================*/
+/* FCS Recalculation (for tamper support)                                    */
+/*===========================================================================*/
+
+#include "ioHdlcll.h"
+
+/**
+ * @brief   Recalculate FCS over wire-format frame data after tamper.
+ * @details Wire format: [FLAG?] [FFF] [ADDR] [CTRL] [INFO...] [FCS_lo] [FCS_hi] [FLAG]
+ *          FCS covers FFF + ADDR + CTRL + INFO (no flags).
+ * @param[in,out] data  Frame data (FCS bytes are overwritten).
+ * @param[in] size      Total frame size including flags.
+ */
+static void recalculate_fcs(uint8_t *data, size_t size) {
+  if (size < 5) return;
+
+  size_t start = (data[0] == 0x7E) ? 1 : 0;  /* Skip opening flag. */
+  size_t fcs_off = size - 3;                    /* FCS_lo position. */
+  uint16_t fcs;
+
+  ioHdlcComputeFCS(&data[start], fcs_off - start, &fcs);
+  data[fcs_off] = fcs & 0xFF;
+  data[fcs_off + 1] = fcs >> 8;
+}
+
+/*===========================================================================*/
 /* Buffer Operations (Platform-abstracted)                                  */
 /*===========================================================================*/
 
@@ -269,11 +294,34 @@ ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size
   /* Get current write count and increment for next call */
   uint32_t current_write = stream->write_count++;
   
-  /* Apply error injection if configured */
+  /* Apply tamper callback if configured.
+     Tamper modifies frame content in-place, then FCS is recalculated.
+     This runs before error injection so both can coexist. */
   const uint8_t *data_to_send = buf;
+  uint8_t *tampered_data = NULL;
+
+  if (stream->config.tamper_filter) {
+    tampered_data = IOHDLC_MALLOC(size);
+    if (tampered_data) {
+      memcpy(tampered_data, buf, size);
+      bool modified = stream->config.tamper_filter(current_write, tampered_data,
+                                                    size, stream->config.tamper_userdata);
+      if (modified) {
+        /* Recalculate FCS after tampering so the frame remains valid. */
+        recalculate_fcs(tampered_data, size);
+        data_to_send = tampered_data;
+      } else {
+        /* No modification: free copy and use original. */
+        IOHDLC_FREE(tampered_data);
+        tampered_data = NULL;
+      }
+    }
+  }
+
+  /* Apply error injection if configured */
   uint8_t *corrupted_data = NULL;
   bool should_corrupt = false;
-  
+
   if (stream->config.inject_errors && stream->config.error_rate > 0) {
     /* If error_filter is provided, use it to decide whether to corrupt */
     if (stream->config.error_filter) {
@@ -341,7 +389,10 @@ ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size
   if (corrupted_data) {
     IOHDLC_FREE(corrupted_data);
   }
-  
+  if (tampered_data) {
+    IOHDLC_FREE(tampered_data);
+  }
+
   return written;
 }
 

@@ -169,7 +169,7 @@ Bit:  7   6   5   4   3   2   1   0
 | UA              | 0x63    | F   | Unnumbered Acknowledgment        |
 | DISC            | 0x43    | P   | Disconnect                       |
 | DM              | 0x0F    | F   | Disconnected Mode                |
-| FRMR            | 0x87    | F   | Frame Reject (receive-only¹)     |
+| FRMR            | 0x87    | F   | Frame Reject                     |
 | UI              | 0x03    | -   | Unnumbered Information (no ACK)  |
 
 **Control Byte Format (SNRM example):**
@@ -671,15 +671,33 @@ After stuffing:
 
 ### Frame Reject (FRMR)
 
-**Causes:**
-- Invalid control field
-- I-frame with invalid N(R)
-- Information field too long
-- Invalid N(S)
+The FRMR response reports an unrecoverable protocol error to the remote
+station (ISO 13239, 5.5.3).
 
-**Action**: On FRMR reception, the link is reset (disconnect and re-establish). FRMR transmission is not yet implemented — the station currently discards invalid frames silently rather than sending FRMR.¹
+**Trigger conditions (secondary/combined station):**
+- Invalid N(R) received (identifies an already-acknowledged or
+  not-yet-transmitted frame)
 
-¹ See U-frame table: FRMR is receive-only in the current implementation.
+**Behaviour when FRMR condition is active:**
+- The secondary sends FRMR at the first respond opportunity
+- FRMR is repeated at every subsequent poll (P=1)
+- I-frame transmission is suppressed
+- Incoming I/S-frames are discarded (only P bit is examined)
+
+**FRMR information field** (3 bytes mod 8, 5 bytes mod 128):
+- Rejected control field
+- Current V(S) and V(R)
+- C/R bit of the rejected frame
+- Reason bits: W (invalid control), X (info not permitted),
+  Y (invalid N(R)), Z (info too long)
+
+**Recovery:**
+- The primary receives FRMR and is notified via the
+  `IOHDLC_APP_FRMR_RECEIVED` application event
+- Recovery is a higher-layer responsibility (ISO 13239)
+- The primary must issue a mode setting command (DISC followed by SNRM)
+  to clear the condition and re-establish the link
+- DISC and SNRM are accepted by the secondary even during FRMR condition
 
 ## Performance Considerations
 

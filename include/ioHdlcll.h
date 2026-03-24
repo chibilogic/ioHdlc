@@ -62,6 +62,17 @@ extern "C" {
   /** @ingroup ioHdlc_frames */
   bool frameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len);
 
+  /**
+   * @brief   Compute FCS-16 over a raw byte buffer.
+   * @details CRC-16/X.25 (ISO 13239). The result is the complemented CRC
+   *          ready to be appended as [lo, hi] after the payload.
+   * @param[in] buf   Data buffer.
+   * @param[in] len   Number of bytes to cover.
+   * @param[out] fcs  Resulting 16-bit FCS (complemented).
+   * @ingroup ioHdlc_frames
+   */
+  void ioHdlcComputeFCS(const uint8_t *buf, size_t len, uint16_t *fcs);
+
   /** @ingroup ioHdlc_frames */
   bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
 

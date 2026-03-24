@@ -54,6 +54,24 @@ typedef bool (*mock_stream_error_filter_t)(uint32_t write_count,
                                            void *userdata);
 
 /**
+ * @brief   Tamper callback.
+ * @details Called before each write to allow modification of frame content.
+ *          The callback receives a mutable copy of the data and may modify
+ *          any byte in-place. If the callback returns true (data modified),
+ *          the FCS is recalculated so the modified frame remains valid.
+ * @param[in] write_count   Incremental write counter (starts at 0).
+ * @param[in,out] data      Mutable pointer to frame data.
+ * @param[in] size          Size of frame data.
+ * @param[in] userdata      User-provided context pointer.
+ * @return                  true = data was modified (recalculate FCS),
+ *                          false = no changes.
+ */
+typedef bool (*mock_stream_tamper_t)(uint32_t write_count,
+                                     uint8_t *data,
+                                     size_t size,
+                                     void *userdata);
+
+/**
  * @brief   Mock stream configuration.
  */
 typedef struct {
@@ -63,6 +81,8 @@ typedef struct {
   uint32_t delay_us;                        /**< Transmission delay (μs). */
   mock_stream_error_filter_t error_filter;  /**< Optional error filter callback. */
   void *error_userdata;                     /**< User data for error filter. */
+  mock_stream_tamper_t tamper_filter;       /**< Optional tamper callback (modify content). */
+  void *tamper_userdata;                    /**< User data for tamper filter. */
 } mock_stream_config_t;
 
 /**
