@@ -51,7 +51,8 @@ OSAL_SRCS = \
 
 MOCK_SRCS = \
 	$(MOCKS_DIR)/mock_stream.c \
-	$(MOCKS_DIR)/mock_stream_adapter.c
+	$(MOCKS_DIR)/mock_stream_adapter.c \
+	$(MOCKS_DIR)/mock_bus.c
 
 ADAPTER_SRCS = \
 	$(COMMON_DIR)/adapters/adapter_mock.c
@@ -88,6 +89,7 @@ TEST_FRAME_POOL = test_frame_pool
 TEST_CHECKPOINT_TWS = test_checkpoint_tws
 TEST_CHECKPOINT_TWA = test_checkpoint_twa
 TEST_FRMR = test_frmr
+TEST_MULTIPOINT_NRM = test_multipoint_nrm
 TEST_OSAL_BSEM = test_osal_bsem
 TEST_OSAL_EVENTS = test_osal_events
 
@@ -115,6 +117,7 @@ AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_FRAME_POOL)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWS)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_CHECKPOINT_TWA)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_FRMR)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_MULTIPOINT_NRM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
 
@@ -213,6 +216,10 @@ $(BIN_DIR)/$(TEST_CHECKPOINT_TWA): $(OBJ_DIR)/test_runner_checkpoint_twa.o $(OBJ
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
 $(BIN_DIR)/$(TEST_FRMR): $(OBJ_DIR)/test_runner_frmr.o $(OBJ_DIR)/test_frmr.o $(ALL_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/$(TEST_MULTIPOINT_NRM): $(OBJ_DIR)/test_runner_multipoint_nrm.o $(OBJ_DIR)/test_multipoint_nrm.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 

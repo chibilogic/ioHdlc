@@ -45,6 +45,12 @@ extern uint8_t shared_arena_primary[TEST_ARENA_SIZE];
 extern uint8_t shared_arena_secondary[TEST_ARENA_SIZE];
 
 /**
+ * @brief   Shared arena for second secondary station frame pool.
+ * @note    Used by multipoint tests (primary + 2 secondaries).
+ */
+extern uint8_t shared_arena_secondary_b[TEST_ARENA_SIZE];
+
+/**
  * @brief   Shared arena for single-station tests.
  * @note    Can be used for test_frame_pool and other standalone tests.
  */

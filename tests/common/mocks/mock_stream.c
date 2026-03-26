@@ -201,7 +201,8 @@ void mock_stream_init(mock_stream_t *stream, const mock_stream_config_t *config)
     stream->config.error_userdata = NULL;
   }
   
-  stream->peer = NULL;
+  memset(stream->peers, 0, sizeof(stream->peers));
+  stream->peer_count = 0;
   stream->closed = false;
   stream->write_count = 0;
 }
@@ -237,36 +238,69 @@ void mock_stream_destroy(mock_stream_t *stream) {
   IOHDLC_FREE(stream);
 }
 
+void mock_stream_add_peer(mock_stream_t *stream, mock_stream_t *peer) {
+  if (!stream || !peer) {
+    return;
+  }
+
+  iohdlc_mutex_lock(&stream->state_lock);
+  if (stream->peer_count < MOCK_STREAM_MAX_PEERS) {
+    stream->peers[stream->peer_count++] = peer;
+  }
+  iohdlc_mutex_unlock(&stream->state_lock);
+}
+
 void mock_stream_connect(mock_stream_t *stream_a, mock_stream_t *stream_b) {
   if (!stream_a || !stream_b) {
     return;
   }
-  
-  iohdlc_mutex_lock(&stream_a->state_lock);
-  iohdlc_mutex_lock(&stream_b->state_lock);
-  
-  stream_a->peer = stream_b;
-  stream_b->peer = stream_a;
-  
-  iohdlc_mutex_unlock(&stream_b->state_lock);
-  iohdlc_mutex_unlock(&stream_a->state_lock);
+
+  mock_stream_add_peer(stream_a, stream_b);
+  mock_stream_add_peer(stream_b, stream_a);
+}
+
+/**
+ * @brief   Remove a specific peer from a stream's peers array.
+ * @details Helper: removes first occurrence of @p peer, compacts array.
+ *          Caller must hold stream->state_lock.
+ */
+static void remove_peer_locked(mock_stream_t *stream, mock_stream_t *peer) {
+  for (uint8_t i = 0; i < stream->peer_count; i++) {
+    if (stream->peers[i] == peer) {
+      /* Compact: shift remaining entries left. */
+      for (uint8_t j = i; j + 1 < stream->peer_count; j++) {
+        stream->peers[j] = stream->peers[j + 1];
+      }
+      stream->peers[--stream->peer_count] = NULL;
+      return;
+    }
+  }
 }
 
 void mock_stream_disconnect(mock_stream_t *stream) {
   if (!stream) {
     return;
   }
-  
+
   iohdlc_mutex_lock(&stream->state_lock);
-  
-  if (stream->peer) {
-    iohdlc_mutex_lock(&stream->peer->state_lock);
-    stream->peer->peer = NULL;
-    iohdlc_mutex_unlock(&stream->peer->state_lock);
-    stream->peer = NULL;
-  }
-  
+
+  /* Snapshot peers to avoid holding two locks simultaneously. */
+  mock_stream_t *local_peers[MOCK_STREAM_MAX_PEERS];
+  uint8_t count = stream->peer_count;
+  memcpy(local_peers, stream->peers, sizeof(mock_stream_t *) * count);
+
+  /* Clear our own array. */
+  memset(stream->peers, 0, sizeof(stream->peers));
+  stream->peer_count = 0;
+
   iohdlc_mutex_unlock(&stream->state_lock);
+
+  /* Remove ourselves from each peer's array. */
+  for (uint8_t i = 0; i < count; i++) {
+    iohdlc_mutex_lock(&local_peers[i]->state_lock);
+    remove_peer_locked(local_peers[i], stream);
+    iohdlc_mutex_unlock(&local_peers[i]->state_lock);
+  }
 }
 
 ssize_t mock_stream_read(mock_stream_t *stream, uint8_t *buf, size_t size, 
@@ -373,11 +407,19 @@ ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size
       iohdlc_mutex_unlock(&stream->state_lock);
     }
   }
-  /* Peer connection: write directly to peer's RX (skip own TX buffer) */
-  else if (stream->peer) {
-    mock_stream_t *peer = stream->peer;
+  /* Peer connection: broadcast to all peers' RX buffers. */
+  else if (stream->peer_count > 0) {
+    mock_stream_t *local_peers[MOCK_STREAM_MAX_PEERS];
+    uint8_t count = stream->peer_count;
+    memcpy(local_peers, stream->peers, sizeof(mock_stream_t *) * count);
     iohdlc_mutex_unlock(&stream->state_lock);
-    written = (ssize_t)buffer_write(&peer->rx_buf, data_to_send, size, timeout_ms);
+
+    written = 0;
+    for (uint8_t i = 0; i < count; i++) {
+      ssize_t w = (ssize_t)buffer_write(&local_peers[i]->rx_buf,
+                                         data_to_send, size, timeout_ms);
+      if (i == 0) written = w;  /* Return first peer's result. */
+    }
   }
   /* No loopback, no peer: write to own TX buffer only */
   else {

@@ -109,6 +109,10 @@ static void chb_spi_data_cb(SPIDriver *spip) {
 #endif
         ctx->rx_active = true;
         chSysLockFromISR();
+#if !defined(IOHDLC_SPI_USE_DR)
+        if (ctx->is_master)
+          spiSelectI(ctx->spip);
+#endif
         spiStartReceiveI(ctx->spip, ctx->rx_n, ctx->rx_ptr);
         chSysUnlockFromISR();
 #if defined(IOHDLC_SPI_USE_DR)
@@ -253,7 +257,7 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   if (ctx->is_master) {
     /* Master cannot start DMA without clock — wait for DATA_READY signal. */
     if (!ctx->tx_active) {
-      /* STM32 EXTI fires on edges only: if slave has already asserted DR
+      /* If slave has already asserted DR
        * before we enabled the event, check level and start DMA immediately. */
       if (palReadLine(ctx->dr_line) == PAL_HIGH) {
         ctx->rx_active = true;

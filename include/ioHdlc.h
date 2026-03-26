@@ -432,6 +432,7 @@ struct iohdlc_station {
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
   iohdlc_station_peer_t *arm_peer;  /* The peer currently in arm mode, if any. */
+  volatile uint8_t connected_count;  /* Number of currently connected peers. */
 
   /* state, peers, pool and queues. */
   iohdlc_peer_list_t  peers;    /* The header of the list of the peers of this station. Stations

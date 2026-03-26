@@ -201,6 +201,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   /* Initialize peer list */
   ioHdlc_peerl_init(&ioHdlcsp->peers);
   ioHdlcsp->c_peer = NULL;
+  ioHdlcsp->connected_count = 0;
 
   /* Initialize event sources (OS-agnostic via osal) */
   iohdlc_evt_init(&ioHdlcsp->cm_es);
@@ -534,8 +535,12 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   iohdlc_evt_register(&s->app_es, &listener, evt_mask,
                       IOHDLC_APP_LINK_UP | IOHDLC_APP_LINK_REFUSED);
 
-  /* Set mode for this connection attempt */
-  s->mode = mode;
+  /* Set mode for this connection attempt. In multipoint, all peers use
+     the same mode. Write only when transitioning from disconnected state
+     to avoid a data race with concurrent LinkUpEx calls. */
+  if (IOHDLC_IS_DISC(s)) {
+    s->mode = mode;
+  }
   
   /* Connection retry loop */
   for (retry_count = 0; retry_count < LINKUP_MAX_RETRIES; retry_count++) {
