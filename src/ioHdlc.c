@@ -462,7 +462,34 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   if (s->c_peer == NULL) {
     s->c_peer = peer;
   }
-  
+
+  return 0;
+}
+
+/**
+ * @brief   Set the transmit and receive window size for a peer.
+ * @details Must be called after @p ioHdlcAddPeer() and before
+ *          @p ioHdlcRunnerStart().
+ *
+ * @param[in] peer  Peer descriptor (already added to a station)
+ * @param[in] ks    Transmit window size (1..modmask)
+ * @param[in] kr    Receive window size (1..modmask)
+ *
+ * @return              0 on success, -1 on error
+ * @retval 0            Window size successfully applied
+ * @retval -1           Error occurred:
+ *                      - EINVAL: ks or kr is 0 or exceeds the station's modmask
+ *
+ * @note iohdlc_errno field contains detailed error code on failure.
+ */
+int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t kr) {
+  if (ks == 0 || ks > peer->stationp->modmask ||
+      kr == 0 || kr > peer->stationp->modmask) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+  peer->ks = ks;
+  peer->kr = kr;
   return 0;
 }
 

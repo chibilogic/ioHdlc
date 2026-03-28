@@ -880,6 +880,9 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   if (!IOHDLC_IS_BUSY(s) && hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_LOW_WATER) {
     s->flags |= IOHDLC_FLG_BUSY;  /* Mark that we are busy */
     *broadcast_flags_out |= IOHDLC_EVT_POOL_ST_CHG;
+#if defined(IOHDLC_ENABLE_STATISTICS)
+    p->stats.pool_low_water++;
+#endif
   }
   
   /* Increment V(R) - frame accepted. */

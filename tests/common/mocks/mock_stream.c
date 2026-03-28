@@ -362,9 +362,9 @@ ssize_t mock_stream_write(mock_stream_t *stream, const uint8_t *buf, size_t size
       should_corrupt = stream->config.error_filter(current_write, buf, size, 
                                                     stream->config.error_userdata);
     } else {
-      /* No filter: use pseudo-random corruption based on error_rate percentage
+      /* No filter: use pseudo-random corruption based on error_rate permille.
        * Uses write_count as entropy source for deterministic but varied behavior */
-      uint32_t pseudo_random = (current_write * 1103515245u + 12345u) % 100;
+      uint32_t pseudo_random = (current_write * 1103515245u + 12345u) % 1000;
       should_corrupt = pseudo_random < stream->config.error_rate;
     }
     

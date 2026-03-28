@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="524px" preserveAspectRatio="none" style="width:447px;height:524px;" version="1.1" viewBox="0 0 447 524" width="447px" zoomAndPan="magnify"><defs/><g><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="180" y1="34.2969" y2="217.0938"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 1.0,4.0;" x1="180" x2="180" y1="217.0938" y2="257.8984"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="180" y1="257.8984" y2="512.0938"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="290.5" x2="290.5" y1="34.2969" y2="217.0938"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 1.0,4.0;" x1="290.5" x2="290.5" y1="217.0938" y2="257.8984"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="290.5" x2="290.5" y1="257.8984" y2="512.0938"/><rect fill="#F7FBFF" height="30.2969" style="stroke: #4D6A86; stroke-width: 1.5;" width="64" x="148" y="3"/><text fill="#1F2F3D" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="50" x="155" y="22.9951">Primary</text><rect fill="#F7FBFF" height="30.2969" style="stroke: #4D6A86; stroke-width: 1.5;" width="87" x="247.5" y="3"/><text fill="#1F2F3D" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="73" x="254.5" y="22.9951">Secondary</text><rect fill="#EEEEEE" height="3" style="stroke: #EEEEEE; stroke-width: 1.0;" width="432" x="3" y="64.8633"/><line style="stroke: #000000; stroke-width: 1.0;" x1="3" x2="435" y1="64.8633" y2="64.8633"/><line style="stroke: #000000; stroke-width: 1.0;" x1="3" x2="435" y1="67.8633" y2="67.8633"/><rect fill="#EEEEEE" height="23.1328" style="stroke: #000000; stroke-width: 2.0;" width="116" x="161" y="54.2969"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="97" x="167" y="70.3638">Remote busy</text><polygon fill="#5A7088" points="279,104.5625,289,108.5625,279,112.5625,283,108.5625" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="108.5625" y2="108.5625"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="46" x="187" y="103.4966">I-frame</text><polygon fill="#5A7088" points="279,136.6953,289,140.6953,279,144.6953,283,140.6953" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="140.6953" y2="140.6953"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="87" x="187" y="135.6294">I-frame (P=1)</text><path d="M98,121.5625 L98,146.5625 L175,146.5625 L175,131.5625 L165,121.5625 L98,121.5625 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M165,121.5625 L165,131.5625 L175,131.5625 L165,121.5625 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="104" y="138.6294">T1 starts</text><polygon fill="#5A7088" points="191,205.0938,181,209.0938,191,213.0938,187,209.0938" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 2.0,2.0;" x1="185" x2="290" y1="209.0938" y2="209.0938"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="66" x="197" y="204.0278">RNR (F=1)</text><path d="M296,171.8281 L296,196.8281 L411,196.8281 L411,181.8281 L401,171.8281 L296,171.8281 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M401,171.8281 L401,181.8281 L411,181.8281 L401,171.8281 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="94" x="302" y="188.895">peer not ready</text><path d="M8,156.6953 L8,211.6953 L175,211.6953 L175,166.6953 L165,156.6953 L8,156.6953 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M165,156.6953 L165,166.6953 L175,166.6953 L165,156.6953 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="105" x="14" y="173.7622">remote busy set</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="146" x="14" y="188.895">TX I-frames suspended</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="71" x="14" y="204.0278">T1 stopped</text><text fill="#000000" font-family="sans-serif" font-size="11" lengthAdjust="spacingAndGlyphs" textLength="143" x="164" y="241.3042">Primary polls periodically</text><polygon fill="#5A7088" points="279,278.0313,289,282.0313,279,286.0313,283,282.0313" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="282.0313" y2="282.0313"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="57" x="187" y="276.9653">RR (P=1)</text><path d="M98,262.8984 L98,287.8984 L175,287.8984 L175,272.8984 L165,262.8984 L98,262.8984 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M165,262.8984 L165,272.8984 L175,272.8984 L165,262.8984 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="104" y="279.9653">T1 starts</text><polygon fill="#5A7088" points="191,316.1641,181,320.1641,191,324.1641,187,320.1641" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 2.0,2.0;" x1="185" x2="290" y1="320.1641" y2="320.1641"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="66" x="197" y="315.0981">RNR (F=1)</text><path d="M296,298.0313 L296,323.0313 L403,323.0313 L403,308.0313 L393,298.0313 L296,298.0313 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M393,298.0313 L393,308.0313 L403,308.0313 L393,298.0313 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="86" x="302" y="315.0981">still not ready</text><path d="M83,298.0313 L83,323.0313 L175,323.0313 L175,308.0313 L165,298.0313 L83,298.0313 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M165,298.0313 L165,308.0313 L175,308.0313 L165,298.0313 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="71" x="89" y="315.0981">T1 stopped</text><polygon fill="#5A7088" points="279,348.2969,289,352.2969,279,356.2969,283,352.2969" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="352.2969" y2="352.2969"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="57" x="187" y="347.231">RR (P=1)</text><path d="M98,333.1641 L98,358.1641 L175,358.1641 L175,343.1641 L165,333.1641 L98,333.1641 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M165,333.1641 L165,343.1641 L175,343.1641 L165,333.1641 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="104" y="350.231">T1 starts</text><polygon fill="#5A7088" points="191,431.8281,181,435.8281,191,439.8281,187,435.8281" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 2.0,2.0;" x1="185" x2="290" y1="435.8281" y2="435.8281"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="197" y="430.7622">RR (F=1)</text><path d="M296,390.9961 L296,415.9961 L425,415.9961 L425,400.9961 L415,390.9961 L296,390.9961 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M415,390.9961 L415,400.9961 L425,400.9961 L415,390.9961 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="108" x="302" y="408.063">peer ready again</text><path d="M21,368.2969 L21,438.2969 L175,438.2969 L175,378.2969 L165,368.2969 L21,368.2969 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M165,368.2969 L165,378.2969 L175,378.2969 L165,368.2969 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="132" x="27" y="385.3638">remote busy cleared</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="133" x="27" y="400.4966">TX I-frames resumed</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="71" x="27" y="415.6294">T1 stopped</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="65" x="27" y="430.7622">T3 started</text><polygon fill="#5A7088" points="279,460.9609,289,464.9609,279,468.9609,283,464.9609" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="464.9609" y2="464.9609"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="46" x="187" y="459.895">I-frame</text><polygon fill="#5A7088" points="279,490.0938,289,494.0938,279,498.0938,283,494.0938" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="494.0938" y2="494.0938"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="46" x="187" y="489.0278">I-frame</text><!--MD5=[0c667328533d073a8d5ded59d3b30fd8]
+@startuml
+hide footbox
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam ArrowColor #5a7088
+skinparam SequenceLifeLineBorderColor #5a7088
+skinparam SequenceLifeLineBackgroundColor #f7fbff
+skinparam ParticipantBorderColor #4d6a86
+skinparam ParticipantBackgroundColor #f7fbff
+skinparam ParticipantFontColor #1f2f3d
+skinparam NoteBorderColor #96a7b8
+skinparam NoteBackgroundColor #fffdf3
+
+participant Primary as P
+participant Secondary as S
+
+== Remote busy ==
+
+P -> S: I-frame
+P -> S: I-frame (P=1)
+note left: T1 starts
+
+S - -> P: RNR (F=1)
+note right: peer not ready
+note left: remote busy set\nTX I-frames suspended\nT1 stopped
+
+... Primary polls periodically ...
+
+P -> S: RR (P=1)
+note left: T1 starts
+
+S - -> P: RNR (F=1)
+note right: still not ready
+note left: T1 stopped
+
+P -> S: RR (P=1)
+note left: T1 starts
+
+S - -> P: RR (F=1)
+note right: peer ready again
+note left: remote busy cleared\nTX I-frames resumed\nT1 stopped\nT3 started
+
+P -> S: I-frame
+P -> S: I-frame
+
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 11:22:07 CET 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 21.0.10+7-Ubuntu-122.04
+Operating System: Linux
+Default Encoding: UTF-8
+Language: it
+Country: IT
+--></g></svg>

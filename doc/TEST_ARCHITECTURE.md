@@ -104,8 +104,6 @@ Adapter `init()`/`deinit()` per test ensures clean state -- no cross-test contam
 3. Create runner entry points that link the common scenarios.
 4. All scenario code and framework code are reused unchanged.
 
-See the project's CLAUDE.md for the library-side OSAL porting steps.
-
 ## References
 
 - [Test Suite README](../tests/README.md) -- what tests exist, how to build and run, implemented/planned checklists

@@ -285,20 +285,30 @@ See [Exchange Test Tool](TEST_EXCHANGE.md) for all available options.
 ## Performance
 
 Even on the Nucleo-F411RE -- a low-cost Cortex-M4 board with basic
-peripherals -- ioHdlc achieves substantial throughput:
+peripherals -- ioHdlc achieves substantial net payload throughput:
 
-| Transport | Mode | Throughput |
-|-----------|------|------------|
-| UART (1.2 Mbaud) | Full-duplex (TWS) | >1.2 Mb/s bidirectional |
-| SPI | Half-duplex (TWA) | >1.5 Mb/s unidirectional |
+| Transport | Mode | Net payload throughput |
+|-----------|------|------------------------|
+| UART (1.2 Mbaud) | Full-duplex (TWS) | >1 Mb/s bidirectional |
+| SPI | Half-duplex (TWA) | >1.3 Mb/s unidirectional |
 
 These figures are measured with the `exchange` tool using maximum-size
-frames (120 bytes) and sustained traffic. The UART rate is limited by the
-baud rate. The SPI rate is limited by the DMA round-trip, and the F411's
-basic SPI peripheral which lacks a hardware FIFO and other DMA-friendly
-features found on higher-end STM32 families --
-significantly better throughput (x10) is expected on MCUs with more capable SPI.
-Both transports use DMA for zero-copy frame transfers.
+frames (120 bytes) and sustained traffic, and refer to **application payload bytes** delivered end-to-end, net of
+HDLC framing overhead. Both stations run on the **same MCU**, which introduces
+shared-bus contention not present in a real deployment; actual throughput
+on separate devices is expected to be higher.
+
+The UART rate is limited by the baud rate. The SPI rate is limited by the
+DMA round-trip and the F411's basic SPI peripheral, which lacks a hardware
+FIFO and other DMA-friendly features found on higher-end STM32 families --
+significantly better throughput (×10) is expected on MCUs with more
+capable SPI peripherals. Both transports use DMA for zero-copy frame
+transfers.
+
+> **Note (SPI):** The >1.3 Mb/s figure requires the DATA_READY signal
+> (`IOHDLC_SPI_USE_DR`) and a patch to the ChibiOS low-level SPI driver
+> that eliminates the SPI peripheral reset between transfers. Without the
+> patch, throughput is lower.
 
 ## Mock Adapter (No Hardware)
 

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="625px" preserveAspectRatio="none" style="width:489px;height:625px;" version="1.1" viewBox="0 0 489 625" width="489px" zoomAndPan="magnify"><defs/><g><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="180" y1="34.2969" y2="275.3594"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 1.0,4.0;" x1="180" x2="180" y1="275.3594" y2="316.1641"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="180" y1="316.1641" y2="613.4922"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="290.5" x2="290.5" y1="34.2969" y2="275.3594"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 1.0,4.0;" x1="290.5" x2="290.5" y1="275.3594" y2="316.1641"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="290.5" x2="290.5" y1="316.1641" y2="613.4922"/><rect fill="#F7FBFF" height="30.2969" style="stroke: #4D6A86; stroke-width: 1.5;" width="64" x="148" y="3"/><text fill="#1F2F3D" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="50" x="155" y="22.9951">Primary</text><rect fill="#F7FBFF" height="30.2969" style="stroke: #4D6A86; stroke-width: 1.5;" width="87" x="247.5" y="3"/><text fill="#1F2F3D" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="73" x="254.5" y="22.9951">Secondary</text><rect fill="#EEEEEE" height="3" style="stroke: #EEEEEE; stroke-width: 1.0;" width="474" x="3" y="64.8633"/><line style="stroke: #000000; stroke-width: 1.0;" x1="3" x2="477" y1="64.8633" y2="64.8633"/><line style="stroke: #000000; stroke-width: 1.0;" x1="3" x2="477" y1="67.8633" y2="67.8633"/><rect fill="#EEEEEE" height="23.1328" style="stroke: #000000; stroke-width: 2.0;" width="310" x="85" y="54.2969"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="291" x="91" y="70.3638">Local busy (frame pool low watermark)</text><polygon fill="#5A7088" points="279,104.5625,289,108.5625,279,112.5625,283,108.5625" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="108.5625" y2="108.5625"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="46" x="187" y="103.4966">I-frame</text><polygon fill="#5A7088" points="279,133.6953,289,137.6953,279,141.6953,283,137.6953" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="137.6953" y2="137.6953"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="46" x="187" y="132.6294">I-frame</text><polygon fill="#5A7088" points="279,162.8281,289,166.8281,279,170.8281,283,166.8281" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="166.8281" y2="166.8281"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="87" x="187" y="161.7622">I-frame (P=1)</text><path d="M296,179.8281 L296,219.8281 L441,219.8281 L441,189.8281 L431,179.8281 L296,179.8281 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M431,179.8281 L431,189.8281 L441,189.8281 L431,179.8281 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="124" x="302" y="196.895">pool → LOW_WATER</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="87" x="302" y="212.0278">local busy set</text><polygon fill="#5A7088" points="191,252.793,181,256.793,191,260.793,187,256.793" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 2.0,2.0;" x1="185" x2="290" y1="256.793" y2="256.793"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="66" x="197" y="251.7271">RNR (F=1)</text><path d="M8,230.0938 L8,270.0938 L175,270.0938 L175,240.0938 L165,230.0938 L8,230.0938 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M165,230.0938 L165,240.0938 L175,240.0938 L165,230.0938 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="146" x="14" y="247.1606">TX I-frames suspended</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="66" x="14" y="262.2935">at Primary</text><text fill="#000000" font-family="sans-serif" font-size="11" lengthAdjust="spacingAndGlyphs" textLength="143" x="164" y="299.5698">Primary polls periodically</text><polygon fill="#5A7088" points="279,333.2969,289,337.2969,279,341.2969,283,337.2969" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="337.2969" y2="337.2969"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="57" x="187" y="332.231">RR (P=1)</text><path d="M296,350.2969 L296,390.2969 L438,390.2969 L438,360.2969 L428,350.2969 L296,350.2969 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M428,350.2969 L428,360.2969 L438,360.2969 L428,350.2969 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="121" x="302" y="367.3638">application reading</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="110" x="302" y="382.4966">frames from pool</text><polygon fill="#5A7088" points="191,415.6953,181,419.6953,191,423.6953,187,419.6953" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 2.0,2.0;" x1="185" x2="290" y1="419.6953" y2="419.6953"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="66" x="197" y="414.6294">RNR (F=1)</text><path d="M99,400.5625 L99,425.5625 L175,425.5625 L175,410.5625 L165,400.5625 L99,400.5625 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M165,400.5625 L165,410.5625 L175,410.5625 L165,400.5625 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="55" x="105" y="417.6294">still busy</text><polygon fill="#5A7088" points="279,447.8281,289,451.8281,279,455.8281,283,451.8281" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="451.8281" y2="451.8281"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="57" x="187" y="446.7622">RR (P=1)</text><path d="M296,464.8281 L296,504.8281 L431,504.8281 L431,474.8281 L421,464.8281 L296,464.8281 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M421,464.8281 L421,474.8281 L431,474.8281 L421,464.8281 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="101" x="302" y="481.895">pool → NORMAL</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="114" x="302" y="497.0278">local busy cleared</text><polygon fill="#5A7088" points="191,530.2266,181,534.2266,191,538.2266,187,534.2266" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0; stroke-dasharray: 2.0,2.0;" x1="185" x2="290" y1="534.2266" y2="534.2266"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="56" x="197" y="529.1606">RR (F=1)</text><path d="M21,515.0938 L21,540.0938 L175,540.0938 L175,525.0938 L165,515.0938 L21,515.0938 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><path d="M165,515.0938 L165,525.0938 L175,525.0938 L165,515.0938 " fill="#FFFDF3" style="stroke: #96A7B8; stroke-width: 1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="133" x="27" y="532.1606">TX I-frames resumed</text><polygon fill="#5A7088" points="279,562.3594,289,566.3594,279,570.3594,283,566.3594" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="566.3594" y2="566.3594"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="46" x="187" y="561.2935">I-frame</text><polygon fill="#5A7088" points="279,591.4922,289,595.4922,279,599.4922,283,595.4922" style="stroke: #5A7088; stroke-width: 1.0;"/><line style="stroke: #5A7088; stroke-width: 1.0;" x1="180" x2="285" y1="595.4922" y2="595.4922"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacingAndGlyphs" textLength="46" x="187" y="590.4263">I-frame</text><!--MD5=[2f48547e1f36436672eb734e1e3acd4b]
+@startuml
+hide footbox
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam ArrowColor #5a7088
+skinparam SequenceLifeLineBorderColor #5a7088
+skinparam SequenceLifeLineBackgroundColor #f7fbff
+skinparam ParticipantBorderColor #4d6a86
+skinparam ParticipantBackgroundColor #f7fbff
+skinparam ParticipantFontColor #1f2f3d
+skinparam NoteBorderColor #96a7b8
+skinparam NoteBackgroundColor #fffdf3
+
+participant Primary as P
+participant Secondary as S
+
+== Local busy (frame pool low watermark) ==
+
+P -> S: I-frame
+P -> S: I-frame
+P -> S: I-frame (P=1)
+note right of S: pool → LOW_WATER\nlocal busy set
+
+S - -> P: RNR (F=1)
+note left: TX I-frames suspended\nat Primary
+
+... Primary polls periodically ...
+
+P -> S: RR (P=1)
+note right of S: application reading\nframes from pool
+S - -> P: RNR (F=1)
+note left: still busy
+
+P -> S: RR (P=1)
+note right of S: pool → NORMAL\nlocal busy cleared
+S - -> P: RR (F=1)
+note left: TX I-frames resumed
+
+P -> S: I-frame
+P -> S: I-frame
+
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 11:22:07 CET 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 21.0.10+7-Ubuntu-122.04
+Operating System: Linux
+Default Encoding: UTF-8
+Language: it
+Country: IT
+--></g></svg>

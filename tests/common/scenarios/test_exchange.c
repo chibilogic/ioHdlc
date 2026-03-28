@@ -346,11 +346,19 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     test_printf("Add peer to primary failed: %d\r\n", result);
     return 1;
   }
-  
+
   result = ioHdlcAddPeer(&station_secondary, &peer_at_secondary, PRIMARY_ADDR);
   if (result != 0) {
     test_printf("Add peer to secondary failed: %d\r\n", result);
     return 1;
+  }
+
+  if (config.krs != 0) {
+    if (ioHdlcPeerSetWindow(&peer_at_primary, config.krs, config.krs) != 0 ||
+        ioHdlcPeerSetWindow(&peer_at_secondary, config.krs, config.krs) != 0) {
+      test_printf("Error: --krs %u exceeds modmask\r\n", config.krs);
+      return 1;
+    }
   }
   
   /* Start runners */
@@ -518,13 +526,15 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   test_printf("  Checkpoints:      %u\r\n", peer_at_primary.stats.checkpoints);
   test_printf("  Timeouts:         %u\r\n", peer_at_primary.stats.timeouts);
   test_printf("  Out of sequence:  %u\r\n", peer_at_primary.stats.out_of_sequence);
+  test_printf("  Pool low water:   %u\r\n", peer_at_primary.stats.pool_low_water);
   test_printf("\r\n");
 
-  test_printf("Protocol Statistics (Secondary → Primary peer):\r\n");
+  test_printf("Protocol Statistics (Secondary \xe2\x86\x92 Primary peer):\r\n");
   test_printf("  REJ received:     %u\r\n", peer_at_secondary.stats.rej_received);
   test_printf("  Checkpoints:      %u\r\n", peer_at_secondary.stats.checkpoints);
   test_printf("  Timeouts:         %u\r\n", peer_at_secondary.stats.timeouts);
   test_printf("  Out of sequence:  %u\r\n", peer_at_secondary.stats.out_of_sequence);
+  test_printf("  Pool low water:   %u\r\n", peer_at_secondary.stats.pool_low_water);
   test_printf("\r\n");
 #endif
 

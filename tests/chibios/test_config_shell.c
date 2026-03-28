@@ -65,6 +65,7 @@ static void print_usage(void) {
   test_printf("  --tws               Use Two-Way Simultaneous (default)\r\n");
   test_printf("  --time=N            Run for N seconds (vs --count)\r\n");
   test_printf("  --watermark-delay=N Reader delay every 256 packets in ms (default: 0)\r\n");
+  test_printf("  --krs=N             Window size (ks=kr=N, >=1; default: modmask)\r\n");
   test_printf("  --help              Show this help\r\n");
   test_printf("\r\n");
   test_printf("Examples:\r\n");
@@ -99,6 +100,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->poll_retry_max = 5;
   cfg->progress_interval_ms = 1000; /* Progress update default: 1000ms */
   cfg->watermark_delay_ms = 0;      /* Watermark delay disabled by default */
+  cfg->krs = 0;                     /* Use modmask default */
   cfg->test_name = "Shell Exchange Test";
   
   /* Parse arguments */
@@ -265,6 +267,19 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
           cfg->watermark_delay_ms = delay;
         } else {
           test_printf("Error: Invalid watermark delay\r\n");
+          return false;
+        }
+      }
+    }
+    /* --krs=N */
+    else if (arg_starts_with(arg, "--krs=")) {
+      value = get_arg_value(arg);
+      if (value) {
+        int krs = atoi(value);
+        if (krs >= 1) {
+          cfg->krs = krs;
+        } else {
+          test_printf("Error: --krs must be >= 1\r\n");
           return false;
         }
       }
