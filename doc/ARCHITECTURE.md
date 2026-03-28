@@ -337,10 +337,8 @@ iohdlc_station_config_t config = {
 ```
 
 **Station initialization derives additional runtime state:**
-- frame size and pool dimension from the arena and driver constraints
-- control field size and frame offset from the selected modulo / FFF policy
-- fast-access protocol flags from the optional-functions bitmap
-- final driver configuration after validating FCS, transparency, and FFF compatibility against driver capabilities
+
+The frame size and pool dimensions are determined based on the constraints imposed by the memory arena and the driver. The control field size and frame offset, on the other hand, depend on the selected modulo and the adopted FFF policy. Fast-access protocol flags are derived from the optional-functions bitmap, while the final driver configuration is established only after validating that FCS, transparency, and FFF compatibility align with the driver’s capabilities.
 
 ## Extension Points
 
@@ -369,7 +367,6 @@ The design decisions described above — pre-allocated frame pools, reference-co
 ## Future Enhancements
 
 - **ABM and ARM modes**: Complete the currently reserved ABM/ARM paths. Mode constants and placeholder handlers already exist, but the transmit-side logic is not finished yet.
-- **Multi-point master**: Support for polling multiple secondaries
 - **Selective Reject (SREJ)**: Retransmit only specific frames
 - **Link quality monitoring**: Track error rates, adjust timeouts
 - **Dynamic window sizing**: Adapt to line conditions

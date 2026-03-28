@@ -88,8 +88,9 @@ uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags)
 /** @ingroup ioHdlc_core */
 void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
 
-/** @ingroup ioHdlc_core */
-iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *station);
+/** @ingroup ioHdlc_core
+ *  @see ioHdlcNextPeer() */
+iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *station, bool find_pending_only);
 
 #ifdef __cplusplus
 }

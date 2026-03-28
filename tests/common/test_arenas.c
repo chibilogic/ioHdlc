@@ -27,4 +27,5 @@
  */
 uint8_t shared_arena_primary[TEST_ARENA_SIZE];
 uint8_t shared_arena_secondary[TEST_ARENA_SIZE];
+uint8_t shared_arena_secondary_b[TEST_ARENA_SIZE];
 uint8_t shared_arena_single[TEST_ARENA_SIZE];

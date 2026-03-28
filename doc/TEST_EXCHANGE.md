@@ -165,7 +165,7 @@ Primary -> Secondary Traffic:
 
 ### Protocol Statistics
 
-When compiled with `-DIOHDLC_ENABLE_STATISTICS`, additional per-peer counters are reported:
+When compiled with `-DIOHDLC_ENABLE_STATISTICS` (default on Linux), additional per-peer counters are reported:
 
 ```
 Protocol Statistics (Primary -> Secondary peer):
@@ -173,6 +173,7 @@ Protocol Statistics (Primary -> Secondary peer):
   Checkpoints:      0
   Timeouts:         0
   Out of sequence:  0
+  Pool low water:   2
 ```
 
 ## Packet Format
@@ -255,4 +256,4 @@ make -C tests/linux CFLAGS_EXTRA="-DIOHDLC_LOG_LEVEL=1"
 
 ### Protocol Counters
 
-Build with `-DIOHDLC_ENABLE_STATISTICS` to get REJ, checkpoint, timeout, and out-of-sequence counters in the final report.
+Build with `-DIOHDLC_ENABLE_STATISTICS` to get REJ, checkpoint, timeout, pool low, and out-of-sequence counters in the final report.

@@ -32,6 +32,7 @@
 /*===========================================================================*/
 
 #define MOCK_STREAM_BUFFER_SIZE 4096
+#define MOCK_STREAM_MAX_PEERS  8
 
 /*===========================================================================*/
 /* Types                                                                     */
@@ -106,7 +107,8 @@ struct mock_stream {
   mock_buffer_t tx_buf;       /**< TX circular buffer (unused in peer mode). */
   iohdlc_mutex_t state_lock;  /**< State protection. */
   mock_stream_config_t config;/**< Configuration. */
-  mock_stream_t *peer;        /**< Connected peer (NULL if disconnected). */
+  mock_stream_t *peers[MOCK_STREAM_MAX_PEERS]; /**< Connected peers. */
+  uint8_t        peer_count;  /**< Number of connected peers. */
   bool closed;                /**< Stream closed flag. */
   uint32_t write_count;       /**< Write operation counter (for error injection). */
 };
@@ -153,7 +155,16 @@ void mock_stream_deinit(mock_stream_t *stream);
 void mock_stream_connect(mock_stream_t *stream_a, mock_stream_t *stream_b);
 
 /**
- * @brief   Disconnect stream from its peer.
+ * @brief   Add a one-directional peer (stream's writes go to peer's RX).
+ * @details For bidirectional connection, call this on both sides or use
+ *          mock_stream_connect() which does it for you.
+ * @param[in] stream    Source stream.
+ * @param[in] peer      Peer to add as a receiver.
+ */
+void mock_stream_add_peer(mock_stream_t *stream, mock_stream_t *peer);
+
+/**
+ * @brief   Disconnect stream from all its peers.
  * @param[in] stream    Stream to disconnect.
  */
 void mock_stream_disconnect(mock_stream_t *stream);

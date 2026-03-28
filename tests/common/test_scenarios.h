@@ -82,6 +82,15 @@ bool test_checkpoint_window_full_twa(void);
 
 bool test_frmr_invalid_nr(const test_adapter_t *adapter);
 
+/*===========================================================================*/
+/* Test: Multipoint NRM                                                      */
+/*===========================================================================*/
+
+int test_multipoint_connect_two_secondaries(void);
+int test_multipoint_data_exchange(void);
+int test_multipoint_selective_disconnect(void);
+int test_multipoint_address_isolation(void);
+
 #ifdef __cplusplus
 }
 #endif

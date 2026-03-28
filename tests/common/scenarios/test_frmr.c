@@ -109,12 +109,14 @@ static bool inject_invalid_nr_tamper(uint32_t write_count, uint8_t *data,
  * @return  0 on success, 1 on failure.
  */
 bool test_frmr_invalid_nr(const test_adapter_t *adapter) {
+  (void)adapter;  /* This test creates its own mock streams directly. */
+
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   ioHdlcSwDriver driver_primary, driver_secondary;
   uint8_t arena_primary[8192], arena_secondary[8192];
-  mock_stream_t *stream_primary, *stream_secondary;
-  mock_stream_adapter_t *adapter_primary, *adapter_secondary;
+  mock_stream_t *stream_primary = NULL, *stream_secondary = NULL;
+  mock_stream_adapter_t *adapter_primary = NULL, *adapter_secondary = NULL;
   iohdlc_station_config_t config;
   int32_t result;
   int test_result = 0;

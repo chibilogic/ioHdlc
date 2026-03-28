@@ -309,6 +309,7 @@ struct iohdlc_peer_stats {
   volatile uint32_t checkpoints;        /* Checkpoint retransmissions triggered. */
   volatile uint32_t timeouts;           /* Reply timeout events. */
   volatile uint32_t out_of_sequence;    /* Out-of-sequence I-frames discarded. */
+  volatile uint32_t pool_low_water;     /* Pool low-watermark events (RNR backpressure applied). */
 };
 #endif /* IOHDLC_ENABLE_STATISTICS */
 
@@ -432,6 +433,7 @@ struct iohdlc_station {
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
   iohdlc_station_peer_t *arm_peer;  /* The peer currently in arm mode, if any. */
+  volatile uint8_t connected_count;  /* Number of currently connected peers. */
 
   /* state, peers, pool and queues. */
   iohdlc_peer_list_t  peers;    /* The header of the list of the peers of this station. Stations
@@ -544,6 +546,7 @@ extern "C" {
   #define ioHdlcRead(peer, buf, count) ioHdlcReadTmo(peer, buf, count, IOHDLC_WAIT_FOREVER)
 
   int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer, uint32_t addr);
+  int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t kr);
 
   iohdlc_station_peer_t *addr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
 

@@ -1,0 +1,47 @@
+@startuml
+hide footbox
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam ArrowColor #5a7088
+skinparam SequenceLifeLineBorderColor #5a7088
+skinparam SequenceLifeLineBackgroundColor #f7fbff
+skinparam ParticipantBorderColor #4d6a86
+skinparam ParticipantBackgroundColor #f7fbff
+skinparam ParticipantFontColor #1f2f3d
+skinparam NoteBorderColor #96a7b8
+skinparam NoteBackgroundColor #fffdf3
+
+participant Primary as P
+participant Secondary as S
+
+== Remote busy ==
+
+P -> S: I-frame
+P -> S: I-frame (P=1)
+note left: T1 starts
+
+S --> P: RNR (F=1)
+note right: peer not ready
+note left: remote busy set\nTX I-frames suspended\nT1 stopped
+
+... Primary polls periodically ...
+
+P -> S: RR (P=1)
+note left: T1 starts
+
+S --> P: RNR (F=1)
+note right: still not ready
+note left: T1 stopped
+
+P -> S: RR (P=1)
+note left: T1 starts
+
+S --> P: RR (F=1)
+note right: peer ready again
+note left: remote busy cleared\nTX I-frames resumed\nT1 stopped\nT3 started
+
+P -> S: I-frame
+P -> S: I-frame
+
+@enduml

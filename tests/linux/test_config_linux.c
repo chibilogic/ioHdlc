@@ -42,6 +42,7 @@ static void print_usage(const char *progname) {
   printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
   printf("  --reply-timeout=N   Reply timeout in ms (default: 0=100ms)\n");  printf("  --poll-retry-max=N  Max poll retries before link down (default: 0=5)\n");  printf("  --progress-interval=ms  Progress update interval in ms (default: 1000)\n");
   printf("  --watermark-delay=N Reader delay every 256 packets in ms (default: 0=disabled)\n");
+  printf("  --krs=N             Window size (ks=kr=N, 1..modmask; default: modmask)\n");
   printf("  --help              Show this help\n\n");
   printf("Examples:\n");
   printf("  %s --mode=nrm --twa --count=100 --exchanges=50 --size=64\n", progname);
@@ -67,6 +68,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->poll_retry_max = 0;  /* Use default (5) */
   cfg->progress_interval_ms = 1000;  /* 1 second by default */
   cfg->watermark_delay_ms = 0;  /* Disabled by default */
+  cfg->krs = 0;                 /* Use modmask default */
   cfg->test_name = argv[0];
   
   /* Long options */
@@ -84,6 +86,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     {"poll-retry-max",required_argument, 0, 'R'},
     {"progress-interval", required_argument, 0, 'p'},
     {"watermark-delay", required_argument, 0, 'w'},
+    {"krs",       required_argument, 0, 'K'},
     {"help",      no_argument,       0, 'h'},
     {0, 0, 0, 0}
   };
@@ -91,7 +94,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   int opt;
   int option_index = 0;
   
-  while ((opt = getopt_long(argc, argv, "m:asc:t:e:z:d:r:T:R:p:w:h",
+  while ((opt = getopt_long(argc, argv, "m:asc:t:e:z:d:r:T:R:p:w:K:h",
                             long_options, &option_index)) != -1) {
     switch (opt) {
       case 'm':  /* --mode */
@@ -186,6 +189,14 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         
       case 'w':  /* --watermark-delay */
         cfg->watermark_delay_ms = atoi(optarg);
+        break;
+
+      case 'K':  /* --krs */
+        cfg->krs = atoi(optarg);
+        if (cfg->krs == 0) {
+          fprintf(stderr, "Error: --krs must be >= 1\n");
+          return false;
+        }
         break;
         
       case 'h':  /* --help */

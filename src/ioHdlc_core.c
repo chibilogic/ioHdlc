@@ -65,13 +65,18 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
+static void setModeFunctions(iohdlc_station_t *s, uint8_t mode);
+
 /**
  * @brief   Mark a peer as disconnected and wake blocked transmitters.
  * @param[in] p   Peer state to update.
  */
 static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p) {
+  if (p->ss_state & IOHDLC_SS_ST_CONN) {
+    p->stationp->connected_count--;
+  }
   p->ss_state &= ~IOHDLC_SS_ST_CONN;
-  iohdlc_condvar_broadcast(&p->tx_cv);  
+  iohdlc_condvar_broadcast(&p->tx_cv);
 }
 
 /**
@@ -79,8 +84,11 @@ static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p) {
  * @param[in] p   Peer state to update.
  */
 static void ioHdlcSetConnected(iohdlc_station_peer_t *p) {
+  if (!(p->ss_state & IOHDLC_SS_ST_CONN)) {
+    p->stationp->connected_count++;
+  }
   p->ss_state |= IOHDLC_SS_ST_CONN;
-  iohdlc_condvar_broadcast(&p->tx_cv);  
+  iohdlc_condvar_broadcast(&p->tx_cv);
 }
 
 /**
@@ -127,7 +135,13 @@ static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
     
     /* Mark peer disconnected (blocks further transmissions). */
     ioHdlcSetDisconnected(p);
-    
+
+    /* Enter disconnected mode if no other peer is still connected. */
+    if (s->connected_count == 0) {
+      s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+      setModeFunctions(s, s->mode);
+    }
+
     return false;  /* Link down, do not retry. */
   }
   
@@ -318,24 +332,45 @@ static bool sendOpportunity(iohdlc_station_t *s) {
 
 /**
  * @brief   Peer round-robin helper.
- * @details Advances @p s->c_peer to the next peer in the circular list.
+ * @details Advances @p s->c_peer to the next peer in the circular list
+ *          that matches the requested filter, then returns it.
  *          If the list is empty returns NULL and leaves @p c_peer unchanged.
- * @param[in] s   Station descriptor.
- * @return  Next distinct peer, or NULL if there is no next.
+ *          If no matching peer is found after a full traversal, @p c_peer
+ *          is left on the starting peer and that peer is returned.
+ * @param[in] s                 Station descriptor.
+ * @param[in] find_pending_only Filter selector:
+ *            - @c true  — accept only disconnected peers that have a pending
+ *                         @p um_cmd.
+ *            - @c false — accept any connected peer, or any disconnected peer
+ *                         that has a pending @p um_cmd (normal round-robin).
+ * @return  Next matching peer, or NULL if the list is empty.
  */
-iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s) {
+iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s, bool find_pending_only) {
   IOHDLC_ASSERT(s != NULL, "ioHdlcNextPeer: station is NULL");
   iohdlc_station_peer_t *head = (iohdlc_station_peer_t *)&s->peers;
 
   if (ioHdlc_peerl_isempty((const iohdlc_peer_list_t *)head))
     return NULL;
 
-  /* Compute next with wrap to list head. */
-  s->c_peer = s->c_peer->next;
-  if (s->c_peer == head)
-    s->c_peer = head->next;
+  iohdlc_station_peer_t *start = s->c_peer;
+  do {
+    s->c_peer = s->c_peer->next;
+    if (s->c_peer == head)
+      s->c_peer = head->next;
 
-  return s->c_peer;
+    if (find_pending_only) {
+      /* Accept: disconnected peer with pending um_cmd only. */
+      if (IOHDLC_PEER_DISC(s->c_peer) && s->c_peer->um_cmd != 0)
+        return s->c_peer;
+    } else {
+      /* Accept: connected peer, or disconnected peer with pending um_cmd. */
+      if (!IOHDLC_PEER_DISC(s->c_peer) || s->c_peer->um_cmd != 0)
+        return s->c_peer;
+    }
+
+  } while (s->c_peer != start);
+
+  return s->c_peer;  /* No matching peer found: stay on current. */
 }
 
 /**
@@ -456,10 +491,14 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       /* Reset peer variables. */
       resetPeerVars(p);
       if (p->um_cmd == IOHDLC_U_DISC) {
-        /* DISC accepted: enter disconnected mode. */
-        s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-        setModeFunctions(s, s->mode);  /* Reset to NULL */
+        /* DISC accepted: disconnect this peer. */
         ioHdlcSetDisconnected(p);
+
+        /* Enter disconnected mode only if no other peer is still connected. */
+        if (s->connected_count == 0) {
+          s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+          setModeFunctions(s, s->mode);
+        }
       } else {
         /* Connection command accepted (SNRM/SARM/SABM).
            Mode was already set by linkup() before sending command. */
@@ -471,8 +510,9 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       /* Clear UM state. */
       resetPeerUm(p);
       
-      /* Notify core internal events. */
-      ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_ST_CHG);
+      /* Re-trigger LINK_REQ to chain-serve other pending peers;
+         ioHdlcNextPeer(s,true) in TX guards the switch. */
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_ST_CHG | IOHDLC_EVT_LINK_REQ);
       
       /* Notify application: determine if link up or link down based on um_cmd. */
       ioHdlcBroadcastFlagsApp(s, (cmd == IOHDLC_U_DISC) ? 
@@ -484,8 +524,8 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       p->ss_state |= IOHDLC_SS_ST_DISM;
       resetPeerUm(p);
       
-      /* Notify core internal events. */
-      ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_ST_CHG);
+      /* Re-trigger LINK_REQ (same rationale as UA path above). */
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_ST_CHG | IOHDLC_EVT_LINK_REQ);
       
       /* Notify application: DM means link refused or link down. */
       ioHdlcBroadcastFlagsApp(s, (p->um_state & IOHDLC_UM_SENT) ? 
@@ -840,6 +880,9 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   if (!IOHDLC_IS_BUSY(s) && hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_LOW_WATER) {
     s->flags |= IOHDLC_FLG_BUSY;  /* Mark that we are busy */
     *broadcast_flags_out |= IOHDLC_EVT_POOL_ST_CHG;
+#if defined(IOHDLC_ENABLE_STATISTICS)
+    p->stats.pool_low_water++;
+#endif
   }
   
   /* Increment V(R) - frame accepted. */
@@ -1029,8 +1072,13 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Common checkpoint and acknowledgment processing for all I/S frames. */
   if (!handleCheckpointAndAck(s, p, nr, pf, &should_signal_tx, &checkpoint_moved, &broadcast_flags)) {
     /* Invalid N(R): set FRMR exception condition (ISO 13239, 5.5.3).
-       The control field of the rejected frame is available in ctrl. */
-    setFrmrCondition(s, p, &ctrl, s->ctrl_size, (addr != s->addr), IOHDLC_FRMR_Y);
+       Extract full control field (1 or 2 bytes) from the frame. */
+    {
+      uint8_t rejected_ctrl[2];
+      rejected_ctrl[0] = IOHDLC_FRAME_CTRL(s, fp, 0);
+      rejected_ctrl[1] = (s->ctrl_size > 1) ? IOHDLC_FRAME_CTRL(s, fp, 1) : 0;
+      setFrmrCondition(s, p, rejected_ctrl, s->ctrl_size, (addr != s->addr), IOHDLC_FRMR_Y);
+    }
     iohdlc_mutex_unlock(&p->state_mutex);
     hdlcReleaseFrame(&s->frame_pool, fp);
     return;
@@ -1134,8 +1182,13 @@ void ioHdlcRxEntry(void *stationp) {
       continue;
     }
 
-    /* Call mode-specific RX handler for I and S frames. */
-    s->rx_fn(s, fp);
+    /* Call mode-specific RX handler for I and S frames.
+       rx_fn is NULL in disconnected mode (NDM/ADM); discard the frame. */
+    if (s->rx_fn != NULL) {
+      s->rx_fn(s, fp);
+    } else {
+      hdlcReleaseFrame(&s->frame_pool, fp);
+    }
   }
   ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_REPLY);
   ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_T3);
@@ -1546,6 +1599,19 @@ skip_i_frames:
     /* Send the prepared S-frame. */
     (void) sendFrame(s, sframe_to_send);
   }
+
+  /* Multipoint: if primary has nothing pending for this peer, no FRMR
+     condition, and the P/F cycle is closed (F received), advance to
+     the next peer in the round-robin. */
+  if (IOHDLC_IS_PRI(s) && IOHDLC_F_ISRCVED(s) && !p->frmr_condition &&
+      ioHdlc_frameq_isempty(&p->i_trans_q) &&
+      ioHdlc_frameq_isempty(&p->i_retrans_q)) {
+    iohdlc_station_peer_t *prev = p;
+    iohdlc_station_peer_t *next = ioHdlcNextPeer(s, false);
+    if (next != NULL && next != prev)
+      IOHDLC_SET_NEED_P(s, next);
+  }
+
   iohdlc_mutex_unlock(&p->state_mutex);
 
   return cm_flags;
@@ -1650,13 +1716,29 @@ void ioHdlcTxEntry(void *stationp) {
         continue;
       }
 
+      /* Multipoint: if LINK_REQ but current peer has no pending um_cmd,
+         switch to the peer that requested the connection. */
+      if ((s_flags & IOHDLC_EVT_LINK_REQ) && p->um_cmd == 0 &&
+          !(p->um_state & IOHDLC_UM_SENT)) {
+        iohdlc_station_peer_t *target = ioHdlcNextPeer(s, true);
+        if (target != NULL && target->um_cmd != 0) {
+          iohdlc_mutex_unlock(&p->state_mutex);
+          p = target;
+          iohdlc_mutex_lock(&p->state_mutex);
+        } else {
+          /* No peer with pending um_cmd found, ignore. */
+          iohdlc_mutex_unlock(&p->state_mutex);
+          continue;
+        }
+      }
+
             /* Evaluate timer expiry and manage retry counter. */
       if (s_flags & IOHDLC_EVT_C_RPLYTMO) {
         if (!handleTimeoutRetry(s, p)) {
           /* Link down: max retries exceeded, switch to next peer. */
           resetPeerUm(p);
           resetPeerVars(p);
-          ioHdlcNextPeer(s);
+          ioHdlcNextPeer(s, false);
           cm_flags = 0;
           iohdlc_mutex_unlock(&p->state_mutex);
           continue;
@@ -1733,10 +1815,14 @@ void ioHdlcTxEntry(void *stationp) {
 
           if (p->um_cmd == IOHDLC_U_DISC) {
             /* DISC has been received: disconnect the link. */
-            s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-            setModeFunctions(s, s->mode);  /* Reset to NULL */
             ioHdlcSetDisconnected(p);           /* Do not reset the queues to allow */
             iohdlc_sem_signal(&p->i_recept_sem);/* the reading of remaining frames*/
+
+            /* Enter disconnected mode only if no other peer connected. */
+            if (s->connected_count == 0) {
+              s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+              setModeFunctions(s, s->mode);
+            }
           }
         }
       } else {
@@ -1748,6 +1834,15 @@ void ioHdlcTxEntry(void *stationp) {
     cm_flags &= ~(IOHDLC_EVT_LINK_ST_CHG);
 
     if (IOHDLC_PEER_DISC(p) || IOHDLC_UM_ISSENT(p)) {
+      /* Multipoint: if peer is disconnected with no pending UM operations,
+         advance to next peer that is connected or has pending um_cmd. */
+      if (IOHDLC_IS_PRI(s) && IOHDLC_PEER_DISC(p) &&
+          p->um_cmd == 0 && !(p->um_state & IOHDLC_UM_SENT)) {
+        iohdlc_mutex_unlock(&p->state_mutex);
+        ioHdlcNextPeer(s, false);
+        cm_flags = 0;
+        continue;
+      }
       cm_flags &= IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_LINK_REQ;
       iohdlc_mutex_unlock(&p->state_mutex);
       continue;

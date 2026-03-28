@@ -65,7 +65,7 @@
 
 #if defined(TEST_SPI_USE_CS)
 /* Hardware NSS: master drives PA4, slave listens on PB12 */
-#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_2 | SPI_CR1_BR_1 | SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
+#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_2 | /*SPI_CR1_BR_1 |*/ SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
 #define TEST_SPI_CFG_B_CR1      0
 #define TEST_SPI_CS_PORT_A      TEST_SPI_CS_PORT_A_HW
 #define TEST_SPI_CS_PAD_A       TEST_SPI_CS_PAD_A_HW

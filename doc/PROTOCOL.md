@@ -25,6 +25,8 @@ This document describes the **ISO 13239 HDLC** (High-Level Data Link Control) pr
 - **Position**: Start and end of frame
 - **Byte Stuffing**: Any 0x7E in data is escaped
 
+In HDLC, it is permitted for the closing flag of a frame to also serve as the opening flag of the next frame. In a continuous stream of frames, this means the same flag can act as a separator between consecutive frames, avoiding the need to transmit two distinct flags back-to-back. **This is the approach** adopted by **ioHdlc**, which takes advantage of this feature to optimize frame sequencing.
+
 #### Address Field (8 bits)
 
 - **Format**: `AAAAAAAP` (7-bit address + 1-bit P/F)
@@ -77,9 +79,7 @@ An optional leading octet (or pair of octets) prepended to the frame that declar
 
 **Mutual exclusivity**: FFF and transparency (byte stuffing) are mutually exclusive — transparency alters frame length, which would invalidate the FFF-declared length.
 
-**Frame diagrams:**
-
-![Classic HDLC frame format](diagrams/svg/frame_format_classic.svg)
+**FFF Frame diagram:**
 
 ![FFF HDLC frame format](diagrams/svg/frame_format_fff.svg)
 
@@ -314,6 +314,58 @@ V(A)=4
 Window size: (7 - 4) mod 8 = 3
 Can send 4 more frames (I7, I0, I1, I2)
 ```
+
+## Busy States and Flow Control
+
+**ioHdlc** defines two independent busy conditions that both use the RNR/RR
+supervisory-frame pair to suspend and resume I-frame transmission.
+
+### Remote Busy
+
+**Trigger**: An RNR frame is received from the remote station.
+
+The remote station is signalling that it cannot accept further I-frames.
+I-frame transmission toward that peer is suspended until an RR frame is
+received. In NRM, the primary station continues to poll the secondary periodically to detect when it returns to the ready state.
+
+![Remote busy cycle](diagrams/svg/busy_remote.svg)
+
+### Local Busy — Frame Pool Backpressure
+
+**Trigger**: The local frame pool drops to or below the LOW_WATER threshold
+(default: ≤ 20% free frames).
+
+When the receiver cannot obtain free frames fast enough to keep pace with
+incoming I-frames, continuing to accept data would risk pool exhaustion.
+ioHdlc handles this automatically: as soon as the LOW_WATER threshold is
+crossed while accepting an incoming I-frame, the station signals busy to
+the remote side by sending RNR. No application involvement is required.
+
+When the application consumes buffered frames via `ioHdlcReadTmo` and the
+pool recovers above the HIGH_WATER threshold (default: > 60% free), the
+station sends RR and the remote side resumes transmission.
+
+The gap between LOW_WATER and HIGH_WATER (hysteresis) prevents rapid
+RNR/RR oscillations under sustained load.
+
+| Threshold  | Condition            | Action                    |
+|------------|----------------------|---------------------------|
+| LOW_WATER  | free ≤ 20% of total  | Set local busy, send RNR  |
+| HIGH_WATER | free > 60% of total  | Clear local busy, send RR |
+
+![Local busy cycle](diagrams/svg/busy_local.svg)
+
+### Write-Side Backpressure
+
+The busy mechanism propagates upstream to the application automatically.
+`ioHdlcWriteTmo` blocks (subject to the caller-specified timeout) when:
+
+- the number of unacknowledged frames pending acknowledgment is high, or
+- the frame pool is in LOW_WATER state.
+
+As a result the application cannot outrun the link: memory pressure on the
+pool translates directly into back-pressure on the writer, without any
+frame loss.
 
 ## Error Recovery
 
@@ -703,17 +755,62 @@ station (ISO 13239, 5.5.3).
 
 ### Throughput
 
-**Maximum throughput** (modulo 8, window=7):
-```
-Throughput = (Window * Frame_Size) / RTT
+The transmitter sends frames back-to-back up to the window limit `ks`. ACKs
+(piggybacked on reverse I-frames or as standalone RR) arrive while new frames
+are still being transmitted. The ACK for the first frame of a burst arrives
+after one **round-trip time**:
 
-Example:
-Window = 7 frames
-Frame = 256 bytes
-RTT = 1ms (2 Mbps SPI link)
-
-Throughput = (7 * 256) / 0.001 = 1.75 MB/s
 ```
+RTT = Ttx + 2 × Tp
+
+  Ttx = Frame_Size × 8 / Baudrate   (transmission time of one frame)
+  Tp  = one-way delay: propagation + any hidden latencies
+        (interrupt handling, driver buffering, peer processing, OS scheduling)
+```
+
+In `RTT` seconds the transmitter can place `RTT / Ttx` frames on the wire.
+To keep the channel continuously busy the window must satisfy:
+
+```
+W_min = ceil(RTT / Ttx) = ceil(1 + 2 × Tp / Ttx)
+```
+
+| Condition   | Regime          | Channel utilisation    |
+|-------------|-----------------|------------------------|
+| W >= W_min  | channel-limited | ≈ Payload / Frame_Size |
+| W < W_min   | window-limited  | W × Ttx / RTT          |
+
+**Example A — 2 Mbps SPI, short cable (Tp = 0.05 ms), 128-byte frames:**
+```
+Ttx   = 128 × 8 / 2,000,000  = 0.512 ms
+RTT   = 0.512 + 2 × 0.05     = 0.612 ms
+W_min = ceil(0.612 / 0.512)  = 2 frames
+
+W = 7 >> W_min  →  channel-limited
+Throughput = 2 Mbps × 122/128 ≈ 1.91 Mbps
+```
+
+The ACK for frame 0 arrives at t ≈ 0.612 ms; the transmitter has only sent
+frame 1 by then. A window of 7 is more than sufficient.
+
+**Example B — 10 Mbps link with latency (Tp = 1 ms), 128-byte frames:**
+```
+Ttx   = 128 × 8 / 10,000,000 = 0.102 ms
+RTT   = 0.102 + 2 × 1.0      = 2.102 ms
+W_min = ceil(2.102 / 0.102)  = 21 frames
+
+With modulo 8 (W = 7):
+  W < W_min  →  window-limited
+  Utilisation = 7 × 0.102 / 2.102 ≈ 34%
+  Throughput  ≈ 0.34 × 10 Mbps × 122/128 ≈ 3.25 Mbps
+
+With modulo 128 (W = 127):
+  W >> W_min  →  channel-limited
+  Throughput  ≈ 10 Mbps × 122/128 ≈ 9.53 Mbps
+```
+
+This is the core motivation for modulo 128: on high-speed or high-latency
+links a window of 7 leaves most of the channel bandwidth unused.
 
 ### Efficiency
 

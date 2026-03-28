@@ -72,6 +72,7 @@ typedef struct {
   /* HDLC protocol parameters */
   uint16_t reply_timeout_ms;            /**< Reply timeout in ms (0=default 100ms) */
   uint8_t poll_retry_max;               /**< Max poll retries (0=default 5) */
+  uint32_t krs;                         /**< Window size ks=kr (0=use modmask default) */
   
   /* Progress reporting */
   uint32_t progress_interval_ms;        /**< Progress update interval in ms (default: 1000) */
