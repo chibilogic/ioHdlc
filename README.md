@@ -203,9 +203,7 @@ Copyright (C) 2024–2026 **Isidoro Orabona** — All rights reserved.
 
 ## Contributing
 
-Contributions are welcome. Unless explicitly stated otherwise, any contribution
-submitted for inclusion in this repository is assumed to be provided under the
-terms of the GNU General Public License v3.0 or later.
+See [Contributing](doc/CONTRIBUTING.md) and [Contributor License Agreement](doc/CLA.md)
 
 ---
 
