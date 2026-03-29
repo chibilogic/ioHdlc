@@ -582,7 +582,7 @@ Two bytes:    0x02 0x03 (extended address)
 - ✅ NRM (Normal Response Mode)
 - ✅ TWS (Two-Way Simultaneous)
 - ✅ TWA (Two-Way Alternate)
-- ❌ ABM (Asynchronous Balanced Mode) - not implemented
+- ❌ ABM (Asynchronous Balanced Mode) - coming next!
 
 ### Supported Functions
 
@@ -833,6 +833,45 @@ Latency = Propagation_Delay + (Frame_Size / Baud_Rate)
 Example (2 Mbps, 256 bytes):
 Latency ≈ 0 + (2048 bits / 2,000,000) ≈ 1.02 ms
 ```
+
+### Why Large Frames Are an Anti-Pattern in Embedded HDLC Designs
+
+We have seen above that ioHdlc supports FFF field TYPE0 and TYPE1, which limit the net payload length to 120 and 4087 bytes respectively. This should **not** be considered a limitation of ioHdlc.
+When designing HDLC-based communication stacks for embedded systems, it is tempting to increase frame size in order to improve throughput. At a superficial level, this appears reasonable: larger frames reduce protocol overhead and therefore increase efficiency. However, in practice—especially on resource-constrained systems this approach introduces significant drawbacks. Modern communication systems have converged on a different strategy: moderate frame sizes combined with windowing, flow control, and efficient memory management.
+
+Ethernet, for example, provides a useful reference point. Despite operating on high-speed and highly reliable links, it defines a standard MTU of 1500 bytes, with optional jumbo frames around 9000 bytes used only in controlled environments. This limit is not arbitrary. It reflects a carefully balanced trade-off between throughput, latency, error recovery, memory usage, and fairness. Even in systems far more capable than typical embedded devices, very large frames are avoided because they degrade overall system behavior.
+
+#### The Limited Benefit of Large Frames
+
+The only meaningful advantage of large frames is the reduction of protocol overhead. As payload size increases, the relative cost of headers and checksums decreases. While this improves theoretical efficiency, it does not account for real-world conditions such as transmission errors, buffering constraints, and system responsiveness. In embedded systems, these factors dominate.
+
+Large frames occupy the communication channel for longer periods of time. On a UART link at 115200 baud, a 32 KB frame can take several seconds to transmit; even at 1 Mbps, it still introduces substantial delay. During this time, no other traffic can be interleaved. Control messages are delayed, system responsiveness degrades, and real-time behavior becomes difficult to guarantee. This alone is often sufficient to rule out large frames in embedded designs.
+
+**Error Recovery Costs**
+
+HDLC retransmits data at frame granularity. This means that a single bit error invalidates the entire frame. As frame size increases, the cost of a single error grows proportionally. Under realistic bit error rates, this leads to a sharp drop in effective throughput. Instead of improving performance, large frames can make the system significantly less efficient.
+
+**Memory Pressure**
+
+Large frames require larger buffers and longer buffer lifetimes. On embedded systems, where memory is limited and often statically allocated, this creates immediate pressure. Buffers remain occupied for longer periods, reducing availability for other operations. Fragmentation risks increase, and the overall system becomes less predictable. These effects are particularly problematic on systems where memory constraints are tight.
+
+**Flow Control Limitations**
+
+Flow control mechanisms such as RNR/RR rely on timely feedback. With large frames, this feedback becomes coarse and delayed. By the time the receiver detects memory pressure and signals it, a large frame may already be in transit. This reduces the effectiveness of back pressure and increases the likelihood of overflow or forced drops.
+
+**DMA is not everything**
+
+While DMA can efficiently transfer data between peripherals and memory, it does not eliminate the fundamental issues associated with large frames. Frame validation still requires CRC computation, HDLC framing still requires parsing, and buffers must remain allocated until the entire frame is received and validated. DMA improves data movement efficiency, but it does not address latency, error recovery, or memory pressure.
+
+#### A Better Approach: Windowing and Pipelining
+
+Modern communication systems achieve high throughput not by increasing frame size, but by increasing pipeline depth. Throughput scales with the product of window size and frame size, divided by round-trip time. This means that multiple smaller frames in flight can outperform a single large frame. Smaller frames reduce latency, improve error recovery, and allow finer-grained flow control, while windowing preserves throughput. This is the same principle used in Ethernet and higher-level protocols such as TCP.
+
+An efficient embedded HDLC implementation should focus on balanced frame sizing rather than maximization. In practice, frame sizes in the range of a few dozen to a few hundred bytes provide a good compromise between efficiency and responsiveness. Performance should instead be driven by mechanisms such as sliding windows, selective retransmission, checkpointing, and explicit flow control. Efficient memory management techniques, including zero-copy designs and frame pools, further improve system behavior by reducing overhead and increasing predictability.
+
+Large frames are often perceived as a straightforward way to improve throughput, but in embedded HDLC systems they are typically counterproductive.
+A well-designed system prioritizes responsiveness, robustness, and efficient resource usage. By keeping frame sizes moderate and relying on windowing and flow control, it is possible to achieve high throughput without sacrificing reliability or system stability.
+Ultimately, performance in embedded communication systems is not achieved by maximizing frame size, but by carefully balancing protocol design, memory management, and data flow.
 
 ## References
 

@@ -306,7 +306,7 @@ capable SPI peripherals. Both transports use DMA for zero-copy frame
 transfers.
 
 > **Note (SPI):** The >1.3 Mb/s figure requires the DATA_READY signal
-> (`IOHDLC_SPI_USE_DR`) and a patch to the ChibiOS low-level SPI driver
+> (`IOHDLC_SPI_USE_DR`) and a patch to the F411 low-level SPI driver
 > that eliminates the SPI peripheral reset between transfers. Without the
 > patch, throughput is lower.
 
