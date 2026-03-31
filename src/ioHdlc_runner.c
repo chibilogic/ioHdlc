@@ -77,7 +77,8 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
   memset(ctx, 0, sizeof *ctx);
   station->runner_context = ctx;
   station->stop_requested = false;
-  
+  station->flags |= IOHDLC_FLG_IDL;  /* Line is idle at startup by definition. */
+
   /* Create TX thread and save reference (joinable) */
   ctx->tx_thread = iohdlc_thread_create("HDLC-TX", 2048, 1,
                                          HdlcTxThread, station);

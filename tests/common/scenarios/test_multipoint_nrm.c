@@ -80,7 +80,7 @@ static int mp_setup(mp_ctx_t *ctx) {
 
   /* Primary station. */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;

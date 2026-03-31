@@ -157,9 +157,9 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   uint32_t mod2 = 0;
   uint8_t mode = ioHdlcsconfp->mode;
 
-  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM) &&
+  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM) /* &&
       (mode != IOHDLC_OM_NRM) && (mode != IOHDLC_OM_ARM) &&
-      (mode != IOHDLC_OM_ABM)) {
+      (mode != IOHDLC_OM_ABM)*/) {
     iohdlc_errno = EINVAL;
     return -1;
   }
@@ -181,9 +181,19 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->pfoctet = (mod2 + 1) / 8;
   ioHdlcsp->ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->pfoctet * 2);
 
-  /* Reply timeout: use config value, or default 100ms if 0 */
-  ioHdlcsp->reply_timeout_ms = (ioHdlcsconfp->reply_timeout_ms != 0) ? 
-                                ioHdlcsconfp->reply_timeout_ms : 100;
+  /* Reply timeout: use config value, or default 100ms if 0.
+     In ABM/ADM, both stations may initiate SABM simultaneously. To break
+     symmetry and reduce contention, add a small address-proportional skew
+     so that stations with different addresses use different timeouts. */
+  {
+    uint32_t base_tmo = (ioHdlcsconfp->reply_timeout_ms != 0) ?
+                          ioHdlcsconfp->reply_timeout_ms : 100;
+    if (ioHdlcsconfp->mode == IOHDLC_OM_ABM ||
+        ioHdlcsconfp->mode == IOHDLC_OM_ADM) {
+      base_tmo += ((ioHdlcsconfp->addr - 1U) & 0xFF) * (base_tmo / 10);
+    }
+    ioHdlcsp->reply_timeout_ms = base_tmo;
+  }
 
   /* Poll retry max: store config value for later use when adding peers */
   ioHdlcsp->poll_retry_max_cfg = (ioHdlcsconfp->poll_retry_max != 0) ?
@@ -212,13 +222,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->runner_context = NULL;
 
   /* Set TX/RX handlers based on mode */
-  if (mode == IOHDLC_OM_NRM) {
+  if (mode == IOHDLC_OM_NDM) {
     ioHdlcsp->tx_fn = nrmTx;
     ioHdlcsp->rx_fn = nrmRx;
-  } else if (mode == IOHDLC_OM_ARM) {
-    ioHdlcsp->tx_fn = armTx;
-    ioHdlcsp->rx_fn = armRx;
-  } else if (mode == IOHDLC_OM_ABM) {
+  } else {
     ioHdlcsp->tx_fn = abmTx;
     ioHdlcsp->rx_fn = abmRx;
   }
@@ -407,7 +414,8 @@ iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
  */
 int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
                       uint32_t addr) {
-  /* Secondary stations can only add peer when in disconnected mode */
+  /* Secondary stations can only add peer when in disconnected mode.
+     ABM combined stations are not subject to this restriction. */
   if (IOHDLC_IS_SEC(s) &&
       (s->mode != IOHDLC_OM_NDM) && (s->mode != IOHDLC_OM_ADM)) {
     iohdlc_errno = EINVAL;
@@ -531,7 +539,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
                               uint8_t mode, eventmask_t evt_mask) {
   iohdlc_station_peer_t *p;
   iohdlc_event_listener_t listener;
-  uint8_t u_cmd;
+  uint8_t u_cmd, s_mode = 0;
   int retry_count;
 
   /* Find peer by address */
@@ -547,9 +555,16 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
     return -1;
   }
 
-  /* Secondary stations wait for primary to initiate connection */
-  if (IOHDLC_IS_SEC(s))
+  /* Secondary stations wait for primary to initiate connection.
+     ABM combined stations can initiate from either side. */
+  if (IOHDLC_IS_SEC(s) && (mode != IOHDLC_OM_ABM))
     return 0;
+
+  /* In ABM mode, there are no primary or secondary stations.
+     Both the stations are equal. Set it as primary.*/
+  if (mode == IOHDLC_OM_ABM) {
+    s->flags |= IOHDLC_FLG_PRI;
+  }
 
   /* Validate mode and get corresponding U-frame command */
   u_cmd = IOHDLC_MODE_TO_UCMD(mode);
@@ -566,6 +581,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
      the same mode. Write only when transitioning from disconnected state
      to avoid a data race with concurrent LinkUpEx calls. */
   if (IOHDLC_IS_DISC(s)) {
+    s_mode = s->mode;
     s->mode = mode;
   }
   
@@ -600,6 +616,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
       if ((flags & IOHDLC_APP_LINK_REFUSED) && IOHDLC_PEER_DISC(p)) {
         /* Our peer was refused. */
         iohdlc_evt_unregister(&s->app_es, &listener);
+        s->mode = s_mode;
         iohdlc_errno = ECONNREFUSED;
         return -1;
       }
@@ -610,6 +627,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
 
   /* All retries exhausted */
   iohdlc_evt_unregister(&s->app_es, &listener);
+  s->mode = s_mode;
   iohdlc_errno = ETIMEDOUT;
   return -1;
 }
@@ -663,8 +681,9 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
     return -1;
   }
 
-  /* Secondary stations wait for primary to disconnect */
-  if (IOHDLC_IS_SEC(s))
+  /* Secondary stations wait for primary to disconnect.
+     ABM combined stations can disconnect from either side. */
+  if (IOHDLC_IS_SEC(s) && !IOHDLC_IS_ABM(s))
     return 0;
 
   /* Register listener on app_es for link events */
@@ -819,8 +838,9 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     
     /* Build frame outside mutex (no shared state accessed) */
     
-    /* Set address field */
-    IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
+    /* Set address field: commands use peer address, responses use station address.
+       In ABM, I-frames are always commands. */
+    IOHDLC_FRAME_ADDR(s, fp) = (IOHDLC_IS_PRI(s) || IOHDLC_IS_ABM(s)) ? peer->addr : s->addr;
     
     /* Set control field: I-frame ID */
     IOHDLC_FRAME_CTRL(s, fp, 0) = IOHDLC_I_ID;

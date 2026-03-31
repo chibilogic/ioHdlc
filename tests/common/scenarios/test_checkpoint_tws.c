@@ -252,7 +252,7 @@ bool test_A1_1_frame_loss_window_full(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
@@ -268,7 +268,7 @@ bool test_A1_1_frame_loss_window_full(const test_adapter_t *adapter) {
   
   /* Configure secondary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NDM;  /* Secondary starts in disconnected mode */
+  config.mode = IOHDLC_OM_NDM;
   config.flags = 0;  /* Secondary */
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
@@ -478,7 +478,7 @@ bool test_A2_1_multiple_frame_loss(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
@@ -712,7 +712,7 @@ bool test_A2_2_first_and_last_frame_loss(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
@@ -732,7 +732,7 @@ bool test_A2_2_first_and_last_frame_loss(const test_adapter_t *adapter) {
   
   /* Configure secondary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NDM;  /* Secondary starts in disconnected mode */
+  config.mode = IOHDLC_OM_NDM;
   config.flags = 0;  /* Secondary */
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;

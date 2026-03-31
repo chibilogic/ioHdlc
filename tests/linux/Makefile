@@ -91,6 +91,7 @@ TEST_CHECKPOINT_TWS = test_checkpoint_tws
 TEST_CHECKPOINT_TWA = test_checkpoint_twa
 TEST_FRMR = test_frmr
 TEST_MULTIPOINT_NRM = test_multipoint_nrm
+TEST_BASIC_CONNECTION_ABM = test_basic_connection_abm
 TEST_OSAL_BSEM = test_osal_bsem
 TEST_OSAL_EVENTS = test_osal_events
 
@@ -121,6 +122,7 @@ AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_FRMR)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_MULTIPOINT_NRM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION_ABM)
 
 # Manual test tools (require command-line parameters)
 MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_EXCHANGE)
@@ -221,6 +223,10 @@ $(BIN_DIR)/$(TEST_FRMR): $(OBJ_DIR)/test_runner_frmr.o $(OBJ_DIR)/test_frmr.o $(
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
 $(BIN_DIR)/$(TEST_MULTIPOINT_NRM): $(OBJ_DIR)/test_runner_multipoint_nrm.o $(OBJ_DIR)/test_multipoint_nrm.o $(ALL_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/$(TEST_BASIC_CONNECTION_ABM): $(OBJ_DIR)/test_runner_basic_connection_abm.o $(OBJ_DIR)/test_basic_connection_abm.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 

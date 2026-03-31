@@ -82,7 +82,7 @@ bool test_data_exchange_twa(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI | IOHDLC_FLG_TWA;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;

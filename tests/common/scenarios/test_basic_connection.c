@@ -116,7 +116,7 @@ static int32_t init_test_station(iohdlc_station_t *station,
 
   /* Configure station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;  /* Primary station */
   config.log2mod = 3;  /* Modulo 8 */
   config.addr = addr;
@@ -152,7 +152,7 @@ bool test_station_creation(void) {
   /* Validate initialization */
   TEST_ASSERT(result == 0, "Station init should succeed");
   TEST_ASSERT(station.addr == PRIMARY_ADDR, "Station address should match");
-  TEST_ASSERT(station.mode == IOHDLC_OM_NRM, "Station mode should be NRM");
+  TEST_ASSERT(station.mode == IOHDLC_OM_NDM, "Station mode should be NDM");
   TEST_ASSERT(station.flags == IOHDLC_FLG_PRI, "Station should be primary");
   TEST_ASSERT(station.modmask == 7, "Modulo 8 should have modmask 7");
   TEST_ASSERT(station.ctrl_size == 1, "Modulo 8 should have ctrl_size 1");
@@ -236,7 +236,7 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
@@ -257,7 +257,7 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   
   /* Configure secondary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NDM;  /* Secondary starts in disconnected mode */
+  config.mode = IOHDLC_OM_NDM;
   config.flags = 0;  /* Secondary */
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
@@ -363,7 +363,7 @@ bool test_data_exchange(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;  /* | IOHDLC_FLG_TWA; */
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;

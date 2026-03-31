@@ -297,7 +297,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
                             ? optfuncs_norej : NULL;
 
   /* Configure primary station */
-  station_config.mode = config.mode;
+  station_config.mode = (config.mode == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;;
   station_config.flags = IOHDLC_FLG_PRI | (config.use_twa ? IOHDLC_FLG_TWA : 0);
   station_config.log2mod = 3;
   station_config.addr = PRIMARY_ADDR;
@@ -320,8 +320,10 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     return 1;
   }
   
-  /* Configure secondary station */
-  station_config.mode = IOHDLC_OM_NDM;
+  /* Configure secondary station.
+     NRM starts in NDM (Normal Disconnected Mode).
+     ABM/ARM start in ADM (Asynchronous Disconnected Mode). */
+  station_config.mode = (config.mode == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
   station_config.flags = config.use_twa ? IOHDLC_FLG_TWA : 0;
   station_config.addr = SECONDARY_ADDR;
   station_config.driver = (ioHdlcDriver *)&driver_secondary;

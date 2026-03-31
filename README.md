@@ -1,13 +1,21 @@
-# ioHdlc
+# ioHdlc – Embedded HDLC Protocol Stack (C)
 
-**ioHdlc** is a portable HDLC protocol stack compliant with ISO 13239,
-designed for embedded systems and real-time environments.
+**ioHdlc** is a portable **HDLC (High-Level Data Link Control) protocol implementation in C**,
+compliant with ISO 13239 and designed for **embedded systems and real-time environments**.
 
-It targets applications that need a **reliable, high-throughput, deterministic**
-data-link layer over UART, SPI, or similar byte-stream transports — without
-dynamic memory allocation and without sacrificing a clean application interface.
+It provides a **reliable, high-throughput, deterministic data-link layer** over UART, SPI, 
+and other byte-stream transports, with **no dynamic memory allocation** and a clean application 
+interface.
+
+This library is ideal for developers looking for an
+**HDLC stack in C for embedded communication**, including industrial 
+systems, and inter-processor links.
 
 ---
+## Keywords
+
+HDLC protocol implementation in C for embedded systems, UART SPI and serial 
+communication, ISO 13239 compliant data link layer.
 
 ## Key Features
 
