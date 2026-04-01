@@ -115,6 +115,11 @@ static void adapter_spi_init(void) {
 #endif
                                        );
 
+  /* Declare SPI transport constraints on the ports so the protocol core can
+     validate configurations at station-init and link-up time. */
+  port_a.constraints = IOHDLC_PORT_CONSTR_TWA_ONLY | IOHDLC_PORT_CONSTR_NRM_ONLY;
+  port_b.constraints = IOHDLC_PORT_CONSTR_TWA_ONLY | IOHDLC_PORT_CONSTR_NRM_ONLY;
+
 #if defined(IOHDLC_SPI_USE_DR)
   /* Register DATA_READY callback and keep EXTI permanently armed.
    * The driver uses dr_armed flag to gate the callback — no
@@ -144,12 +149,13 @@ static ioHdlcStreamPort adapter_spi_get_port_b(void) {
 /*===========================================================================*/
 
 const test_adapter_t spi_adapter = {
-  .name                    = "SPI Hardware",
-  .init                    = adapter_spi_init,
-  .deinit                  = adapter_spi_deinit,
-  .reset                   = NULL,
-  .get_port_a              = adapter_spi_get_port_a,
-  .get_port_b              = adapter_spi_get_port_b,
+  .name                    =  "SPI Hardware",
+  .init                    =  adapter_spi_init,
+  .deinit                  =  adapter_spi_deinit,
+  .reset                   =  NULL,
+  .get_port_a              =  adapter_spi_get_port_a,
+  .get_port_b              =  adapter_spi_get_port_b,
   .configure_error_injection = NULL,
-  .constraints             = ADAPTER_CONSTRAINT_TWA_ONLY,
+  .constraints             =  ADAPTER_CONSTRAINT_TWA_ONLY|
+                              ADAPTER_CONSTRAINT_NRM_ONLY,
 };

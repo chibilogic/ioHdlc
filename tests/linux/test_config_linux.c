@@ -100,8 +100,6 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
       case 'm':  /* --mode */
         if (strcmp(optarg, "nrm") == 0) {
           cfg->mode = IOHDLC_OM_NRM;
-        } else if (strcmp(optarg, "arm") == 0) {
-          cfg->mode = IOHDLC_OM_ARM;
         } else if (strcmp(optarg, "abm") == 0) {
           cfg->mode = IOHDLC_OM_ABM;
         } else {

@@ -264,8 +264,7 @@ static void buildFrmrResponse(iohdlc_station_t *s, iohdlc_station_peer_t *p,
  * @return  true if the opcode is one of the supported connect-mode commands.
  */
 static bool isConnectionUCommand(uint8_t u_cmd) {
-  return (u_cmd == IOHDLC_U_SNRM) || (u_cmd == IOHDLC_U_SARM) ||
-         (u_cmd == IOHDLC_U_SABM);
+  return (u_cmd == IOHDLC_U_SNRM) || (u_cmd == IOHDLC_U_SABM);
 }
 
 /**
@@ -275,15 +274,13 @@ static bool isConnectionUCommand(uint8_t u_cmd) {
  */
 static void setModeFunctions(iohdlc_station_t *s, uint8_t mode) {
   if (mode == IOHDLC_OM_NRM) {
-    s->tx_fn = nrmTx;
-    s->rx_fn = nrmRx;
-  } else if (mode == IOHDLC_OM_ARM) {
-    s->tx_fn = armTx;
-    s->rx_fn = armRx;
+    s->tx_fn = ioHdlcNrmTx;
+    s->rx_fn = ioHdlcNrmRx;
   } else if (mode == IOHDLC_OM_ABM) {
-    s->tx_fn = abmTx;
-    s->rx_fn = abmRx;
+    s->tx_fn = ioHdlcAbmTx;
+    s->rx_fn = ioHdlcAbmRx;
     s->flags |= IOHDLC_FLG_PRI;
+    s->pf_state |= IOHDLC_F_RCVED;  /* Combined station: free to poll. */
   } else {
     /* Disconnected modes (NDM, ADM): reset to NULL */
     s->tx_fn = NULL;
@@ -1052,7 +1049,7 @@ static void commonRx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     } else if (IOHDLC_IS_S_FRM(ctrl)) {
       iohdlc_log_sfun_t log_fun = (ctrl & IOHDLC_S_FUN_MASK) >> 2;
       IOHDLC_LOG_MSG(IOHDLC_LOG_RX, s->addr, "A%u %s%u %c pnr=%u vfp=%u fr=%u",
-		     addr2, sfun_to_str(log_fun), nnr,
+		     addr2, iohdlc_sfun_to_str(log_fun), nnr,
 		   pf ? (is_final ? 'F' : 'P') : '-',
 		   p->nr, p->vs_atlast_pf, qns);
     }
@@ -1106,7 +1103,7 @@ static void commonRx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   hdlcReleaseFrame(&s->frame_pool, fp);
 }
 
-void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+void ioHdlcNrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 
   const uint32_t addr = IOHDLC_FRAME_ADDR(s, fp);
   iohdlc_station_peer_t *p = s->c_peer;
@@ -1129,24 +1126,13 @@ void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 }
 
 /**
- * @brief   Placeholder receive-side handler for ARM mode.
- * @param[in] s    Station descriptor.
- * @param[in] fp   Received frame.
- * @note    ARM receive logic is not implemented yet.
- */
-void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
-    (void)s;
-    (void)fp;
-}
-
-/**
  * @brief   Receive-side handler for ABM mode.
  * @details ABM combined station accepts both commands (addr == s->addr)
  *          and responses (addr == p->addr) from the single peer.
  * @param[in] s    Station descriptor.
  * @param[in] fp   Received frame.
  */
-void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
+void ioHdlcAbmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
 
   const uint32_t addr = IOHDLC_FRAME_ADDR(s, fp);
   iohdlc_station_peer_t *p = s->c_peer;
@@ -1346,7 +1332,7 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
   /* Command/response: in NRM constant by role, in ABM varies by P/F state.
      Per ISO 13239 4.2.2: command addr = peer, response addr = station. */
   const bool is_command = IOHDLC_IS_ABM(s) ?
-      (!IOHDLC_P_ISRCVED(s) && IOHDLC_F_ISRCVED(s)) : IOHDLC_IS_PRI(s);
+      !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
 
   const uint32_t outstanding = (p->vs - p->nr) & s->modmask;
   const bool window_full = outstanding >= p->ks;
@@ -1365,9 +1351,12 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
     uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
 #endif
 
-    /* Update checkpoint reference and ACK P/F before sending */
+    /* Update checkpoint reference and ACK P/F before sending.
+       In ABM with crossed polls (sending F while own P outstanding),
+       preserve V(SC) from our P — ISO 13239 5.6.2.1(h). */
     if (set_pf) {
-      p->vs_atlast_pf = p->vs;
+      if (is_command || !IOHDLC_IS_ABM(s) || IOHDLC_F_ISRCVED(s))
+        p->vs_atlast_pf = p->vs;
       is_command ? IOHDLC_ACK_F(s) : IOHDLC_ACK_P(s);
       IOHDLC_CLR_NEED_P(p);
     }
@@ -1394,7 +1383,7 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
  * @param[in] cm_flags  Pending core event flags to serve.
  * @return  Residual event flags that still require later handling.
  */
-uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                 uint32_t cm_flags) {
 
   cm_flags &= ~(IOHDLC_EVT_LINE_IDLE);
@@ -1498,7 +1487,13 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        secondary=response). In ABM, it varies per frame based on P/F state.
        Per ISO 13239 4.2.2: command addr = peer, response addr = station. */
     const bool is_command = IOHDLC_IS_ABM(s) ?
-        (!IOHDLC_P_ISRCVED(s) && IOHDLC_F_ISRCVED(s)) : IOHDLC_IS_PRI(s);
+        !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
+
+    /* Set address at TX time based on command/response decision.
+       ISO 13239 4.2.2: command addr = peer, response addr = station.
+       ISO 13239 5.4.3.2.3: in ABM, F must be set on the earliest possible
+       subsequent response frame after receiving P=1. */
+    IOHDLC_FRAME_ADDR(s, fp) = is_command ? p->addr : s->addr;
 
     /* Determine if P/F bit should be set in this I-frame.
        If local busy, never set P/F on I-frames. */
@@ -1516,11 +1511,12 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
           TWS: set P as soon as possible (if no P in flight). */
         set_pf = IOHDLC_USE_TWA(s) ? is_last_frame : IOHDLC_F_ISRCVED(s);
       } else {
-        /* Response: set F on last frame only if we have a P to respond to.
-           In ABM, !is_command && !P_ISRCVED means poll outstanding with no
-           pending response — send data without P/F. In NRM, secondary always
-           has P_ISRCVED when sending (guaranteed by sendOpportunity). */
-        set_pf = IOHDLC_P_ISRCVED(s) && is_last_frame;
+        /* Response: set F when we have a P to respond to.
+           TWA: F on last frame (end of turn).
+           TWS: F on first frame (ISO 13239 5.4.3.2.3: earliest possible).
+           With is_command = !P_ISRCVED, ACK_P after F returns to command. */
+        set_pf = IOHDLC_P_ISRCVED(s) &&
+                 (IOHDLC_USE_TWA(s) ? is_last_frame : true);
       }
     }
     /* Read vr for N(R) field */
@@ -1536,9 +1532,12 @@ uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       p->vs_highest = (p->vs + 1) & s->modmask;
     p->vs = (p->vs + 1) & s->modmask;
 
-    /* Update checkpoint reference and ACK P/F before sending */
+    /* Update checkpoint reference and ACK P/F before sending.
+       In ABM with crossed polls (sending F while own P outstanding),
+       preserve V(SC) from our P — ISO 13239 5.6.2.1(h). */
     if (set_pf) {
-      p->vs_atlast_pf = p->vs;
+      if (is_command || !IOHDLC_IS_ABM(s) || IOHDLC_F_ISRCVED(s))
+        p->vs_atlast_pf = p->vs;
       is_command ? IOHDLC_ACK_F(s) : IOHDLC_ACK_P(s);
     }
     
@@ -1664,32 +1663,9 @@ skip_i_frames:
  * @param[in] cm_flags  Pending core event flags.
  * @return  Residual event flags that still require later handling.
  */
-uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+uint32_t ioHdlcAbmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint32_t cm_flags) {
-  return nrmTx(s, p, cm_flags);
-}
-
-/**
- * @brief   Placeholder transmit-side scheduler for ARM mode.
- * @param[in] s         Station descriptor.
- * @param[in] p         Peer state.
- * @param[in] cm_flags  Pending core event flags.
- * @return  Always returns 0 in the current stub implementation.
- * @note    ARM transmit logic is not implemented yet.
- */
-uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
-  uint32_t cm_flags) {
-  /* S requested
-     NOTE per ARM:
-        Come distinguere tra command e response, in ordine di priorità:
-        se devo inviare un P è command.
-        se devo inviare un F è response.
-        se !IOHDLC_P_ISRCVED(s) è response.
-        se IOHDLC_P_ISRCVED(s) è command.*/    
-  (void)s;
-  (void)p;
-  (void)cm_flags;
-  return 0;
+  return ioHdlcNrmTx(s, p, cm_flags);
 }
 
 /**

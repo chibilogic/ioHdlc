@@ -127,7 +127,7 @@ void ioHdlcComputeFCS(const uint8_t *buf, size_t len, uint16_t *fcs) {
  * @param[in] frame   Frame buffer.
  * @param[in] offset  Offset where to write FCS (typically frame->elen).
  */
-void frameAddFCS_at(iohdlc_frame_t *frame, size_t offset) {
+void ioHdlcFrameAddFCS_at(iohdlc_frame_t *frame, size_t offset) {
   uint16_t crc;
 
   computeFCS(frame->frame, offset, &crc);
@@ -144,7 +144,7 @@ void frameAddFCS_at(iohdlc_frame_t *frame, size_t offset) {
  * @param[in] total_len Total length including FCS.
  * @return              true if FCS valid.
  */
-bool frameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len) {
+bool ioHdlcFrameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len) {
   uint16_t crc;
 
   computeFCS(frame->frame, total_len, &crc);
@@ -159,15 +159,15 @@ bool frameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len) {
  *          @p dst shall be != @p src
  * @retval  false if the destination buffer is not large enough.
  */
-bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
+bool ioHdlcFrameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
   const uint8_t *srcbuf = src->frame;
   uint8_t *dstbuf = dst->frame;
   bool encoded = 0;
 
   for (int i = 0; i < src->elen; ++i) {
-    if (HDLC_FLAG == *srcbuf || HDLC_CTLESC == *srcbuf) {
-      *dstbuf++ = HDLC_CTLESC;
-      *dstbuf++ = *srcbuf++ ^ HDLC_TMASK;
+    if (IOHDLC_FLAG == *srcbuf || IOHDLC_CTLESC == *srcbuf) {
+      *dstbuf++ = IOHDLC_CTLESC;
+      *dstbuf++ = *srcbuf++ ^ IOHDLC_TMASK;
       encoded = 1;
     } else {
       *dstbuf++ = *srcbuf++;
@@ -183,14 +183,14 @@ bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
  * @note    The caller must ensure that @p dst has enough space for the
  *          decoded payload. The @p elen field includes the count of the FCS.
  */
-void frameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
+void ioHdlcFrameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src) {
   const uint8_t *srcbuf = src->frame;
   uint8_t *dstbuf = dst->frame;
 
   for (int i = 0; i < src->elen; ++i) {
-    if (HDLC_CTLESC == *srcbuf) {
+    if (IOHDLC_CTLESC == *srcbuf) {
       ++srcbuf, ++i;
-      *dstbuf++ = *srcbuf++ ^ HDLC_TMASK;
+      *dstbuf++ = *srcbuf++ ^ IOHDLC_TMASK;
     } else {
       *dstbuf++ = *srcbuf++;
     }

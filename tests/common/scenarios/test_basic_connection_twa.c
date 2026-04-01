@@ -216,13 +216,8 @@ bool test_data_exchange_twa(const test_adapter_t *adapter) {
   
 test_cleanup:
   ioHdlc_sleep_ms(200);
-  /* Stop runners */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  
-  /* Stop drivers (terminate RX threads) */
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
   
   return test_result;
 }

@@ -184,42 +184,152 @@ Bit:  7   6   5   4   3   2   1   0
 
 **State**: Link disconnected
 
+**Characteristics:**
+- No logical link established
+- Stations may only exchange unnumbered frames for link management
+
 **Allowed Frames:**
 - **Commands**: SNRM, DISC, UI
 - **Responses**: DM, UA
 
 **Transitions:**
 - NDM → NRM: Send SNRM → Receive UA
+- NDM → ABM: Send SABM → Receive UA
 - NDM → NDM: Send DISC → Receive DM
+
+---
 
 ### Normal Response Mode (NRM)
 
-**State**: Link established
+**State**: Link established (unbalanced)
 
 **Characteristics:**
-- Primary initiates commands
-- Secondary responds to polls
-- I-frames can flow bidirectionally (in TWS)
+- One station operates as **Primary**, others as **Secondary**
+- The Primary controls the link and initiates all command exchanges
+- Secondary stations transmit only:
+  - in response to commands
+  - or when explicitly polled
+- Data transfer is governed by:
+  - sequence variables (N(S), N(R))
+  - **Poll/Final (P/F) cycle** for coordination and synchronization
 
 **Allowed Frames:**
-- **Commands**: I-frames, S-frames (RR, RNR, REJ), U-frames (DISC)
-- **Responses**: I-frames, S-frames (RR, RNR, REJ), U-frames (UA)
+- **Commands (Primary → Secondary)**:
+  - I-frames
+  - S-frames (RR, RNR, REJ)
+  - U-frames (DISC)
+- **Responses (Secondary → Primary)**:
+  - I-frames (when permitted)
+  - S-frames (RR, RNR, REJ)
+  - U-frames (UA)
 
 **Transitions:**
 - NRM → NDM: Send DISC → Receive UA
 
+---
+
+### Asynchronous Disconnected Mode (ADM)
+
+**State**: Link disconnected (asynchronous)
+
+**Characteristics:**
+- No logical link established
+- Station is not participating in a balanced or normal response relationship
+- Used as the disconnected state for ABM
+- The station responds independently to received commands
+
+**Allowed Frames:**
+- **Commands**: SABM, DISC, UI
+- **Responses**: DM, UA
+
+**Transitions:**
+- ADM → ABM: Receive SABM → Send UA
+- ADM → ADM: Receive DISC → Send DM
+
+---
+
+### Asynchronous Balanced Mode (ABM)
+
+**State**: Link established (balanced)
+
+**Characteristics:**
+- Both stations operate as **peers**
+- Either station may initiate transmission at any time
+- No distinction between command and response based on role
+- Full-duplex data transfer is supported
+- Flow control and reliability rely on:
+  - sequence variables (N(S), N(R))
+  - **P/F bit for synchronization and recovery**
+
+**Allowed Frames:**
+- **Both directions**:
+  - I-frames
+  - S-frames (RR, RNR, REJ)
+  - U-frames (DISC)
+
+**Transitions:**
+- ADM → ABM: Send SABM → Receive UA
+- ABM → ADM: Send DISC → Receive UA
+
+---
+
+## Transmission Behaviors
+
+### Two-Way Alternating (TWA)
+
+**Definition**:  
+Transmission alternates between stations, with only one station actively sending I-frames at a time.
+
+**Characteristics:**
+- At any given time, only one station transmits I-frames
+- The transmitting role alternates between stations
+- In NRM, alternation is coordinated by the **P/F cycle**
+- In ABM, alternation may arise from implementation policy or link conditions
+- Each exchange naturally establishes a **synchronization checkpoint**
+
+**Properties:**
+- Deterministic operation
+- Strong synchronization guarantees
+- Lower throughput due to serialized transmission
+
+---
+
 ### Two-Way Simultaneous (TWS)
 
-**Extension**: Both stations can send I-frames simultaneously without explicit polls
+**Definition**:  
+Both stations may transmit I-frames independently without waiting for explicit polls.
+
+**Characteristics:**
+- Bidirectional data flow using sliding windows
+- No strict alternation of transmission
+- P/F is still used for:
+  - synchronization
+  - checkpointing when required
 
 **Benefits:**
 - Higher throughput
 - Lower latency
-- Full-duplex operation
+- Efficient full-duplex utilization
 
 **Requirements:**
 - Both stations must support TWS
-- Window management for both directions
+- Independent transmit and receive window management
+- Correct handling of sequence variables in both directions
+
+---
+
+## TWA vs TWS
+
+| Aspect | TWA | TWS |
+|------|-----|-----|
+| Transmission | Alternating | Simultaneous |
+| Control | P/F-driven | Window-driven |
+| Synchronization | Implicit (frequent) | Explicit (on demand via P/F) |
+| Throughput | Lower | Higher |
+
+---
+
+@note TWS does not remove the need for P/F-based synchronization; it only relaxes transmission alternation.
 
 ## Sequence Numbering
 
@@ -582,7 +692,7 @@ Two bytes:    0x02 0x03 (extended address)
 - ✅ NRM (Normal Response Mode)
 - ✅ TWS (Two-Way Simultaneous)
 - ✅ TWA (Two-Way Alternate)
-- ❌ ABM (Asynchronous Balanced Mode) - coming next!
+- ✅ ABM (Asynchronous Balanced Mode)
 
 ### Supported Functions
 
@@ -680,7 +790,7 @@ After stuffing:
 ```
         ┌───────────────────────────────┐
         │                               │
-        │       NDM (Disconnected)      │
+        │     NDM/ADM (Disconnected)    │
         │                               │
         └───────┬───────────────┬───────┘
                 │               │
@@ -689,7 +799,7 @@ After stuffing:
                 v               │
         ┌───────────────────────┼───────┐
         │                       │       │
-        │    NRM (Connected)    │       │
+        │    NRM/ABM (Connected)│       │
         │                       │       │
         └───────────────────────────────┘
 ```

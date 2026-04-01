@@ -201,7 +201,7 @@ bool test_peer_creation(void) {
   TEST_ASSERT(ioHdlc_frameq_isempty(&peer.i_trans_q), "Peer i_trans_q should be empty");
   
   /* Validate peer is in station's peer list */
-  iohdlc_station_peer_t *found_peer = addr2peer(&station, SECONDARY_ADDR);
+  iohdlc_station_peer_t *found_peer = ioHdlcAddr2peer(&station, SECONDARY_ADDR);
   TEST_ASSERT(found_peer == &peer, "Peer should be findable in station's peer list");
   
   /* Test duplicate address rejection */
@@ -316,13 +316,14 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   
   test_printf("✅ SNRM handshake completed successfully\n");
   
-  /* Stop runners */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  
-  /* Stop drivers (terminate RX threads) */
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  TEST_ASSERT(ioHdlcStationDeinit(&station_primary) == 0,
+              "Primary deinit should succeed");
+  TEST_ASSERT(ioHdlcStationDeinit(&station_secondary) == 0,
+              "Secondary deinit should succeed");
+  TEST_ASSERT(ioHdlcStationDeinit(&station_primary) == 0,
+              "Primary deinit should be idempotent");
+  TEST_ASSERT(ioHdlcStationDeinit(&station_secondary) == 0,
+              "Secondary deinit should be idempotent");
   
   return 0;
 }
@@ -496,13 +497,8 @@ bool test_data_exchange(const test_adapter_t *adapter) {
   
 test_cleanup:
   ioHdlc_sleep_ms(200);
-  /* Stop runners */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  
-  /* Stop drivers (terminate RX threads) */
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
   
   return test_result;
 }

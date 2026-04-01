@@ -33,7 +33,7 @@ All options are available on Linux and in the ChibiOS shell. The ChibiOS standal
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--mode=MODE` | nrm | HDLC operating mode: `nrm`, `arm`, `abm` |
+| `--mode=MODE` | nrm | HDLC operating mode: `nrm`, `abm` |
 | `--twa` | _(off)_ | Use Two-Way Alternate |
 | `--tws` | _(default)_ | Use Two-Way Simultaneous (explicit) |
 | `--count=N` | 10 | Run for N iterations (sets count-based duration) |
@@ -52,7 +52,7 @@ All options are available on Linux and in the ChibiOS shell. The ChibiOS standal
 
 ### Mode and Link Type
 
-- **Mode** (`--mode`): NRM (Normal Response Mode) is the default and most common. ARM and ABM are alternative ISO 13239 modes.
+- **Mode** (`--mode`): NRM (Normal Response Mode) is the default and most common mode, while ABM is the primary choice for point-to-point links using TWS.
 - **Link type** (`--twa`/`--tws`): TWS allows both stations to transmit independently. TWA alternates transmission turns via polling. SPI adapters require TWA.
 
 ### Duration

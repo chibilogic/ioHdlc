@@ -99,7 +99,7 @@ typedef enum {
 
 #if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
 
-const char* sfun_to_str(iohdlc_log_sfun_t fun);
+const char* iohdlc_sfun_to_str(iohdlc_log_sfun_t fun);
 
 /**
  * @brief   Runtime enable/disable flag.

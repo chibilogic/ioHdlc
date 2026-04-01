@@ -55,7 +55,6 @@ typedef struct {
   iohdlc_station_t st_pri, st_sec_a, st_sec_b;
   iohdlc_station_peer_t peer_pri_a, peer_pri_b;  /* Primary's peers. */
   iohdlc_station_peer_t peer_sec_a, peer_sec_b;  /* Each secondary's peer. */
-  bool runners_started[3];
 } mp_ctx_t;
 
 /**
@@ -139,15 +138,12 @@ static int mp_setup(mp_ctx_t *ctx) {
   /* Start runners. */
   result = ioHdlcRunnerStart(&ctx->st_pri);
   if (result != 0) return 1;
-  ctx->runners_started[0] = true;
 
   result = ioHdlcRunnerStart(&ctx->st_sec_a);
   if (result != 0) return 1;
-  ctx->runners_started[1] = true;
 
   result = ioHdlcRunnerStart(&ctx->st_sec_b);
   if (result != 0) return 1;
-  ctx->runners_started[2] = true;
 
   ioHdlc_sleep_ms(100);
   return 0;
@@ -157,13 +153,9 @@ static int mp_setup(mp_ctx_t *ctx) {
  * @brief   Teardown multipoint topology.
  */
 static void mp_teardown(mp_ctx_t *ctx) {
-  if (ctx->runners_started[0]) ioHdlcRunnerStop(&ctx->st_pri);
-  if (ctx->runners_started[1]) ioHdlcRunnerStop(&ctx->st_sec_a);
-  if (ctx->runners_started[2]) ioHdlcRunnerStop(&ctx->st_sec_b);
-
-  ioHdlcSwDriverStop(&ctx->drv_pri);
-  ioHdlcSwDriverStop(&ctx->drv_sec_a);
-  ioHdlcSwDriverStop(&ctx->drv_sec_b);
+  ioHdlcStationDeinit(&ctx->st_pri);
+  ioHdlcStationDeinit(&ctx->st_sec_a);
+  ioHdlcStationDeinit(&ctx->st_sec_b);
 
   mock_bus_deinit(&ctx->bus);
 }

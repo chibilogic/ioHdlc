@@ -39,9 +39,9 @@
 /* Module constants.                                                         */
 /*===========================================================================*/
 
-#define HDLC_FLAG     0x7E
-#define HDLC_CTLESC   0x7D
-#define HDLC_TMASK    0x20
+#define IOHDLC_FLAG     0x7E
+#define IOHDLC_CTLESC   0x7D
+#define IOHDLC_TMASK    0x20
 
 /*===========================================================================*/
 /* External declarations.                                                    */
@@ -51,16 +51,10 @@
 extern "C" {
 #endif
   /** @ingroup ioHdlc_frames */
-  void frameAddFCS(iohdlc_frame_t *frame);
+  void ioHdlcFrameAddFCS_at(iohdlc_frame_t *frame, size_t offset);
 
   /** @ingroup ioHdlc_frames */
-  bool frameCheckFCS(const iohdlc_frame_t *frame);
-
-  /** @ingroup ioHdlc_frames */
-  void frameAddFCS_at(iohdlc_frame_t *frame, size_t offset);
-
-  /** @ingroup ioHdlc_frames */
-  bool frameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len);
+  bool ioHdlcFrameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len);
 
   /**
    * @brief   Compute FCS-16 over a raw byte buffer.
@@ -74,10 +68,10 @@ extern "C" {
   void ioHdlcComputeFCS(const uint8_t *buf, size_t len, uint16_t *fcs);
 
   /** @ingroup ioHdlc_frames */
-  bool frameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
+  bool ioHdlcFrameTransparentEncode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
 
   /** @ingroup ioHdlc_frames */
-  void frameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
+  void ioHdlcFrameTransparentDecode(iohdlc_frame_t *dst, const iohdlc_frame_t *src);
 #ifdef __cplusplus
 }
 #endif

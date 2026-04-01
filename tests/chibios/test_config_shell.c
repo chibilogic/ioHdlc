@@ -60,7 +60,7 @@ static void print_usage(void) {
   test_printf("  --error-rate=N      Error rate 0-100%% (default: 0)\r\n");
   test_printf("  --direction=DIR     Direction: both|a2b|b2a (default: both)\r\n");
   test_printf("  --reply-timeout=N   Reply timeout in ms (default: 100)\r\n");
-  test_printf("  --mode=MODE         Mode: nrm|arm|abm (default: nrm)\r\n");
+  test_printf("  --mode=MODE         Mode: nrm|abm (default: nrm)\r\n");
   test_printf("  --twa               Use Two-Way Alternate\r\n");
   test_printf("  --tws               Use Two-Way Simultaneous (default)\r\n");
   test_printf("  --time=N            Run for N seconds (vs --count)\r\n");
@@ -216,12 +216,10 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
       if (value) {
         if (strcmp(value, "nrm") == 0) {
           cfg->mode = IOHDLC_OM_NRM;
-        } else if (strcmp(value, "arm") == 0) {
-          cfg->mode = IOHDLC_OM_ARM;
         } else if (strcmp(value, "abm") == 0) {
           cfg->mode = IOHDLC_OM_ABM;
         } else {
-          test_printf("Error: Invalid mode (nrm|arm|abm)\r\n");
+          test_printf("Error: Invalid mode (nrm|abm)\r\n");
           return false;
         }
       }

@@ -314,10 +314,8 @@ bool test_frmr_invalid_nr(const test_adapter_t *adapter) {
   }
 
 test_cleanup:
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
 
   if (adapter_primary) mock_stream_adapter_destroy(adapter_primary);
   if (adapter_secondary) mock_stream_adapter_destroy(adapter_secondary);

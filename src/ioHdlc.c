@@ -35,6 +35,7 @@
 #include "ioHdlcosal.h"
 #include "ioHdlcqueue.h"
 #include "ioHdlclist.h"
+#include "ioHdlcstreamport.h"
 #include "ioHdlc_log.h"
 #include <string.h>
 #include <errno.h>
@@ -157,9 +158,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   uint32_t mod2 = 0;
   uint8_t mode = ioHdlcsconfp->mode;
 
-  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM) /* &&
-      (mode != IOHDLC_OM_NRM) && (mode != IOHDLC_OM_ARM) &&
-      (mode != IOHDLC_OM_ABM)*/) {
+  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM)) {
     iohdlc_errno = EINVAL;
     return -1;
   }
@@ -168,6 +167,18 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   if (ioHdlcsconfp->frame_arena == NULL || ioHdlcsconfp->frame_arena_size == 0) {
     iohdlc_errno = EINVAL;
     return -1;
+  }
+
+  /* Read port constraints from physical driver and validate against config.
+     phydriver points to ioHdlcStreamPort when the sw driver is used. */
+  uint32_t port_constr = 0;
+  if (ioHdlcsconfp->phydriver != NULL) {
+    port_constr = ((const ioHdlcStreamPort *)ioHdlcsconfp->phydriver)->constraints;
+    if ((port_constr & IOHDLC_PORT_CONSTR_TWA_ONLY) &&
+        !(ioHdlcsconfp->flags & IOHDLC_FLG_TWA)) {
+      iohdlc_errno = EINVAL;   /* Port requires TWA but config does not set FLG_TWA. */
+      return -1;
+    }
   }
 
   /* Basic station parameters */
@@ -199,6 +210,9 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->poll_retry_max_cfg = (ioHdlcsconfp->poll_retry_max != 0) ?
                                   ioHdlcsconfp->poll_retry_max : 5;
 
+  /* Store port constraints for later checks (e.g. at link-up). */
+  ioHdlcsp->port_constraints = port_constr;
+
   /* Driver setup */
   ioHdlcsp->driver = ioHdlcsconfp->driver;
   
@@ -219,15 +233,17 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
 
   /* Initialize runner state */
   ioHdlcsp->stop_requested = false;
+  ioHdlcsp->driver_started = false;
+  ioHdlcsp->runner_started = false;
   ioHdlcsp->runner_context = NULL;
 
   /* Set TX/RX handlers based on mode */
   if (mode == IOHDLC_OM_NDM) {
-    ioHdlcsp->tx_fn = nrmTx;
-    ioHdlcsp->rx_fn = nrmRx;
+    ioHdlcsp->tx_fn = ioHdlcNrmTx;
+    ioHdlcsp->rx_fn = ioHdlcNrmRx;
   } else {
-    ioHdlcsp->tx_fn = abmTx;
-    ioHdlcsp->rx_fn = abmRx;
+    ioHdlcsp->tx_fn = ioHdlcAbmTx;
+    ioHdlcsp->rx_fn = ioHdlcAbmRx;
   }
 
   /* Configure optional functions */
@@ -367,8 +383,38 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
               ioHdlcsconfp->phydriver,
               ioHdlcsconfp->phydriver_config,
               (ioHdlcFramePool *)&ioHdlcsp->frame_pool);
+    ioHdlcsp->driver_started = true;
   }
 
+  iohdlc_errno = 0;
+  return 0;
+}
+
+/**
+ * @brief   Tear down a station and stop its runtime components.
+ * @details Force-stops the runner if active and stops the associated driver.
+ *          Safe to call multiple times and after partial cleanup paths.
+ * @param[in] ioHdlcsp    station descriptor
+ * @return                0 on success, -1 on invalid argument
+ */
+int32_t ioHdlcStationDeinit(iohdlc_station_t *ioHdlcsp) {
+  if (ioHdlcsp == NULL) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  if (ioHdlcsp->runner_started || ioHdlcsp->runner_context != NULL) {
+    (void)ioHdlcRunnerStop(ioHdlcsp);
+  }
+
+  if (ioHdlcsp->driver != NULL) {
+    hdlcStop(ioHdlcsp->driver);
+  }
+
+  ioHdlcsp->stop_requested = false;
+  ioHdlcsp->driver_started = false;
+  ioHdlcsp->runner_started = false;
+  ioHdlcsp->runner_context = NULL;
   iohdlc_errno = 0;
   return 0;
 }
@@ -379,7 +425,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
  * @param[in] peer_addr   peer protocol address.
  * @return                matching peer descriptor, or NULL if not found.
  */
-iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
+iohdlc_station_peer_t *ioHdlcAddr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
   iohdlc_station_peer_t *p;
 
   /* Traverse circular peer list */
@@ -423,7 +469,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   }
 
   /* Check that addr does not already exist */
-  if (addr2peer(s, addr) != NULL) {
+  if (ioHdlcAddr2peer(s, addr) != NULL) {
     iohdlc_errno = EEXIST;
     return -1;
   }
@@ -543,7 +589,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   int retry_count;
 
   /* Find peer by address */
-  p = addr2peer(s, peer_addr);
+  p = ioHdlcAddr2peer(s, peer_addr);
   if (p == NULL) {
     iohdlc_errno = EINVAL;
     return -1;
@@ -564,6 +610,13 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
      Both the stations are equal. Set it as primary.*/
   if (mode == IOHDLC_OM_ABM) {
     s->flags |= IOHDLC_FLG_PRI;
+  }
+
+  /* Check port constraints against requested mode. */
+  if ((s->port_constraints & IOHDLC_PORT_CONSTR_NRM_ONLY) &&
+      (mode == IOHDLC_OM_ABM)) {
+    iohdlc_errno = ENOTSUP;  /* Port does not support ABM. */
+    return -1;
   }
 
   /* Validate mode and get corresponding U-frame command */
@@ -669,7 +722,7 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
   int retry_count;
 
   /* Find peer by address */
-  p = addr2peer(s, peer_addr);
+  p = ioHdlcAddr2peer(s, peer_addr);
   if (p == NULL) {
     iohdlc_errno = ENOTCONN;
     return -1;
@@ -839,8 +892,9 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     /* Build frame outside mutex (no shared state accessed) */
     
     /* Set address field: commands use peer address, responses use station address.
-       In ABM, I-frames are always commands. */
-    IOHDLC_FRAME_ADDR(s, fp) = (IOHDLC_IS_PRI(s) || IOHDLC_IS_ABM(s)) ? peer->addr : s->addr;
+       In ABM, the final address is overwritten at TX time based on the
+       command/response decision (see ioHdlcNrmTx I-frame loop). */
+    IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
     
     /* Set control field: I-frame ID */
     IOHDLC_FRAME_CTRL(s, fp, 0) = IOHDLC_I_ID;

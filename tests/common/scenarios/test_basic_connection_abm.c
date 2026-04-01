@@ -172,10 +172,8 @@ bool test_abm_data_exchange(const test_adapter_t *adapter) {
 
 test_cleanup:
   ioHdlc_sleep_ms(200);
-  ioHdlcRunnerStop(&station_a);
-  ioHdlcRunnerStop(&station_b);
-  ioHdlcSwDriverStop(&driver_a);
-  ioHdlcSwDriverStop(&driver_b);
+  ioHdlcStationDeinit(&station_a);
+  ioHdlcStationDeinit(&station_b);
 
   return test_result;
 }

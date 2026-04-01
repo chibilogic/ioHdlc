@@ -53,8 +53,6 @@
 static void chb_spi_data_cb(SPIDriver *spip);
 static void chb_spi_error_cb(SPIDriver *spip);
 
-#include "ioHdlcswdriver.h"
-
 /*===========================================================================*/
 /* Local callback implementations.                                           */
 /*===========================================================================*/

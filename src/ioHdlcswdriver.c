@@ -197,7 +197,7 @@ static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
     
     /* Add FCS at offset WITHOUT modifying fp->elen */
     if (drv->fcs_size > 0) {
-      frameAddFCS_at(fp, payload_len);
+      ioHdlcFrameAddFCS_at(fp, payload_len);
       wire_len = payload_len + drv->fcs_size;
     }
     
@@ -206,7 +206,7 @@ static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
       nfp = hdlcTakeFrame(drv->fpp);
       if (nfp == NULL)
         return ENOMEM;  /* No memory (errno-compatible) */
-      (void)frameTransparentEncode(nfp, fp);
+      (void)ioHdlcFrameTransparentEncode(nfp, fp);
       wire_len = nfp->elen;  /* Transparency changes length */
     } else {
       hdlcAddRef(drv->fpp, nfp);
@@ -214,14 +214,14 @@ static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
   }
 
   /* Add closing FLAG */
-  nfp->frame[wire_len++] = HDLC_FLAG;
+  nfp->frame[wire_len++] = IOHDLC_FLAG;
 
 #ifdef IOHDLC_USE_MOCK_ADAPTER
   /* Mock adapter: direct submit with opening flag if idle */
   nfp->openingflag = 0;
   if (drv->port.ops && drv->port.ops->tx_busy &&
       !drv->port.ops->tx_busy(drv->port.ctx)) {
-    nfp->openingflag = HDLC_FLAG;
+    nfp->openingflag = IOHDLC_FLAG;
   }
   const uint8_t *ptr = nfp->openingflag ? &nfp->openingflag : nfp->frame;
   size_t len = nfp->openingflag ? wire_len + 1 : wire_len;
@@ -236,7 +236,7 @@ static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
   
   if (!drv->port.ops->tx_busy(drv->port.ctx)) {
     /* TX idle: kickstart directly (don't enqueue) */
-    nfp->openingflag = HDLC_FLAG;  /* First frame needs opening flag */
+    nfp->openingflag = IOHDLC_FLAG;  /* First frame needs opening flag */
     
     const uint8_t *ptr = &nfp->openingflag;
     size_t len = wire_len + 1;  /* +1 for opening flag */
@@ -281,14 +281,14 @@ static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo) {
     
     /* Decode transparency if configured */
     if (drv->apply_transparency) {
-      frameTransparentDecode(fp, fp);
+      ioHdlcFrameTransparentDecode(fp, fp);
       total_len = fp->elen;  /* Updated after decode */
     }
 
     /* Validate FCS using explicit total_len */
     bool fcs_ok = true;
     if (drv->fcs_size > 0) {
-      fcs_ok = frameCheckFCS_at(fp, total_len);
+      fcs_ok = ioHdlcFrameCheckFCS_at(fp, total_len);
     }
     
     /* Validate FFF if present */
@@ -427,7 +427,7 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
   if (drv->rx_in_frame != NULL) {
     b = &drv->rx_in_frame->frame[drv->rx_in_frame->elen];
     
-    if (*b == HDLC_FLAG) {
+    if (*b == IOHDLC_FLAG) {
       /* Frame complete */
       if (!drv->rx_in_frame->elen)
         goto nextoctet;  /* Empty frame */
@@ -446,7 +446,7 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
       IOHDLC_RAWQ_UNLOCK_ISR(drv->raw_recept_mtx);
       
       drv->rx_in_frame = NULL;
-      *drv->rx_stagep = HDLC_FLAG;  /* FLAG separator is also opening FLAG */
+      *drv->rx_stagep = IOHDLC_FLAG;  /* FLAG separator is also opening FLAG */
       
     } else {
       /* Check for Frame Format Field (FFF) */
@@ -518,7 +518,7 @@ newframe:
   if (!drv->rx_in_frame) {
     b = drv->rx_stagep;
 
-    if (*b != HDLC_FLAG)
+    if (*b != IOHDLC_FLAG)
       goto nextoctet;
 
     *drv->rx_stagep = 0;

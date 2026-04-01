@@ -392,10 +392,8 @@ bool test_A1_1_frame_loss_window_full_twa(const test_adapter_t *adapter) {
               "All 8 frames must be received after checkpoint retransmission");
 
   /* Cleanup */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);
   mock_stream_destroy(stream_primary);
@@ -620,10 +618,8 @@ bool test_A2_1_multiple_frame_loss_twa(const test_adapter_t *adapter) {
               "All 8 frames must be received after checkpoint retransmission");
 
   /* Cleanup */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);
   mock_stream_destroy(stream_primary);
@@ -848,10 +844,8 @@ bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter) {
               "All 8 frames must be received after checkpoint retransmission");
 
   /* Cleanup */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
   mock_stream_adapter_destroy(adapter_primary);
   mock_stream_adapter_destroy(adapter_secondary);
   mock_stream_destroy(stream_primary);

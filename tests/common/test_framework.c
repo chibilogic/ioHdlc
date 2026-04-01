@@ -128,7 +128,6 @@ void test_print_config(const test_config_t *cfg) {
   const char *mode_str;
   switch (cfg->mode) {
     case IOHDLC_OM_NRM: mode_str = "NRM"; break;
-    case IOHDLC_OM_ARM: mode_str = "ARM"; break;
     case IOHDLC_OM_ABM: mode_str = "ABM"; break;
     default: mode_str = "UNKNOWN"; break;
   }
@@ -246,7 +245,6 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
          station->mode == IOHDLC_OM_NDM ? "NDM" :
          station->mode == IOHDLC_OM_ADM ? "ADM" :
          station->mode == IOHDLC_OM_NRM ? "NRM" :
-         station->mode == IOHDLC_OM_ARM ? "ARM" :
          station->mode == IOHDLC_OM_ABM ? "ABM" : "UNKNOWN");
   test_printf("  Flags:          0x%04X %s", station->flags,
          (station->flags & IOHDLC_FLG_PRI) ? "(PRIMARY)" : "(SECONDARY)");

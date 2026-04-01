@@ -41,7 +41,7 @@ int test_my_scenario(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(bytes_received == bytes_sent, "Data mismatch");
 
 test_cleanup:
-  ioHdlcRunnerStop(&station);
+  ioHdlcStationDeinit(&station);
   return test_result;
 }
 ```

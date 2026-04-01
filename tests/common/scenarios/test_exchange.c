@@ -223,6 +223,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   memset(&config, 0, sizeof config);
   if (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY)
     config.use_twa = true;
+  if (adapter->constraints & ADAPTER_CONSTRAINT_NRM_ONLY)
+    config.mode = IOHDLC_OM_NRM;
 
   /* Parse configuration */
   if (!test_parse_config(&config, argc, argv)) {
@@ -239,7 +241,16 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       return 1;
     }
   }
-  
+
+  if (adapter->constraints & ADAPTER_CONSTRAINT_NRM_ONLY) {
+    if (config.mode != IOHDLC_OM_NRM) {
+      test_printf("Error: adapter '%s' requires NRM mode.\r\n"
+                  "       Use --mode=nrm or omit the mode option (default is NRM for this adapter).\r\n",
+                  adapter->name);
+      return 1;
+    }
+  }
+
   /* Enable HDLC logging if compiled in */
 #if IOHDLC_LOG_LEVEL > 0
   extern bool iohdlc_log_enabled;
@@ -610,13 +621,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   }
   
 cleanup:
-  /* Stop runners */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  
-  /* Stop drivers (terminate RX threads) */
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
   
   /* Deinitialize adapter */
   if (adapter && adapter->deinit) {

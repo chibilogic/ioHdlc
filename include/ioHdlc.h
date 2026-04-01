@@ -430,10 +430,10 @@ struct iohdlc_station {
                                    See ISO13239 Table 16. Maintains ISO format for XID. */
   uint16_t  reply_timeout_ms;   /* Reply timer timeout value in milliseconds. Default: 100ms. */
   uint8_t   poll_retry_max_cfg; /* Configured max poll retries (from station config). Default: 5. */
+  uint32_t  port_constraints;  /* Transport constraints copied from phydriver at init. IOHDLC_PORT_CONSTR_* */
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
-  iohdlc_station_peer_t *arm_peer;  /* The peer currently in arm mode, if any. */
-  volatile uint8_t connected_count;  /* Number of currently connected peers. */
+  volatile uint8_t connected_count; /* Number of currently connected peers. */
 
   /* state, peers, pool and queues. */
   iohdlc_peer_list_t  peers;    /* The header of the list of the peers of this station. Stations
@@ -453,6 +453,8 @@ struct iohdlc_station {
 
   /* runner context (OS-specific). */
   volatile bool stop_requested;  /* Flag to request thread termination. */
+  bool driver_started;           /* TRUE if the station lifecycle started the associated driver. */
+  bool runner_started;           /* TRUE if runner threads are currently active. */
   runner_context_t *runner_context; /* Runner data (thread handles, etc). */
 };
 
@@ -548,13 +550,19 @@ extern "C" {
   int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer, uint32_t addr);
   int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t kr);
 
-  iohdlc_station_peer_t *addr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
+  iohdlc_station_peer_t *ioHdlcAddr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
+
+  /**
+   * @brief   Tear down a station and stop its runtime components.
+   * @details Force-stops the runner if active and stops the associated driver.
+   *          This function is idempotent and is safe to call even after a
+   *          partial teardown sequence.
+   * @param[in] ioHdlcsp    station descriptor
+   * @return                0 on success, -1 on invalid argument
+   */
+  int32_t ioHdlcStationDeinit(iohdlc_station_t *ioHdlcsp);
 
   int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, const iohdlc_station_config_t *ioHdlcsconfp);
-#if 0
-  int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp, uint32_t modulus, uint8_t mode,
-      uint32_t addr, ioHdlcDriver *driver, ioHdlcFramePool *fpp);
-#endif
 #ifdef __cplusplus
 }
 #endif
@@ -562,4 +570,3 @@ extern "C" {
 /** @} */
 
 #endif /* IOHDLC_H_ */
-

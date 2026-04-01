@@ -25,8 +25,11 @@
 
 #include "ioHdlcstreamport.h"
 
-/** @brief Adapter supports TWA mode only (e.g. SPI hardware). */
-#define ADAPTER_CONSTRAINT_TWA_ONLY   (1u << 0)
+/** @brief Adapter supports TWA mode only (e.g. SPI hardware). Aliases IOHDLC_PORT_CONSTR_TWA_ONLY. */
+#define ADAPTER_CONSTRAINT_TWA_ONLY   IOHDLC_PORT_CONSTR_TWA_ONLY
+
+/** @brief Adapter supports NRM mode only (e.g. SPI hardware). Aliases IOHDLC_PORT_CONSTR_NRM_ONLY. */
+#define ADAPTER_CONSTRAINT_NRM_ONLY   IOHDLC_PORT_CONSTR_NRM_ONLY
 
 /**
  * @brief Test adapter interface.
