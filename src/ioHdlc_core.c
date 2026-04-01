@@ -1501,8 +1501,8 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       /* Determine whether to set P/F bit.
          Command TWA: Set P on last I-frame (we have the link).
          Command TWS: Set P as soon as possible (if no P in flight).
-         Response (TWA & TWS): Set F on last I-frame (when window will be full
-         or no more frames). */
+         Response NRM/ABM-TWA: Set F on last I-frame.
+         Response ABM-TWS: Set F on first I-frame (earliest possible). */
       const bool is_last_frame = ((outstanding + 1) >= p->ks) || (next_fp == NULL);
 
       if (is_command) {
@@ -1512,11 +1512,11 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         set_pf = IOHDLC_USE_TWA(s) ? is_last_frame : IOHDLC_F_ISRCVED(s);
       } else {
         /* Response: set F when we have a P to respond to.
-           TWA: F on last frame (end of turn).
-           TWS: F on first frame (ISO 13239 5.4.3.2.3: earliest possible).
-           With is_command = !P_ISRCVED, ACK_P after F returns to command. */
+           NRM secondary (TWA or TWS): F on last frame.
+           ABM TWA: F on last frame (hold the line until done).
+           ABM TWS: F on first frame (ISO 13239 5.4.3.2.3: earliest possible). */
         set_pf = IOHDLC_P_ISRCVED(s) &&
-                 (IOHDLC_USE_TWA(s) ? is_last_frame : true);
+                 (IOHDLC_IS_ABM(s) && !IOHDLC_USE_TWA(s) ? true : is_last_frame);
       }
     }
     /* Read vr for N(R) field */
