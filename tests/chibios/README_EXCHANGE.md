@@ -18,6 +18,7 @@ make exchange USE_SPI_ADAPTER=1
 
 # With custom parameters
 make exchange \
+  TEST_MODULO=128 \
   TEST_USE_TWA=1 \
   TEST_DURATION_TYPE=TEST_BY_TIME \
   TEST_DURATION_VALUE=60 \
@@ -31,7 +32,8 @@ make exchange \
 
 | Define | Default | Description |
 |--------|---------|-------------|
-| `TEST_MODE` | `IOHDLC_OM_NRM` | Operating mode (NRM, ARM, ABM) |
+| `TEST_MODE` | `IOHDLC_OM_NRM` | Operating mode (`IOHDLC_OM_NRM`, `IOHDLC_OM_ABM`) |
+| `TEST_MODULO` | 8 | HDLC modulo (`8` or `128`) |
 | `TEST_USE_TWA` | 0 | TWA mode (0=TWS, 1=TWA) |
 | `TEST_DURATION_TYPE` | `TEST_BY_COUNT` | Duration: `TEST_BY_COUNT`, `TEST_BY_TIME`, `TEST_INFINITE` |
 | `TEST_DURATION_VALUE` | 1000 | Iterations or seconds |

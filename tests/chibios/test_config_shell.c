@@ -55,10 +55,11 @@ static void print_usage(void) {
   test_printf("  --size=N            Frame size in bytes (default: 64, max: 120)\r\n");
   test_printf("  --count=N           Run for N iterations (default: 100)\r\n");
   test_printf("  --exchanges=N       Exchanges per iteration (default: 10)\r\n");
-  test_printf("  -p N                Poll interval in ms (default: 1000)\r\n");
+  test_printf("  --modulo=N          HDLC modulo: 8 or 128 (default: 8)\r\n");
+  test_printf("  -p N                Progress interval in ms (default: 1000)\r\n");
   test_printf("  -w N                Watermark delay every 256 packets in ms (default: 0)\r\n");
   test_printf("  --error-rate=N      Error rate 0-100%% (default: 0)\r\n");
-  test_printf("  --direction=DIR     Direction: both|a2b|b2a (default: both)\r\n");
+  test_printf("  --direction=DIR     Direction: both|pri2sec|sec2pri (aliases: a2b|b2a)\r\n");
   test_printf("  --reply-timeout=N   Reply timeout in ms (default: 100)\r\n");
   test_printf("  --mode=MODE         Mode: nrm|abm (default: nrm)\r\n");
   test_printf("  --twa               Use Two-Way Alternate\r\n");
@@ -70,7 +71,8 @@ static void print_usage(void) {
   test_printf("\r\n");
   test_printf("Examples:\r\n");
   test_printf("  exchange --size=120 --count=50 --exchanges=100\r\n");
-  test_printf("  exchange --direction=a2b --error-rate=5 -p200\r\n");
+  test_printf("  exchange --direction=a2b --error-rate=5 -p 200\r\n");
+  test_printf("  exchange --mode=abm --tws --modulo=128 --count=200\r\n");
   test_printf("\r\n");
 }
 
@@ -90,6 +92,8 @@ static void print_usage(void) {
 bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   /* Default configuration */
   cfg->mode = IOHDLC_OM_NRM;
+  cfg->use_twa = false;
+  cfg->modulo = 8;
   cfg->duration_type = TEST_BY_COUNT;
   cfg->duration_value = 100;
   cfg->exchanges_per_iteration = 10;
@@ -144,6 +148,19 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
           cfg->exchanges_per_iteration = exchanges;
         } else {
           test_printf("Error: Invalid exchanges\r\n");
+          return false;
+        }
+      }
+    }
+    /* --modulo=N */
+    else if (arg_starts_with(arg, "--modulo=")) {
+      value = get_arg_value(arg);
+      if (value) {
+        int modulo = atoi(value);
+        if (modulo == 8 || modulo == 128) {
+          cfg->modulo = (uint16_t)modulo;
+        } else {
+          test_printf("Error: Invalid modulo (8|128)\r\n");
           return false;
         }
       }

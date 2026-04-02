@@ -63,6 +63,7 @@ bool test_data_exchange_twa(const test_adapter_t *adapter);
 /*===========================================================================*/
 
 bool test_abm_data_exchange(const test_adapter_t *adapter);
+bool test_abm_mod128_wraparound(const test_adapter_t *adapter);
 
 /*===========================================================================*/
 /* Test: Checkpoint TWS                                                      */

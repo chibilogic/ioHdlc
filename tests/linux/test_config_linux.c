@@ -31,7 +31,8 @@
 static void print_usage(const char *progname) {
   printf("Usage: %s [options]\n\n", progname);
   printf("Options:\n");
-  printf("  --mode=MODE         Operating mode: nrm, arm, abm (default: nrm)\n");
+  printf("  --mode=MODE         Operating mode: nrm, abm (default: nrm)\n");
+  printf("  --modulo=N          HDLC modulo: 8 or 128 (default: 8)\n");
   printf("  --twa               Use Two-Way Alternate (default: TWS)\n");
   printf("  --tws               Use Two-Way Simultaneous (explicit)\n");
   printf("  --count=N           Run for N iterations (default mode)\n");
@@ -40,13 +41,16 @@ static void print_usage(const char *progname) {
   printf("  --size=N            Packet size in bytes (default: 64, max: 120)\n");
   printf("  --direction=DIR     Traffic direction: pri2sec, sec2pri, both (default: both)\n");
   printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
-  printf("  --reply-timeout=N   Reply timeout in ms (default: 0=100ms)\n");  printf("  --poll-retry-max=N  Max poll retries before link down (default: 0=5)\n");  printf("  --progress-interval=ms  Progress update interval in ms (default: 1000)\n");
+  printf("  --reply-timeout=N   Reply timeout in ms (default: 0=100ms)\n");
+  printf("  --poll-retry-max=N  Max poll retries before link down (default: 0=5)\n");
+  printf("  --progress-interval=ms  Progress update interval in ms (default: 1000)\n");
   printf("  --watermark-delay=N Reader delay every 256 packets in ms (default: 0=disabled)\n");
   printf("  --krs=N             Window size (ks=kr=N, 1..modmask; default: modmask)\n");
   printf("  --help              Show this help\n\n");
   printf("Examples:\n");
   printf("  %s --mode=nrm --twa --count=100 --exchanges=50 --size=64\n", progname);
   printf("  %s --mode=nrm --tws --time=60 --direction=pri2sec --size=100\n", progname);
+  printf("  %s --mode=abm --tws --modulo=128 --count=200\n", progname);
   printf("\n");
 }
 
@@ -58,6 +62,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   /* Default configuration */
   cfg->mode = IOHDLC_OM_NRM;
   cfg->use_twa = false;
+  cfg->modulo = 8;
   cfg->duration_type = TEST_BY_COUNT;
   cfg->duration_value = 10;
   cfg->exchanges_per_iteration = 10;
@@ -74,6 +79,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   /* Long options */
   static struct option long_options[] = {
     {"mode",      required_argument, 0, 'm'},
+    {"modulo",    required_argument, 0, 'M'},
     {"twa",       no_argument,       0, 'a'},
     {"tws",       no_argument,       0, 's'},
     {"count",     required_argument, 0, 'c'},
@@ -94,7 +100,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   int opt;
   int option_index = 0;
   
-  while ((opt = getopt_long(argc, argv, "m:asc:t:e:z:d:r:T:R:p:w:K:h",
+  while ((opt = getopt_long(argc, argv, "m:M:asc:t:e:z:d:r:T:R:p:w:K:h",
                             long_options, &option_index)) != -1) {
     switch (opt) {
       case 'm':  /* --mode */
@@ -104,6 +110,14 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
           cfg->mode = IOHDLC_OM_ABM;
         } else {
           fprintf(stderr, "Error: Invalid mode '%s'\n", optarg);
+          return false;
+        }
+        break;
+
+      case 'M':  /* --modulo */
+        cfg->modulo = (uint16_t)atoi(optarg);
+        if (cfg->modulo != 8 && cfg->modulo != 128) {
+          fprintf(stderr, "Error: Invalid modulo '%s' (expected 8 or 128)\n", optarg);
           return false;
         }
         break;

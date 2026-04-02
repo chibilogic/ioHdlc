@@ -24,16 +24,19 @@ iohdlc> exchange --count=100 --size=120 --twa
 **ChibiOS standalone (compile-time):**
 
 ```bash
-make -C tests/chibios exchange TEST_USE_TWA=1 TEST_DURATION_VALUE=100
+make -C tests/chibios exchange TEST_MODULO=128 TEST_USE_TWA=1 TEST_DURATION_VALUE=100
 ```
 
 ## Command-Line Options
 
-All options are available on Linux and in the ChibiOS shell. The ChibiOS standalone binary uses compile-time defines instead (see [ChibiOS Standalone Build](../tests/chibios/README_EXCHANGE.md)).
+All options below are available on Linux and in the ChibiOS shell. The ChibiOS standalone binary uses compile-time defines instead (see [ChibiOS Standalone Build](../tests/chibios/README_EXCHANGE.md)).
+
+Unless noted otherwise, the semantics are identical on Linux and in the shell. The defaults shown in the table are the Linux runtime defaults; ChibiOS-specific differences are listed in [Platform-Specific Defaults](#platform-specific-defaults).
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--mode=MODE` | nrm | HDLC operating mode: `nrm`, `abm` |
+| `--modulo=N` | 8 | HDLC modulo: `8`, `128` |
 | `--twa` | _(off)_ | Use Two-Way Alternate |
 | `--tws` | _(default)_ | Use Two-Way Simultaneous (explicit) |
 | `--count=N` | 10 | Run for N iterations (sets count-based duration) |
@@ -44,9 +47,14 @@ All options are available on Linux and in the ChibiOS shell. The ChibiOS standal
 | `--error-rate=N` | 0 | Error injection rate 0-100% (mock adapter only) |
 | `--reply-timeout=N` | 0 (100ms) | HDLC reply timeout in ms |
 | `--poll-retry-max=N` | 0 (5) | Max poll retries before link failure |
+| `--krs=N` | modmask | Window size (`ks = kr = N`) |
 | `--progress-interval=N` | 1000 | Progress report interval in ms |
 | `--watermark-delay=N` | 0 | Reader delay every 256 packets in ms (0=disabled) |
 | `--help` | -- | Show usage |
+
+Shell-only shorthand:
+- `-p N` is equivalent to `--progress-interval=N`
+- `-w N` is equivalent to `--watermark-delay=N`
 
 ## Configuration Parameters
 
@@ -54,6 +62,7 @@ All options are available on Linux and in the ChibiOS shell. The ChibiOS standal
 
 - **Mode** (`--mode`): NRM (Normal Response Mode) is the default and most common mode, while ABM is the primary choice for point-to-point links using TWS.
 - **Link type** (`--twa`/`--tws`): TWS allows both stations to transmit independently. TWA alternates transmission turns via polling. SPI adapters require TWA.
+- **Modulo** (`--modulo`): modulo 8 is the default. Use modulo 128 to exercise extended control fields and larger sequence spaces.
 
 ### Duration
 
@@ -68,6 +77,7 @@ Three duration modes, mutually exclusive:
 - `both` (default): both stations send and receive simultaneously (4 active threads).
 - `pri2sec`: primary sends only, secondary receives only (2 active threads).
 - `sec2pri`: secondary sends only, primary receives only (2 active threads).
+- ChibiOS shell also accepts `a2b` and `b2a` as aliases for `pri2sec` and `sec2pri`.
 
 ### Packet Size
 
@@ -87,6 +97,14 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 
 - `--reply-timeout`: time the protocol waits for a response before retransmitting. Lower values increase retransmission aggressiveness. 0 uses the library default (100ms).
 - `--poll-retry-max`: maximum retransmission attempts before declaring link failure. 0 uses the library default (5).
+- `--krs`: sets both `ks` and `kr`. The value must be at least 1 and no larger than the modmask of the selected modulo (`7` for modulo 8, `127` for modulo 128).
+
+## Platform-Specific Defaults
+
+- Linux runtime defaults: `--count=10`, `--mode=nrm`, `--modulo=8`, `--tws`, `--reply-timeout=0`, `--poll-retry-max=0`
+- ChibiOS shell defaults: `--count=100`, `--mode=nrm`, `--modulo=8`, `--tws`, `--reply-timeout=100`, `--poll-retry-max=5`
+- ChibiOS standalone defaults are compile-time:
+  `TEST_MODE=IOHDLC_OM_NRM`, `TEST_MODULO=8`, `TEST_USE_TWA=0`, `TEST_DURATION_TYPE=TEST_BY_COUNT`, `TEST_DURATION_VALUE=1000`
 
 ## Usage Examples
 
@@ -101,6 +119,9 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 
 # Unidirectional: primary to secondary only
 ./test_exchange --count=500 --direction=pri2sec
+
+# ABM/TWS with modulo 128
+./test_exchange --mode=abm --tws --modulo=128 --count=200
 ```
 
 ### Stress Tests
@@ -226,11 +247,11 @@ Runtime CLI via `getopt_long`. All options listed above are available. Ctrl-C tr
 
 ### ChibiOS Standalone
 
-Compile-time configuration via Makefile defines. See [ChibiOS Standalone Build](../tests/chibios/README_EXCHANGE.md) for the full list of `TEST_*` defines.
+Compile-time configuration via Makefile defines. See [ChibiOS Standalone Build](../tests/chibios/README_EXCHANGE.md) for the full list of `TEST_*` defines, including `TEST_MODULO`.
 
 ### ChibiOS Shell
 
-Interactive shell with runtime CLI -- same syntax as Linux. See [ChibiOS Shell](../tests/chibios/README_SHELL.md) for shell-specific details.
+Interactive shell with runtime CLI. It accepts the same long options as Linux, plus `a2b`/`b2a` direction aliases and the short forms `-p N`, `-w N`. See [ChibiOS Shell](../tests/chibios/README_SHELL.md) for shell-specific details.
 
 ## Debugging
 

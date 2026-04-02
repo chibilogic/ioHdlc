@@ -231,6 +231,12 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     return 1;
   }
 
+  if (config.modulo != 8 && config.modulo != 128) {
+    test_printf("Error: Unsupported modulo %u (expected 8 or 128)\r\n",
+                config.modulo);
+    return 1;
+  }
+
   /* Enforce adapter hardware constraints */
   if (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY) {
     if (!config.use_twa) {
@@ -306,11 +312,12 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   };
   const uint8_t *optfuncs = (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY)
                             ? optfuncs_norej : NULL;
+  const uint8_t log2mod = (config.modulo == 128) ? 7 : 3;
 
   /* Configure primary station */
   station_config.mode = (config.mode == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;;
   station_config.flags = IOHDLC_FLG_PRI | (config.use_twa ? IOHDLC_FLG_TWA : 0);
-  station_config.log2mod = 3;
+  station_config.log2mod = log2mod;
   station_config.addr = PRIMARY_ADDR;
   station_config.driver = (ioHdlcDriver *)&driver_primary;
   station_config.frame_arena = arena_primary;
@@ -336,6 +343,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
      ABM/ARM start in ADM (Asynchronous Disconnected Mode). */
   station_config.mode = (config.mode == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
   station_config.flags = config.use_twa ? IOHDLC_FLG_TWA : 0;
+  station_config.log2mod = log2mod;
   station_config.addr = SECONDARY_ADDR;
   station_config.driver = (ioHdlcDriver *)&driver_secondary;
   station_config.frame_arena = arena_secondary;

@@ -23,6 +23,7 @@ tests/
 │   │   ├── test_exchange.c               # Parametrized bidirectional throughput test
 │   │   ├── test_frame_pool.c             # Frame pool allocation, refcount, watermarks
 │   │   ├── test_frmr.c                   # FRMR generation, repetition, suppression, recovery
+│   │   ├── test_mod128_abm.c             # ABM/TWS modulo-128 transfer and wrap-around
 │   │   └── test_multipoint_nrm.c         # Shared-bus NRM multipoint scenarios
 │   ├── test_arenas.h/c         # Pre-allocated memory arenas for tests
 │   ├── test_framework.h/c      # Assertion and reporting primitives
@@ -145,6 +146,7 @@ cd tests/linux
 ./build/bin/test_checkpoint_twa
 ./build/bin/test_frame_pool
 ./build/bin/test_frmr
+./build/bin/test_mod128_abm
 ./build/bin/test_multipoint_nrm
 
 # Parametrized exchange test
@@ -265,17 +267,21 @@ CFLAGS_EXTRA="-DIOHDLC_LOG_LEVEL=2" make
 
 - [x] **test_frmr_invalid_nr**: Invalid `N(R)` triggers FRMR, repetition on poll, suppression of I-frames, recovery after SNRM
 
-### 8. Multipoint NRM (`test_multipoint_nrm.c`)
+### 8. Modulo 128 ABM/TWS (`test_mod128_abm.c`)
+
+- [x] **test_abm_mod128_wraparound**: SABM/UA in ABM, sustained modulo-128 transfer, explicit `127 -> 0` wrap-around
+
+### 9. Multipoint NRM (`test_multipoint_nrm.c`)
 
 - [x] **test_multipoint_connect_two_secondaries**: Sequential connection of two secondaries on a shared bus
 - [x] **test_multipoint_data_exchange**: Round-robin bidirectional exchange with both secondaries
 - [x] **test_multipoint_selective_disconnect**: Disconnect one secondary without affecting the other
 
-### 9. Parametrized Exchange (`test_exchange.c`)
+### 10. Parametrized Exchange (`test_exchange.c`)
 
-Configurable stress test with bidirectional traffic, error injection, latency/throughput measurement, and long-running support. See [Exchange Test Tool](../doc/TEST_EXCHANGE.md) for full documentation.
+Configurable stress test with bidirectional traffic, error injection, latency/throughput measurement, selectable modulo (`8` or `128`), and long-running support. See [Exchange Test Tool](../doc/TEST_EXCHANGE.md) for full documentation.
 
-### 10. OSAL Tests (Linux-specific)
+### 11. OSAL Tests (Linux-specific)
 
 - [x] **test_osal_bsem** (`linux/scenarios/test_osal_bsem.c`): Binary semaphore wait/signal semantics
 - [x] **test_osal_events** (`linux/scenarios/test_osal_events.c`): Event source broadcast and listener wake-up

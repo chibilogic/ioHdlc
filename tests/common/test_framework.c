@@ -132,6 +132,7 @@ void test_print_config(const test_config_t *cfg) {
     default: mode_str = "UNKNOWN"; break;
   }
   test_printf("Mode:         %s-%s\n", mode_str, cfg->use_twa ? "TWA" : "TWS");
+  test_printf("Modulo:       %u\n", cfg->modulo);
   
   /* Duration */
   test_printf("Duration:     ");
@@ -348,5 +349,4 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
   
   test_printf("\n========================================\n\n");
 }
-
 

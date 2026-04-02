@@ -41,6 +41,17 @@
 #endif
 
 /**
+ * @brief   HDLC modulo (override with -DTEST_MODULO=128)
+ */
+#ifndef TEST_MODULO
+#define TEST_MODULO 8
+#endif
+
+#if (TEST_MODULO != 8) && (TEST_MODULO != 128)
+#error "TEST_MODULO must be 8 or 128"
+#endif
+
+/**
  * @brief   Test duration type (override with -DTEST_DURATION_TYPE=xxx)
  */
 #ifndef TEST_DURATION_TYPE
@@ -126,10 +137,11 @@
 bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   (void)argc;  /* Unused on ChibiOS */
   (void)argv;  /* Unused on ChibiOS */
-  
+
   /* Set configuration from compile-time defines */
   cfg->mode = TEST_MODE;
   cfg->use_twa = (TEST_USE_TWA != 0);
+  cfg->modulo = TEST_MODULO;
   cfg->duration_type = TEST_DURATION_TYPE;
   cfg->duration_value = TEST_DURATION_VALUE;
   cfg->exchanges_per_iteration = TEST_EXCHANGES;

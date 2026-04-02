@@ -54,6 +54,7 @@ typedef struct {
   /* Mode configuration */
   uint8_t mode;                         /**< IOHDLC_OM_NRM, ARM, ABM */
   bool use_twa;                         /**< true=TWA, false=TWS */
+  uint16_t modulo;                      /**< HDLC modulus: 8 or 128 */
   
   /* Test duration */
   test_duration_type_t duration_type;   /**< How to measure duration */
