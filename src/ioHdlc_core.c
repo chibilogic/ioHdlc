@@ -18,6 +18,7 @@
  * @brief   ISO 13239 HDLC protocol core implementation.
  * @details Implements HDLC station core functionality including:
  *          - NRM (Normal Response Mode)
+ *          - ABM (Asynchronous Balanced Mode)
  *          - I-frame, S-frame, and U-frame handling
  *          - Sequence number validation (N(S), N(R))
  *          - Checkpoint retransmission (ISO 13239 5.6.2.1)
@@ -1329,8 +1330,9 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
   if (!sendOpportunity(s))
     return NULL;
 
-  /* Command/response: in NRM constant by role, in ABM varies by P/F state.
-     Per ISO 13239 4.2.2: command addr = peer, response addr = station. */
+  /* Command/response: in NRM constant by role, in ABM it depends on whether
+     a received P is still pending. Per ISO 13239 4.2.2: command addr = peer,
+     response addr = station. */
   const bool is_command = IOHDLC_IS_ABM(s) ?
       !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
 
@@ -1483,9 +1485,9 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     IOHDLC_SET_NEED_P(s, p);
     bool set_pf = false;
 
-    /* In NRM, command/response is determined by role (primary=command,
-       secondary=response). In ABM, it varies per frame based on P/F state.
-       Per ISO 13239 4.2.2: command addr = peer, response addr = station. */
+    /* In NRM, command/response is fixed by role. In ABM, it depends on
+       whether a received P is still pending. Per ISO 13239 4.2.2:
+       command addr = peer, response addr = station. */
     const bool is_command = IOHDLC_IS_ABM(s) ?
         !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
 
@@ -1502,6 +1504,8 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
          Command TWA: Set P on last I-frame (we have the link).
          Command TWS: Set P as soon as possible (if no P in flight).
          Response NRM/ABM-TWA: Set F on last I-frame.
+         In ABM TWA this closes the response; medium access itself still
+         comes from line idle, not from the P/F cycle.
          Response ABM-TWS: Set F on first I-frame (earliest possible). */
       const bool is_last_frame = ((outstanding + 1) >= p->ks) || (next_fp == NULL);
 
