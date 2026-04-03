@@ -45,6 +45,7 @@
 #define MOD128_WRAP_COUNT   128U
 #define MOD128_EXTRA_COUNT  32U
 #define MOD128_TOTAL_COUNT  (MOD128_WRAP_COUNT + MOD128_EXTRA_COUNT)
+#define MOD128_ARENA_SIZE   32768U
 
 /*===========================================================================*/
 /* Helpers                                                                   */
@@ -95,6 +96,8 @@ bool test_abm_mod128_wraparound(const test_adapter_t *adapter) {
   iohdlc_station_t station_a, station_b;
   iohdlc_station_peer_t peer_at_a, peer_at_b;
   iohdlc_station_config_t config;
+  static uint8_t arena_a[MOD128_ARENA_SIZE];
+  static uint8_t arena_b[MOD128_ARENA_SIZE];
   int32_t result;
   ioHdlcStreamPort port_a = adapter->get_port_a();
   ioHdlcStreamPort port_b = adapter->get_port_b();
@@ -109,8 +112,8 @@ bool test_abm_mod128_wraparound(const test_adapter_t *adapter) {
   config.log2mod = 7;
   config.addr = STATION_A_ADDR;
   config.driver = (ioHdlcDriver *)&driver_a;
-  config.frame_arena = shared_arena_primary;
-  config.frame_arena_size = sizeof shared_arena_primary;
+  config.frame_arena = arena_a;
+  config.frame_arena_size = sizeof arena_a;
   config.fff_type = 1;
   config.phydriver = &port_a;
 
@@ -124,8 +127,8 @@ bool test_abm_mod128_wraparound(const test_adapter_t *adapter) {
   config.log2mod = 7;
   config.addr = STATION_B_ADDR;
   config.driver = (ioHdlcDriver *)&driver_b;
-  config.frame_arena = shared_arena_secondary;
-  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.frame_arena = arena_b;
+  config.frame_arena_size = sizeof arena_b;
   config.fff_type = 1;
   config.phydriver = &port_b;
 

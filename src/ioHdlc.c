@@ -784,8 +784,13 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
  * @brief   Flow control: writer wait condition is true
  *          until exceeding pending frames exist OR pool low
  */
+static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
+  uint32_t margin = p->ks / 8U;
+  return p->ks + ((margin < 2U) ? 2U : margin);
+}
+
 #define W_WAIT_COND(s, p) \
-	          (p->i_pending_count >= (2 * p->ks) || \
+	          (p->i_pending_count >= writer_pending_limit(p) || \
 	          hdlcPoolGetState(&s->frame_pool) != IOHDLC_POOL_NORMAL)
 /**
  * @brief   Write data to peer via HDLC I-frames.

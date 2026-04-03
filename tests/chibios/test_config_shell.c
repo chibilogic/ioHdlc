@@ -52,7 +52,8 @@ static void print_usage(void) {
   test_printf("\r\n");
   test_printf("Usage: exchange [options]\r\n\r\n");
   test_printf("Options:\r\n");
-  test_printf("  --size=N            Frame size in bytes (default: 64, max: 120)\r\n");
+  test_printf("  --size=N            Packet size in bytes, header included (default: 64, range: %u-%u)\r\n",
+              (unsigned)TEST_PACKET_HEADER_SIZE, (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
   test_printf("  --count=N           Run for N iterations (default: 100)\r\n");
   test_printf("  --exchanges=N       Exchanges per iteration (default: 10)\r\n");
   test_printf("  --modulo=N          HDLC modulo: 8 or 128 (default: 8)\r\n");
@@ -70,7 +71,7 @@ static void print_usage(void) {
   test_printf("  --help              Show this help\r\n");
   test_printf("\r\n");
   test_printf("Examples:\r\n");
-  test_printf("  exchange --size=120 --count=50 --exchanges=100\r\n");
+  test_printf("  exchange --size=512 --count=50 --exchanges=100\r\n");
   test_printf("  exchange --direction=a2b --error-rate=5 -p 200\r\n");
   test_printf("  exchange --mode=abm --tws --modulo=128 --count=200\r\n");
   test_printf("\r\n");
@@ -117,10 +118,13 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
       value = get_arg_value(arg);
       if (value) {
         int size = atoi(value);
-        if (size > 0 && size <= 120) {
+        if (size >= (int)TEST_PACKET_HEADER_SIZE &&
+            size <= (int)TEST_EXCHANGE_MAX_PACKET_SIZE) {
           cfg->bytes_per_exchange = size;
         } else {
-          test_printf("Error: Invalid size (must be 1-120)\r\n");
+          test_printf("Error: Invalid size (must be %u-%u, header included)\r\n",
+                      (unsigned)TEST_PACKET_HEADER_SIZE,
+                      (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
           return false;
         }
       }

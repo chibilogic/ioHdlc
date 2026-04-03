@@ -42,7 +42,7 @@ Unless noted otherwise, the semantics are identical on Linux and in the shell. T
 | `--count=N` | 10 | Run for N iterations (sets count-based duration) |
 | `--time=N` | -- | Run for N seconds (sets time-based duration) |
 | `--exchanges=N` | 10 | Packets sent per iteration |
-| `--size=N` | 64 | Packet size in bytes (max 120 for TYPE0 FFF) |
+| `--size=N` | 64 | Packet size in bytes, including the 10-byte test header (range: 10-1024) |
 | `--direction=DIR` | both | Traffic direction: `pri2sec`, `sec2pri`, `both` |
 | `--error-rate=N` | 0 | Error injection rate 0-100% (mock adapter only) |
 | `--reply-timeout=N` | 0 (100ms) | HDLC reply timeout in ms |
@@ -81,7 +81,9 @@ Three duration modes, mutually exclusive:
 
 ### Packet Size
 
-Maximum 120 bytes for TYPE0 FFF framing. The 10-byte test packet header (sequence number + timestamp + payload length) is included in this size, leaving 110 bytes of user payload.
+`--size` is the total size of the test packet passed to `ioHdlcWriteTmo()`, including the 10-byte test header (sequence number + timestamp + payload length). The exchange harness supports packet sizes from 10 to 1024 bytes.
+
+This is intentionally larger than a single HDLC I-frame on TYPE0 FFF links, so values above `mifls` exercise the writer fragmentation path instead of being rejected by the test harness.
 
 ### Error Injection
 

@@ -38,7 +38,8 @@ static void print_usage(const char *progname) {
   printf("  --count=N           Run for N iterations (default mode)\n");
   printf("  --time=N            Run for N seconds\n");
   printf("  --exchanges=N       Exchanges per iteration (default: 10)\n");
-  printf("  --size=N            Packet size in bytes (default: 64, max: 120)\n");
+  printf("  --size=N            Packet size in bytes, header included (default: 64, range: %u-%u)\n",
+         (unsigned)TEST_PACKET_HEADER_SIZE, (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
   printf("  --direction=DIR     Traffic direction: pri2sec, sec2pri, both (default: both)\n");
   printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
   printf("  --reply-timeout=N   Reply timeout in ms (default: 0=100ms)\n");
@@ -66,7 +67,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->duration_type = TEST_BY_COUNT;
   cfg->duration_value = 10;
   cfg->exchanges_per_iteration = 10;
-  cfg->bytes_per_exchange = 64;  /* Safe default for TYPE0 FFF (max 120) */
+  cfg->bytes_per_exchange = 64;
   cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
   cfg->error_rate = 0;  /* Disabled by default */
   cfg->reply_timeout_ms = 0;  /* Use default (100ms) */
@@ -156,13 +157,18 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         }
         break;
         
-      case 'z':  /* --size */
-        cfg->bytes_per_exchange = atoi(optarg);
-        if (cfg->bytes_per_exchange == 0) {
-          fprintf(stderr, "Error: Invalid size value\n");
+      case 'z':  /* --size */ {
+        int size = atoi(optarg);
+        if (size < (int)TEST_PACKET_HEADER_SIZE ||
+            size > (int)TEST_EXCHANGE_MAX_PACKET_SIZE) {
+          fprintf(stderr, "Error: Invalid size value (must be %u-%u, header included)\n",
+                  (unsigned)TEST_PACKET_HEADER_SIZE,
+                  (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
           return false;
         }
+        cfg->bytes_per_exchange = (uint32_t)size;
         break;
+      }
         
       case 'd':  /* --direction */
         if (strcmp(optarg, "pri2sec") == 0) {
