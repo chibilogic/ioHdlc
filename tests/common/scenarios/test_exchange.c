@@ -46,7 +46,9 @@ static iohdlc_station_t *st_pri, *st_sec;
 #define PRIMARY_ADDR    0x01
 #define SECONDARY_ADDR  0x02
 #define WINDOW_SIZE     7
+#ifndef EXCHANGE_ARENA_SIZE
 #define EXCHANGE_ARENA_SIZE 32768
+#endif
 #define WTMO 4500
 #define RTMO 5000
 
