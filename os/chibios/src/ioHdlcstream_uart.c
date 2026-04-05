@@ -86,6 +86,7 @@ static void chb_timeout_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (!ctx) return;
   chDbgAssert(ctx->cbs && ctx->cbs->on_rx_error, "uart timeout cb: callbacks not set");
+  ctx->rx_busy = false;
   ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_TMO);
 }
 

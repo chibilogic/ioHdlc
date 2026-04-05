@@ -145,7 +145,9 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   /* Start port and begin RX */
   drv->port.ops->start(drv->port.ctx, &drv->hal_cbs);
   iohdlc_sys_lock();
-  (void)drv->port.ops->rx_submit(drv->port.ctx, drv->rx_stagep, 1);
+  if (drv->port.ops->rx_submit(drv->port.ctx, drv->rx_stagep, 1) == false) {
+    asm("bkpt");
+  }
   iohdlc_sys_unlock();
   
   drv->started = true;
@@ -401,10 +403,10 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
   if (errmask & IOHDLC_STREAM_ERR_TMO) {
     if (drv->rx_in_frame && drv->rx_in_frame->elen != 0) {
       /* Intra-frame timeout - discard partial frame */
-      s_handle_rx_error(drv);
       iohdlc_sys_lock_isr();
       drv->port.ops->rx_cancel(drv->port.ctx);
       iohdlc_sys_unlock_isr();
+      s_handle_rx_error(drv);
       goto newframe;
     }
     /* Inter-frame timeout - signal IDLE */

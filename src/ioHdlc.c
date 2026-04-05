@@ -786,7 +786,7 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
  */
 static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
   uint32_t margin = p->ks / 8U;
-  return p->ks + ((margin < 2U) ? 2U : margin);
+  return p->ks + ((margin < 7U) ? 7U : margin);
 }
 
 #define W_WAIT_COND(s, p) \

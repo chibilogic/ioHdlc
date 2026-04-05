@@ -36,7 +36,7 @@
 #endif
 
 #if !defined(MOCK_STREAM_MAX_PEERS)
-#define MOCK_STREAM_MAX_PEERS  8
+#define MOCK_STREAM_MAX_PEERS  3
 #endif
 
 
