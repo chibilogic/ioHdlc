@@ -65,6 +65,7 @@ extern "C" {
 #define IOHDLC_STREAM_ERR_FRAMING  (1u << 1)
 #define IOHDLC_STREAM_ERR_PARITY   (1u << 2)
 #define IOHDLC_STREAM_ERR_TMO      (1u << 3)
+#define IOHDLC_STREAM_ERR_OTHER    (1u << 4)
 /** @} */
 
 /**

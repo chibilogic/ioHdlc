@@ -145,9 +145,7 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   /* Start port and begin RX */
   drv->port.ops->start(drv->port.ctx, &drv->hal_cbs);
   iohdlc_sys_lock();
-  if (drv->port.ops->rx_submit(drv->port.ctx, drv->rx_stagep, 1) == false) {
-    asm("bkpt");
-  }
+  (void)drv->port.ops->rx_submit(drv->port.ctx, drv->rx_stagep, 1);
   iohdlc_sys_unlock();
   
   drv->started = true;
@@ -159,7 +157,7 @@ static void drv_stop(void *instance) {
   if (!drv || !drv->started) {
     return;
   }
-  
+
   /* Stop port (terminates RX thread) */
   if (drv->port.ops && drv->port.ops->stop) {
     drv->port.ops->stop(drv->port.ctx);
@@ -249,8 +247,10 @@ static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
       nfp->openingflag = 0;  /* Contiguous with previous frame */
       ioHdlc_frameq_insert(&drv->raw_tx_q, &nfp->q_aux);
     } else {
-      /* This can only happen if the caller retrasmit frames
-         already enqueued. */
+      /* This can only happen if the caller retransmits frames
+         already enqueued. The frame has been refreshed and is
+         therefore moved to the tail of the queue.*/
+      ioHdlc_frameq_move_tail(&drv->raw_tx_q, &nfp->q_aux);
       hdlcReleaseFrame(drv->fpp, nfp);  /* Release new frame */
     }
   }

@@ -1562,7 +1562,7 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     IOHDLC_LOG_IFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
                       log_ns, log_nr, set_pf, info_len,
                       p->i_pending_count, p->ks, fflags);
-    
+
     /* Send frame under lock to ensure state consistency */
     (void)hdlcSendFrame(s->driver, fp);
 
