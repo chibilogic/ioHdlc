@@ -115,6 +115,38 @@ void ioHdlcSwDriverInit(ioHdlcSwDriver *drv) {
 #ifndef IOHDLC_USE_MOCK_ADAPTER
   /* Init TX queue (real HW only) */
   ioHdlc_frameq_init(&drv->raw_tx_q);
+  iohdlc_sem_init(&drv->tx_progress_sem, 0);
+  drv->tx_inflight_fp = NULL;
+#endif
+}
+
+bool ioHdlcSwDriverIsFrameTxOwned(ioHdlcSwDriver *drv,
+                                  const iohdlc_frame_t *fp) {
+#ifdef IOHDLC_USE_MOCK_ADAPTER
+  (void)drv;
+  (void)fp;
+  return false;
+#else
+  bool owned;
+
+  if ((drv == NULL) || (fp == NULL))
+    return false;
+
+  iohdlc_sys_lock();
+  owned = (fp->q_aux.next != NULL) || (drv->tx_inflight_fp == fp);
+  iohdlc_sys_unlock();
+
+  return owned;
+#endif
+}
+
+void ioHdlcSwDriverWaitTxProgress(ioHdlcSwDriver *drv, uint32_t timeout_ms) {
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+  if (drv != NULL)
+    (void)iohdlc_sem_wait_timeout(&drv->tx_progress_sem, timeout_ms);
+#else
+  (void)drv;
+  (void)timeout_ms;
 #endif
 }
 
@@ -148,6 +180,9 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   (void)drv->port.ops->rx_submit(drv->port.ctx, drv->rx_stagep, 1);
   iohdlc_sys_unlock();
   
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+  drv->tx_inflight_fp = NULL;
+#endif
   drv->started = true;
 }
 
@@ -240,6 +275,7 @@ static size_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
     
     const uint8_t *ptr = &nfp->openingflag;
     size_t len = wire_len + 1;  /* +1 for opening flag */
+    drv->tx_inflight_fp = nfp;
     (void)drv->port.ops->tx_submit(drv->port.ctx, ptr, len, (void *)nfp);
   } else {
     /* TX busy: enqueue for ISR processing (no opening flag) */
@@ -549,21 +585,20 @@ nextoctet:
  */
 static void s_on_tx_done(void *cb_ctx, void *framep) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
-  
-  /* Release completed frame */
-  if (framep) {
-    hdlcReleaseFrame(drv->fpp, (iohdlc_frame_t *)framep);
-  }
+  iohdlc_frame_t *done_fp = (iohdlc_frame_t *)framep;
 
 #ifndef IOHDLC_USE_MOCK_ADAPTER
   /* Real HW: process next frame from TX queue */
   iohdlc_sys_lock_isr();
+  if (drv->tx_inflight_fp == done_fp)
+    drv->tx_inflight_fp = NULL;
   
   iohdlc_frame_t *next_fp = NULL;
   if (!ioHdlc_frameq_isempty(&drv->raw_tx_q)) {
     iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->raw_tx_q);
     next_fp = IOHDLC_FRAME_FROM_Q_AUX(qh);
     next_fp->q_aux.next = NULL;  /* Clear auxiliary queue link for safety */
+    next_fp->q_aux.prev = NULL;
   }
   
   /* Submit next frame if available */
@@ -578,11 +613,17 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
       wire_len = next_fp->elen + drv->fcs_size + 1;  /* +FCS +FLAG */
     }
     
+    drv->tx_inflight_fp = next_fp;
     (void)drv->port.ops->tx_submit(drv->port.ctx, next_fp->frame,
                                    wire_len, next_fp);
   }
+  iohdlc_sem_signal_i(&drv->tx_progress_sem);
   iohdlc_sys_unlock_isr();
 #endif
+
+  /* Release completed frame */
+  if (done_fp)
+    hdlcReleaseFrame(drv->fpp, done_fp);
 }
 
 /**

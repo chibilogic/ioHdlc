@@ -41,6 +41,7 @@
 #include "ioHdlc_log.h"
 #include "ioHdlclist.h"
 #include "ioHdlcosal.h"
+#include "ioHdlcswdriver.h"
 #include <errno.h>
 
 /* Forward declarations for U-frame handler */
@@ -1472,10 +1473,28 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       return cm_flags;
     }
     
+    /* Never mutate an I-frame while the reference software driver still could own
+       it. Wait outside the protocol
+       mutex and retry. */
+    iohdlc_frame_t *fp = NULL;
+    if (!ioHdlc_frameq_isempty(&p->i_trans_q)) {
+      fp = IOHDLC_FRAME_FROM_Q(p->i_trans_q.next);
+      if (ioHdlcSwDriverIsFrameTxOwned((ioHdlcSwDriver *)s->driver, fp)) {
+        iohdlc_mutex_unlock(&p->state_mutex);
+        if (s->stop_requested)
+          return cm_flags;
+        ioHdlcSwDriverWaitTxProgress((ioHdlcSwDriver *)s->driver, 10U);
+        if (s->stop_requested)
+          return cm_flags;
+        continue;
+      }
+    }
+
     /* Extract frame from transmission queue with lookahead. */
     iohdlc_frame_q_t *next_qh = NULL;
-    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove_la(&p->i_trans_q, &next_qh);
-    iohdlc_frame_t *fp = qh ? IOHDLC_FRAME_FROM_Q(qh) : NULL;
+    iohdlc_frame_q_t *qh = fp ? ioHdlc_frameq_remove_la(&p->i_trans_q, &next_qh)
+                              : NULL;
+    fp = qh ? IOHDLC_FRAME_FROM_Q(qh) : NULL;
     iohdlc_frame_t *next_fp = next_qh ? IOHDLC_FRAME_FROM_Q(next_qh) : NULL;
     if (fp == NULL) {
       iohdlc_mutex_unlock(&p->state_mutex);

@@ -96,6 +96,8 @@ typedef struct ioHdlcSwDriver {
 #ifndef IOHDLC_USE_MOCK_ADAPTER
   /* TX queue for ISR processing (real HW only) */
   iohdlc_frame_q_t     raw_tx_q;              /* Unbounded queue (limited by ks) */
+  iohdlc_sem_t         tx_progress_sem;       /* Signaled on each TX completion */
+  iohdlc_frame_t      *tx_inflight_fp;        /* Frame currently owned by HW */
 #endif
 
   bool     started;
@@ -103,6 +105,10 @@ typedef struct ioHdlcSwDriver {
 
 /** @ingroup ioHdlc_drivers */
 void ioHdlcSwDriverInit(ioHdlcSwDriver *drv);
+
+bool ioHdlcSwDriverIsFrameTxOwned(ioHdlcSwDriver *drv,
+                                  const iohdlc_frame_t *fp);
+void ioHdlcSwDriverWaitTxProgress(ioHdlcSwDriver *drv, uint32_t timeout_ms);
 
 /**
  * @brief   Stop software HDLC driver.
