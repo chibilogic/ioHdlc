@@ -67,7 +67,7 @@ static const SerialConfig sdcfg = {
 /**
  * @brief   Run exchange test with full Linux-compatible parameter support.
  * @details Accepts command line arguments:
- *          --size=N          Frame size in bytes (default: 64)
+ *          --size=N          Packet size in bytes, header included
  *          --count=N         Run for N iterations (default: 100)
  *          --exchanges=N     Exchanges per iteration (default: 10)
  *          -p N              Poll interval in ms (default: 1000)

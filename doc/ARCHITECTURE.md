@@ -4,7 +4,7 @@
 
 ioHdlc is designed as a **portable, OS-agnostic HDLC protocol stack** that can run on multiple platforms through an abstraction layer (OSAL). The architecture separates protocol logic from OS-specific implementations, enabling the same core code to run on ChibiOS, Linux (test platform), and other RTOS environments.
 
-The current implementation is centered on the station/peer model, the shared runner, the software framed driver layered on top of a byte-stream backend, and the connection-management and data-transfer paths used by the currently operational modes. The architecture also reserves space for additional HDLC modes such as ABM and ARM, but those paths are not yet complete.
+The current implementation is centered on the station/peer model, the shared runner, the software framed driver layered on top of a byte-stream backend, and the connection-management and data-transfer paths for the two supported balanced/unbalanced operational modes: NRM (Normal Response Mode) and ABM (Asynchronous Balanced Mode). Stations are initialized in the corresponding disconnected modes (NDM/ADM) and enter NRM/ABM during link establishment.
 
 ## High-Level Architecture
 
@@ -24,10 +24,10 @@ The current implementation is centered on the station/peer model, the shared run
 - Timer management integration
 
 **Key Functions:**
-- `ioHdlcOnRxFrame()` - Process received frames
-- `ioHdlcOnLineIdle()` - Handle line idle notifications and return runner event flags
-- `ioHdlcTxEntry()` - TX thread entry point
-- `ioHdlcRxEntry()` - RX thread entry point (if separate)
+- `ioHdlcTxEntry()` - TX worker entry point used by the runner
+- `ioHdlcRxEntry()` - RX worker entry point used by the runner
+- `ioHdlcNrmTx()` / `ioHdlcAbmTx()` - mode-specific TX schedulers
+- `ioHdlcNrmRx()` / `ioHdlcAbmRx()` - mode-specific RX handlers
 
 **Design:**
 - OS-agnostic: uses only OSAL primitives
@@ -38,7 +38,7 @@ The current implementation is centered on the station/peer model, the shared run
 
 **Source:** `include/ioHdlc.h`, `include/ioHdlctypes.h`
 
-**Note:** `ioHdlc.h` is the umbrella public header — it aggregates all public includes. The station type (`iohdlc_station_t`) and peer type (`iohdlc_station_peer_t`) are defined in `include/ioHdlctypes.h`.
+**Note:** `ioHdlc.h` is the umbrella public header and contains the concrete station and peer structure definitions. `include/ioHdlctypes.h` provides only forward declarations and shared scalar types.
 
 **Concept:**
 A **station** represents one end of the HDLC link. It can be:
@@ -46,7 +46,7 @@ A **station** represents one end of the HDLC link. It can be:
 - **Secondary** (responds to commands)
 
 **Station contains:**
-- Configuration (mode, address, timeouts)
+- Configuration and derived runtime state (address, flags, timeouts, active mode)
 - List of peers
 - Frame pool
 - Driver instance
@@ -128,7 +128,18 @@ typedef struct ioHdlcStreamCallbacks {
 | `rx_submit` | Driver → Backend | Arm a receive transfer of `len` bytes into `ptr` |
 | `rx_cancel` | Driver → Backend | Cancel the currently armed RX transfer |
 
-All operations are required; backends must implement the full table.
+At the interface level, `start`, `stop`, `tx_submit`, and `rx_submit` are the essential hooks. `tx_busy` is documented as optional in the generic interface, but the current `ioHdlcSwDriver` implementation expects it. `rx_cancel` is backend-capability-dependent and is used by the software driver for RX error/timeout recovery.
+
+**Port constraints:**
+
+`ioHdlcStreamPort` exposes a `constraints` field (bitmask of `IOHDLC_PORT_CONSTR_*`) that backend implementations use to declare transport-level limitations:
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `IOHDLC_PORT_CONSTR_TWA_ONLY` | `1 << 0` | Link is half-duplex; `IOHDLC_FLG_TWA` must be set in the station config |
+| `IOHDLC_PORT_CONSTR_NRM_ONLY` | `1 << 1` | Transport does not support ABM; `ioHdlcStationLinkUp` returns `ENOTSUP` if ABM is requested |
+
+`ioHdlcStationInit` reads `constraints` from `config->phydriver` and validates them against the supplied station configuration. The value is stored in `station->port_constraints` for later checks at link-up time. A `constraints` value of zero means no transport-level restrictions.
 
 **Responsibilities:**
 - `ioHdlcSwDriver` implements the framed HDLC driver on top of a stream port.
@@ -181,16 +192,16 @@ Provide the common execution shell around the station core.
 - Thread creation, timers, events, and synchronization are delegated to OSAL.
 - Platform-specific behaviour lives below the runner, in OSAL and backend implementations.
 
-#### 7.1 Runner → Core: entry points
+#### 7.1 Runner → Core: execution entry points
 
-The runner delivers execution signals to the core through entry points declared in `include/ioHdlc_core.h`:
+The current shared runner enters the core through the worker entry points declared in `include/ioHdlc_core.h`:
 
 | Function | Description |
 |---|---|
-| `ioHdlcOnRxFrame(station, fp)` | Hand a fully received frame to the core for protocol processing |
-| `ioHdlcOnLineIdle(station)` | Notify the core of an inter-frame idle condition on the transport |
+| `ioHdlcTxEntry(station)` | TX worker loop: waits for core events and drives connection-management/data transmission |
+| `ioHdlcRxEntry(station)` | RX worker loop: pulls frames from the driver, detects idle conditions, and dispatches received frames |
 
-These are called from runner-owned execution contexts (threads or ISR deferral).
+`ioHdlcOnRxFrame()` and `ioHdlcOnLineIdle()` are still declared in the boundary header, but the current runner implementation handles receive dispatch and line-idle detection directly inside `ioHdlcRxEntry()`.
 
 #### 7.2 Core → Runner: concrete link-time functions
 
@@ -223,7 +234,7 @@ Application calls `ioHdlcWriteTmo()` → data is enqueued and `IOHDLC_EVT_TX_IFR
 
 ### RX Path (Wire → Application)
 
-The stream port receives bytes → the driver assembles a frame and validates the FCS → `ioHdlcOnRxFrame()` delivers the frame to the core → the core processes the control fields and broadcasts `IOHDLC_EVT_I_RECVD` → the application's `ioHdlcReadTmo()` call returns the data.
+The stream port receives bytes → the software driver assembles a frame and validates wire-level integrity → `ioHdlcRxEntry()` pulls the completed frame through `hdlcRecvFrame()` → the mode-specific RX handler processes the control fields, enqueues accepted I-frames into the peer reception queue, and signals the peer receive semaphore → the application's `ioHdlcReadTmo()` call wakes and returns the data. `IOHDLC_EVT_I_RECVD` is also broadcast internally so the TX/core side can react to acknowledgements and receive-side state changes.
 
 ![RX data flow](diagrams/svg/rx_data_flow.svg)
 
@@ -233,6 +244,7 @@ The lifecycle below focuses on the normal integration path from init to
 shutdown.
 
 **Note:** `ioHdlcStationInit()` automatically starts the driver when `config->phydriver` is set, so the transport adapter must be fully initialized before calling init.
+`ioHdlcStationInit()` does **not** start the runner threads; `ioHdlcRunnerStart()` remains a separate step, and `ioHdlcStationDeinit()` is the symmetric force-stop teardown entry point for runner plus driver.
 
 ![Integration lifecycle](diagrams/svg/integration_lifecycle.svg)
 
@@ -272,9 +284,9 @@ Timer callback()
 
 // Frame received
 rx_callback()
-    └─> ioHdlcOnRxFrame()
-            └─> Broadcast IOHDLC_EVT_I_RECVD
-                    └─> Application thread wakes up
+    └─> driver completes a frame
+            └─> RX thread pulls it with hdlcRecvFrame()
+                    └─> Core enqueues I-frame and signals peer->i_recept_sem
                             └─> ioHdlcReadTmo() returns data
 ```
 
@@ -320,11 +332,12 @@ The core and runner (`src/ioHdlc*.c`, `include/ioHdlc*.h`) are designed to stay 
 
 ```c
 iohdlc_station_config_t config = {
-  .mode = IOHDLC_OM_NRM,
+  .mode = IOHDLC_OM_NDM,
   .flags = IOHDLC_FLG_PRI,
   .log2mod = 3,
   .addr = 0x01,
   .driver = (ioHdlcDriver *)&driver,
+  .phydriver = &port,
   .frame_arena = arena,
   .frame_arena_size = sizeof arena,
   .max_info_len = 0,          // auto from driver / FFF constraints
@@ -339,6 +352,8 @@ iohdlc_station_config_t config = {
 **Station initialization derives additional runtime state:**
 
 The frame size and pool dimensions are determined based on the constraints imposed by the memory arena and the driver. The control field size and frame offset, on the other hand, depend on the selected modulo and the adopted FFF policy. Fast-access protocol flags are derived from the optional-functions bitmap, while the final driver configuration is established only after validating that FCS, transparency, and FFF compatibility align with the driver’s capabilities.
+
+`ioHdlcStationInit()` currently accepts only disconnected initial modes (`IOHDLC_OM_NDM` for unbalanced setups, `IOHDLC_OM_ADM` for balanced setups). The operational mode used on the link (`IOHDLC_OM_NRM` or `IOHDLC_OM_ABM`) is selected later by `ioHdlcStationLinkUp()`.
 
 ## Extension Points
 
@@ -366,7 +381,6 @@ The design decisions described above — pre-allocated frame pools, reference-co
 
 ## Future Enhancements
 
-- **ABM and ARM modes**: Complete the currently reserved ABM/ARM paths. Mode constants and placeholder handlers already exist, but the transmit-side logic is not finished yet.
 - **Selective Reject (SREJ)**: Retransmit only specific frames
 - **Link quality monitoring**: Track error rates, adjust timeouts
 - **Dynamic window sizing**: Adapt to line conditions

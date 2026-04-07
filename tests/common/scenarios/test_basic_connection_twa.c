@@ -82,7 +82,7 @@ bool test_data_exchange_twa(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI | IOHDLC_FLG_TWA;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
@@ -216,13 +216,8 @@ bool test_data_exchange_twa(const test_adapter_t *adapter) {
   
 test_cleanup:
   ioHdlc_sleep_ms(200);
-  /* Stop runners */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  
-  /* Stop drivers (terminate RX threads) */
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
   
   return test_result;
 }

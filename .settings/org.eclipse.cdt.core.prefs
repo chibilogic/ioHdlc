@@ -15,6 +15,17 @@ environment/project/0.455167531.2053265780/USE_OPT/operation=append
 environment/project/0.455167531.2053265780/USE_OPT/value=-O2 -ggdb -fomit-frame-pointer -falign-functions\=16
 environment/project/0.455167531.2053265780/append=true
 environment/project/0.455167531.2053265780/appendContributed=true
+environment/project/0.455167531.67640838/ARCH/delimiter=\:
+environment/project/0.455167531.67640838/ARCH/operation=append
+environment/project/0.455167531.67640838/ARCH/value=arm
+environment/project/0.455167531.67640838/CROSS_COMPILE/delimiter=\:
+environment/project/0.455167531.67640838/CROSS_COMPILE/operation=replace
+environment/project/0.455167531.67640838/CROSS_COMPILE/value=arm-none-eabi-
+environment/project/0.455167531.67640838/USE_OPT/delimiter=\:
+environment/project/0.455167531.67640838/USE_OPT/operation=append
+environment/project/0.455167531.67640838/USE_OPT/value=-O2 -ggdb -fomit-frame-pointer -falign-functions\=16
+environment/project/0.455167531.67640838/append=true
+environment/project/0.455167531.67640838/appendContributed=true
 environment/project/0.455167531.702312559.1466422301.1888623894/ARCH/delimiter=\:
 environment/project/0.455167531.702312559.1466422301.1888623894/ARCH/operation=append
 environment/project/0.455167531.702312559.1466422301.1888623894/ARCH/value=arm

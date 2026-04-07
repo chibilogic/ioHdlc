@@ -54,6 +54,7 @@ typedef struct {
   /* Mode configuration */
   uint8_t mode;                         /**< IOHDLC_OM_NRM, ARM, ABM */
   bool use_twa;                         /**< true=TWA, false=TWS */
+  uint16_t modulo;                      /**< HDLC modulus: 8 or 128 */
   
   /* Test duration */
   test_duration_type_t duration_type;   /**< How to measure duration */
@@ -61,7 +62,7 @@ typedef struct {
   
   /* Data exchange pattern */
   uint32_t exchanges_per_iteration;     /**< Writes per iteration */
-  uint32_t bytes_per_exchange;          /**< Size of each write */
+  uint32_t bytes_per_exchange;          /**< Total size of each write, header included */
   
   /* Traffic direction */
   test_traffic_direction_t traffic_direction;
@@ -101,6 +102,7 @@ typedef struct __attribute__((packed)) {
 } test_packet_t;
 
 #define TEST_PACKET_HEADER_SIZE (sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint16_t))
+#define TEST_EXCHANGE_MAX_PACKET_SIZE 1024U
 
 /*===========================================================================*/
 /* Test Statistics                                                           */

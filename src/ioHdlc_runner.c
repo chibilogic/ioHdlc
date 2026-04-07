@@ -77,7 +77,9 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
   memset(ctx, 0, sizeof *ctx);
   station->runner_context = ctx;
   station->stop_requested = false;
-  
+  station->runner_started = false;
+  station->flags |= IOHDLC_FLG_IDL;  /* Line is idle at startup by definition. */
+
   /* Create TX thread and save reference (joinable) */
   ctx->tx_thread = iohdlc_thread_create("HDLC-TX", 2048, 1,
                                          HdlcTxThread, station);
@@ -85,6 +87,7 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
     /* TX thread creation failed - cleanup and abort */
     IOHDLC_FREE(ctx);
     station->runner_context = NULL;
+    station->runner_started = false;
     iohdlc_errno = EAGAIN;  /* Resource temporarily unavailable */
     return -1;
   }
@@ -100,12 +103,14 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
     iohdlc_thread_join((iohdlc_thread_t *)ctx->tx_thread);  /* Wait for TX termination */
     IOHDLC_FREE(ctx);
     station->runner_context = NULL;
+    station->runner_started = false;
     iohdlc_errno = EAGAIN;  /* Resource temporarily unavailable */
     return -1;
   }
   ctx->rx_started = true;
   
   /* Success */
+  station->runner_started = true;
   iohdlc_errno = 0;
   return 0;
 }
@@ -121,6 +126,7 @@ int32_t ioHdlcRunnerStop(iohdlc_station_t *station) {
   runner_context_t *ctx = station->runner_context;
   
   if (!ctx) {
+    station->runner_started = false;
     iohdlc_errno = 0;
     return 0;  /* Runner not started or already stopped - not an error */
   }
@@ -145,6 +151,7 @@ int32_t ioHdlcRunnerStop(iohdlc_station_t *station) {
   /* Free context */
   IOHDLC_FREE(ctx);
   station->runner_context = NULL;
+  station->runner_started = false;
   
   iohdlc_errno = 0;
   return 0;

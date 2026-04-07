@@ -7,6 +7,7 @@
  * designed for embedded systems and real-time environments.
  *
  * It implements Normal Response Mode (NRM) with primary and secondary roles,
+ * and Asynchronous Balanced Mode (ABM), 
  * in both Two-Way Simultaneous (TWS) and Two-Way Alternate (TWA) link
  * configurations. The covered protocol surface includes connection setup and
  * teardown (SNRM/UA/DISC/DM), I-frame data transfer with sliding-window flow

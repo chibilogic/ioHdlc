@@ -142,7 +142,27 @@ static inline void ioHdlc_frameq_move(iohdlc_frame_q_t *dest_qp,
   source_from_fqp->prev = (iohdlc_frame_q_t *)dest_qp;
 }
 
+/**
+ * @brief   Move a single frame queue header to the tail of @p dest_qp.
+ * @details Unlinks @p fqp from its current queue and reinserts it at the fifo
+ *          end of @p dest_qp. If @p dest_qp is the same queue the frame was
+ *          already linked in, this effectively moves the frame to the tail.
+ * @param   dest_qp  Destination queue head.
+ * @param   fqp      Queue header embedded in frame (e.g., &frame->q or
+ *                   &frame->q_aux).
+ * @note    The caller must ensure that @p fqp is currently linked in a queue
+ *          and that the required locking discipline is respected.
+ */
+static inline void ioHdlc_frameq_move_tail(iohdlc_frame_q_t *dest_qp,
+                                           iohdlc_frame_q_t *fqp) {
+  fqp->prev->next = fqp->next;
+  fqp->next->prev = fqp->prev;
 
+  fqp->next = (iohdlc_frame_q_t *)dest_qp;
+  fqp->prev = dest_qp->prev;
+  fqp->prev->next = fqp;
+  dest_qp->prev = fqp;
+}
 
 /** @} */
 

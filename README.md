@@ -1,21 +1,30 @@
-# ioHdlc
+# ioHdlc – Embedded HDLC Protocol Stack (C)
 
-**ioHdlc** is a portable HDLC protocol stack compliant with ISO 13239,
-designed for embedded systems and real-time environments.
+**ioHdlc** is a portable **HDLC (High-Level Data Link Control)** protocol implementation in C,
+compliant with ISO 13239 and designed for **embedded systems and real-time environments**.
 
-It targets applications that need a **reliable, high-throughput, deterministic**
-data-link layer over UART, SPI, or similar byte-stream transports — without
-dynamic memory allocation and without sacrificing a clean application interface.
+It provides a **reliable**, **high-throughput**, **deterministic data-link layer** over UART, SPI, 
+and other byte-stream transports, with **no dynamic memory allocation in the frame/data path** and a clean application 
+interface.
+
+This library is ideal for developers looking for an
+**HDLC stack in C for embedded communication**, including industrial 
+systems, and inter-processor links.
 
 ---
+### Keywords
+
+HDLC protocol implementation in C for embedded systems, UART SPI and serial 
+communication, ISO 13239 compliant data link layer.
 
 ## Key Features
 
 ### Protocol
 - **ISO 13239 HDLC** compliance
 - **NRM (Normal Response Mode)** — primary/secondary roles
+- **ABM (Asynchronous Balanced Mode)** — peer to peer combined roles
 - **TWS (Two-Way Simultaneous)** and **TWA (Two-Way Alternate)** link configurations
-- Connection management: SNRM/UA/DISC/DM with configurable retry and timeout
+- Connection management: SNRM/SABM/UA/DISC/DM/FRMR with configurable retry and timeout
 - I-frame data transfer with **sliding-window flow control** (modulo 8/128)
 - **REJ** and **checkpoint retransmission** for error recovery
 - **Frame Format Field (FFF)**: ISO 13239 optional extension that encodes the
@@ -29,9 +38,9 @@ dynamic memory allocation and without sacrificing a clean application interface.
 - **Integrated backpressure**: writes block not only on a full sliding window
   but also when the frame pool reaches its low watermark, propagating memory
   pressure to the application automatically.
-- **Link event notifications**: asynchronous flags (`LINK_UP`, `LINK_REFUSED`,
-  `LINK_LOST`, `LINK_TIMEOUT`) let the application react to link state changes
-  without polling.
+- **Link event notifications**: application-facing flags such as `LINK_UP`,
+  `LINK_REFUSED`, `LINK_DOWN`, and `LINK_LOST` are emitted for link-state
+  changes.
 - **Multi-peer support**: a single primary station manages multiple secondary
   peers simultaneously (multipoint configuration).
 
@@ -65,16 +74,17 @@ Dual-licensed under **GPL-3.0** and a **commercial license** — see
 |:------------|:-------------------------------------------|
 | ChibiOS/RT  | Production target (UART, SPI)              |
 | Linux/POSIX | Protocol verification and test environment |
-| Other RTOS  | Portable via OSAL and stream-port adapter  |
+| Other RTOS  | Portable via OSAL, frame-pool backend, and stream-port adapter |
 
-Porting to a new platform requires implementing only the OSAL primitives and a
-stream-port adapter — the protocol core and runner require no modifications.
+Porting to a new platform requires implementing the OSAL primitives, the
+platform frame-pool backend, and a stream-port adapter. The protocol core and
+runner require no modifications.
 
 ---
 
 ## Use Cases
 
-- **Point-to-point serial links** — UART or RS-485 between an MCU and a
+- **Point-to-point and multipoint serial links** — e.g. UART or RS-485 between an MCU and a
   peripheral, or between two boards. The sliding window provides flow control
   and error recovery over a single physical link without the overhead of a
   full network stack.
@@ -103,15 +113,17 @@ A minimal primary station setup:
 static ioHdlcSwDriver        driver;
 static iohdlc_station_t      station;
 static iohdlc_station_peer_t peer;
-static uint8_t               arena[IOHDLC_ARENA_SIZE]; /* depends on frame count and size */
+static uint8_t               arena[2048]; /* example size; tune for your frame/pool requirements */
 
 /* 2. Init driver and set up transport (platform-specific) */
 ioHdlcSwDriverInit(&driver);
 ioHdlcStreamPort port;          /* init your UART/SPI adapter here */
 
-/* 3. Init station — phydriver must be set before init */
+/* 3. Init station in disconnected mode.
+ *    Use IOHDLC_OM_NDM for NRM links, IOHDLC_OM_ADM for ABM links.
+ *    If phydriver is set, StationInit also starts the framed driver. */
 iohdlc_station_config_t cfg = {
-    .mode             = IOHDLC_OM_NRM,
+    .mode             = IOHDLC_OM_NDM,
     .flags            = IOHDLC_FLG_PRI,
     .addr             = 0x01,
     .log2mod          = 3,          /* modulo 8 */
@@ -138,7 +150,7 @@ ssize_t n = ioHdlcReadTmo(&peer, rx_buf, sizeof rx_buf, 5000);
 
 /* 6. Disconnect and stop */
 ioHdlcStationLinkDown(&station, 0x02);
-ioHdlcRunnerStop(&station);
+ioHdlcStationDeinit(&station);
 ```
 
 ---
@@ -211,4 +223,3 @@ See [Contributing](doc/CONTRIBUTING.md) and [Contributor License Agreement](doc/
 
 This software is provided *as is*, without warranty of any kind,
 express or implied. See the LICENSE file for details.
-

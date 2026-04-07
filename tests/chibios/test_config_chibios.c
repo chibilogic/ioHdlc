@@ -17,7 +17,7 @@
  * @file    test_config_chibios.c
  * @brief   ChibiOS compile-time configuration parser.
  * @details Configuration is set via Makefile defines at compile time.
- *          Example: make TEST_MODE=NRM TEST_SIZE=120 TEST_COUNT=100
+ *          Example: make TEST_MODE=NRM TEST_PACKET_SIZE=512 TEST_COUNT=100
  */
 
 #include "test_framework.h"
@@ -38,6 +38,17 @@
  */
 #ifndef TEST_USE_TWA
 #define TEST_USE_TWA 0
+#endif
+
+/**
+ * @brief   HDLC modulo (override with -DTEST_MODULO=128)
+ */
+#ifndef TEST_MODULO
+#define TEST_MODULO 8
+#endif
+
+#if (TEST_MODULO != 8) && (TEST_MODULO != 128)
+#error "TEST_MODULO must be 8 or 128"
 #endif
 
 /**
@@ -62,10 +73,15 @@
 #endif
 
 /**
- * @brief   Packet size in bytes (max 120 for TYPE0 FFF)
+ * @brief   Packet size in bytes, header included
  */
 #ifndef TEST_PACKET_SIZE
 #define TEST_PACKET_SIZE 120
+#endif
+
+#if (TEST_PACKET_SIZE < TEST_PACKET_HEADER_SIZE) || \
+    (TEST_PACKET_SIZE > TEST_EXCHANGE_MAX_PACKET_SIZE)
+#error "TEST_PACKET_SIZE must be within the supported packet-size range"
 #endif
 
 /**
@@ -126,10 +142,11 @@
 bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   (void)argc;  /* Unused on ChibiOS */
   (void)argv;  /* Unused on ChibiOS */
-  
+
   /* Set configuration from compile-time defines */
   cfg->mode = TEST_MODE;
   cfg->use_twa = (TEST_USE_TWA != 0);
+  cfg->modulo = TEST_MODULO;
   cfg->duration_type = TEST_DURATION_TYPE;
   cfg->duration_value = TEST_DURATION_VALUE;
   cfg->exchanges_per_iteration = TEST_EXCHANGES;

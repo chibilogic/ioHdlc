@@ -19,9 +19,9 @@ participant "Driver/Stream" as Drv
 participant "Remote peer" as Peer
 
 App -> Sta: ioHdlcStationInit(...)
+Sta -> Drv: start framed driver (if phydriver set)
 App -> Sta: ioHdlcAddPeer(...)
-App -> Run: start runner/backend
-Run -> Drv: arm RX/TX callbacks
+App -> Run: ioHdlcRunnerStart(...)
 App -> Sta: ioHdlcStationLinkUp(...)
 Sta -> Drv: submit link-setup frames
 Drv -> Peer: transmit HDLC frames
@@ -30,6 +30,8 @@ Drv --> Sta: RX completion callbacks
 App -> Sta: ioHdlcWrite(...) / ioHdlcRead(...)
 Sta -> Drv: data and supervisory traffic
 App -> Sta: ioHdlcStationLinkDown(...)
-App -> Run: stop runner/backend
+App -> Sta: ioHdlcStationDeinit(...)
+Sta -> Run: stop runner
+Sta -> Drv: stop framed driver
 
 @enduml

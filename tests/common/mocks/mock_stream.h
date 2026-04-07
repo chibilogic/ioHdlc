@@ -31,8 +31,14 @@
 /* Configuration                                                             */
 /*===========================================================================*/
 
+#if !defined(MOCK_STREAM_BUFFER_SIZE)
 #define MOCK_STREAM_BUFFER_SIZE 4096
-#define MOCK_STREAM_MAX_PEERS  8
+#endif
+
+#if !defined(MOCK_STREAM_MAX_PEERS)
+#define MOCK_STREAM_MAX_PEERS  3
+#endif
+
 
 /*===========================================================================*/
 /* Types                                                                     */

@@ -46,11 +46,17 @@ static iohdlc_station_t *st_pri, *st_sec;
 #define PRIMARY_ADDR    0x01
 #define SECONDARY_ADDR  0x02
 #define WINDOW_SIZE     7
-#define MAX_PACKET_SIZE 128  /* Max packet size for tests */
+#ifndef EXCHANGE_ARENA_SIZE
+#define EXCHANGE_ARENA_SIZE 32768
+#endif
 #define WTMO 4500
 #define RTMO 5000
 
 static volatile bool test_running_global = true;
+static uint8_t s_pri_writer_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
+static uint8_t s_sec_writer_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
+static uint8_t s_pri_reader_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
+static uint8_t s_sec_reader_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
 
 /*===========================================================================*/
 /* Thread Functions                                                          */
@@ -62,6 +68,8 @@ typedef struct {
   test_statistics_t *stats;
   iohdlc_mutex_t *stats_mutex;
   test_config_t *config;
+  uint8_t *buffer;
+  size_t buffer_size;
   uint32_t seq;
   bool enabled;  /* Whether this thread should be active */
 } thread_context_t;
@@ -71,7 +79,6 @@ typedef struct {
  */
 static void *writer_thread(void *arg) {
   thread_context_t *ctx = (thread_context_t *)arg;
-  uint8_t buffer[MAX_PACKET_SIZE + TEST_PACKET_HEADER_SIZE];
   uint32_t packets_sent = 0;
   uint32_t iterations = 0;
   uint32_t start_time = iohdlc_time_now_ms();
@@ -98,12 +105,20 @@ static void *writer_thread(void *arg) {
     while (packets_sent < ctx->config->exchanges_per_iteration && !IOHDLC_PEER_DISC(ctx->peer)) {
       size_t packet_size = test_generate_packet(ctx->seq++, 
                                                 ctx->config->bytes_per_exchange,
-                                                buffer, sizeof buffer);
+                                                ctx->buffer, ctx->buffer_size);
+      if (packet_size == 0) {
+        test_printf("Writer %u configuration error: packet size %u exceeds test buffer (%u bytes max)\r\n",
+                    ctx->station->addr,
+                    ctx->config->bytes_per_exchange,
+                    (unsigned)ctx->buffer_size);
+        test_running = false;
+        break;
+      }
       
       if ((ctx->station->addr == 3) && ((ctx->seq & 0x0FF) == 0)) {
         ioHdlc_sleep_ms(600);
       }
-      ssize_t sent = ioHdlcWriteTmo(ctx->peer, buffer, packet_size, WTMO);
+      ssize_t sent = ioHdlcWriteTmo(ctx->peer, ctx->buffer, packet_size, WTMO);
       if (sent >= (ssize_t)packet_size) {
         iohdlc_mutex_lock(ctx->stats_mutex);
         ctx->stats->packets_sent++;
@@ -139,7 +154,6 @@ static void *writer_thread(void *arg) {
  */
 static void *reader_thread(void *arg) {
   thread_context_t *ctx = (thread_context_t *)arg;
-  uint8_t buffer[MAX_PACKET_SIZE + TEST_PACKET_HEADER_SIZE];
   bool test_running = true;
 
   if (!ctx->enabled) {
@@ -148,7 +162,7 @@ static void *reader_thread(void *arg) {
   
   while (test_running && !test_should_stop()) {
    
-    ssize_t received = ioHdlcReadTmo(ctx->peer, buffer, ctx->config->bytes_per_exchange, RTMO);
+    ssize_t received = ioHdlcReadTmo(ctx->peer, ctx->buffer, ctx->config->bytes_per_exchange, RTMO);
 
     /* Watermark test: delay every 256 packets to simulate pool pressure */
     if (ctx->config->watermark_delay_ms > 0 && ((ctx->seq+1) & 0xFF) == 0) {
@@ -157,7 +171,7 @@ static void *reader_thread(void *arg) {
     
     if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
       iohdlc_mutex_lock(ctx->stats_mutex);
-      test_validate_packet(buffer, received, &ctx->seq, ctx->stats);
+      test_validate_packet(ctx->buffer, received, &ctx->seq, ctx->stats);
       iohdlc_mutex_unlock(ctx->stats_mutex);
     } else if (received > 0) {
       test_printf("Warning: received short packet (%zd bytes)\r\n", received);
@@ -209,7 +223,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   iohdlc_station_config_t station_config;
   thread_context_t ctx_pri_writer, ctx_pri_reader, ctx_sec_writer, ctx_sec_reader;
   iohdlc_thread_t *thread_pri_writer, *thread_pri_reader, *thread_sec_writer, *thread_sec_reader;
-  static uint8_t arena_primary[16384], arena_secondary[16384];
+  static uint8_t arena_primary[EXCHANGE_ARENA_SIZE], arena_secondary[EXCHANGE_ARENA_SIZE];
   int32_t result;
   uint32_t start_time, elapsed_time;
   ioHdlcStreamPort port_primary, port_secondary;
@@ -223,9 +237,17 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   memset(&config, 0, sizeof config);
   if (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY)
     config.use_twa = true;
+  if (adapter->constraints & ADAPTER_CONSTRAINT_NRM_ONLY)
+    config.mode = IOHDLC_OM_NRM;
 
   /* Parse configuration */
   if (!test_parse_config(&config, argc, argv)) {
+    return 1;
+  }
+
+  if (config.modulo != 8 && config.modulo != 128) {
+    test_printf("Error: Unsupported modulo %u (expected 8 or 128)\r\n",
+                config.modulo);
     return 1;
   }
 
@@ -239,7 +261,16 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       return 1;
     }
   }
-  
+
+  if (adapter->constraints & ADAPTER_CONSTRAINT_NRM_ONLY) {
+    if (config.mode != IOHDLC_OM_NRM) {
+      test_printf("Error: adapter '%s' requires NRM mode.\r\n"
+                  "       Use --mode=nrm or omit the mode option (default is NRM for this adapter).\r\n",
+                  adapter->name);
+      return 1;
+    }
+  }
+
   /* Enable HDLC logging if compiled in */
 #if IOHDLC_LOG_LEVEL > 0
   extern bool iohdlc_log_enabled;
@@ -295,11 +326,12 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   };
   const uint8_t *optfuncs = (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY)
                             ? optfuncs_norej : NULL;
+  const uint8_t log2mod = (config.modulo == 128) ? 7 : 3;
 
   /* Configure primary station */
-  station_config.mode = config.mode;
+  station_config.mode = (config.mode == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;;
   station_config.flags = IOHDLC_FLG_PRI | (config.use_twa ? IOHDLC_FLG_TWA : 0);
-  station_config.log2mod = 3;
+  station_config.log2mod = log2mod;
   station_config.addr = PRIMARY_ADDR;
   station_config.driver = (ioHdlcDriver *)&driver_primary;
   station_config.frame_arena = arena_primary;
@@ -320,9 +352,12 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     return 1;
   }
   
-  /* Configure secondary station */
-  station_config.mode = IOHDLC_OM_NDM;
+  /* Configure secondary station.
+     NRM starts in NDM (Normal Disconnected Mode).
+     ABM/ARM start in ADM (Asynchronous Disconnected Mode). */
+  station_config.mode = (config.mode == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
   station_config.flags = config.use_twa ? IOHDLC_FLG_TWA : 0;
+  station_config.log2mod = log2mod;
   station_config.addr = SECONDARY_ADDR;
   station_config.driver = (ioHdlcDriver *)&driver_secondary;
   station_config.frame_arena = arena_secondary;
@@ -394,6 +429,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   ctx_pri_writer.stats = &stats_primary;
   ctx_pri_writer.stats_mutex = &stats_mutex_primary;
   ctx_pri_writer.config = &config;
+  ctx_pri_writer.buffer = s_pri_writer_buf;
+  ctx_pri_writer.buffer_size = sizeof s_pri_writer_buf;
   ctx_pri_writer.seq = 0;
   ctx_pri_writer.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
                             config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
@@ -404,6 +441,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   ctx_pri_reader.stats = &stats_primary;
   ctx_pri_reader.stats_mutex = &stats_mutex_primary;
   ctx_pri_reader.config = &config;
+  ctx_pri_reader.buffer = s_pri_reader_buf;
+  ctx_pri_reader.buffer_size = sizeof s_pri_reader_buf;
   ctx_pri_reader.seq = 0;
   ctx_pri_reader.enabled = (config.traffic_direction == TRAFFIC_SEC_TO_PRI ||
                             config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
@@ -414,6 +453,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   ctx_sec_writer.stats = &stats_secondary;
   ctx_sec_writer.stats_mutex = &stats_mutex_secondary;
   ctx_sec_writer.config = &config;
+  ctx_sec_writer.buffer = s_sec_writer_buf;
+  ctx_sec_writer.buffer_size = sizeof s_sec_writer_buf;
   ctx_sec_writer.seq = 0;
   ctx_sec_writer.enabled = (config.traffic_direction == TRAFFIC_SEC_TO_PRI ||
                             config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
@@ -424,6 +465,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   ctx_sec_reader.stats = &stats_secondary;
   ctx_sec_reader.stats_mutex = &stats_mutex_secondary;
   ctx_sec_reader.config = &config;
+  ctx_sec_reader.buffer = s_sec_reader_buf;
+  ctx_sec_reader.buffer_size = sizeof s_sec_reader_buf;
   ctx_sec_reader.seq = 0;
   ctx_sec_reader.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
                             config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
@@ -608,13 +651,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   }
   
 cleanup:
-  /* Stop runners */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  
-  /* Stop drivers (terminate RX threads) */
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
   
   /* Deinitialize adapter */
   if (adapter && adapter->deinit) {

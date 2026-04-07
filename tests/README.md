@@ -12,14 +12,19 @@ tests/
 │   │   └── adapter_mock.h/c          # Mock adapter (in-process loopback)
 │   ├── mocks/                  # Mock stream implementations
 │   │   ├── mock_stream.h/c           # Core mock stream (byte-level)
-│   │   └── mock_stream_adapter.h/c   # Adapter wrapper over mock stream
+│   │   ├── mock_stream_adapter.h/c   # Adapter wrapper over mock stream
+│   │   └── mock_bus.h/c              # Shared mock bus for multipoint scenarios
 │   ├── scenarios/              # OS-agnostic test scenarios
 │   │   ├── test_basic_connection.c       # Station/peer creation, SNRM handshake, data exchange (TWS)
+│   │   ├── test_basic_connection_abm.c   # SABM/UA handshake, ABM-TWS data exchange, disconnect
 │   │   ├── test_basic_connection_twa.c   # Data exchange in TWA mode
 │   │   ├── test_checkpoint_tws.c         # Checkpoint retransmission (TWS)
 │   │   ├── test_checkpoint_twa.c         # Checkpoint retransmission (TWA)
 │   │   ├── test_exchange.c               # Parametrized bidirectional throughput test
-│   │   └── test_frame_pool.c             # Frame pool allocation, refcount, watermarks
+│   │   ├── test_frame_pool.c             # Frame pool allocation, refcount, watermarks
+│   │   ├── test_frmr.c                   # FRMR generation, repetition, suppression, recovery
+│   │   ├── test_mod128_abm.c             # ABM/TWS modulo-128 transfer and wrap-around
+│   │   └── test_multipoint_nrm.c         # Shared-bus NRM multipoint scenarios
 │   ├── test_arenas.h/c         # Pre-allocated memory arenas for tests
 │   ├── test_framework.h/c      # Assertion and reporting primitives
 │   ├── test_helpers.h/c        # Station/peer setup helpers
@@ -55,7 +60,7 @@ tests/
 Tests that use only abstract interfaces, portable to any OS:
 - **Frame Pool**: Uses only `hdlcTakeFrame`, `hdlcReleaseFrame`, `hdlcAddRef`
 - **HDLC Core**: Tests stations, handshake, connection management
-- **Stream Driver**: Tests abstract `ioHdlcStream` interface
+- **Driver/Port Integration**: Tests `ioHdlcSwDriver` over the abstract `ioHdlcStreamPort` interface
 
 These tests are compiled for each target platform but share the same source code.
 
@@ -72,6 +77,7 @@ Tests specific to OS implementation:
 **Status**: ✅ Implemented
 - POSIX OSAL with pthread/semaphore/mutex
 - In-memory mock stream with circular buffers
+- Mock bus for shared-line / multipoint NRM scenarios
 - Thread-safe frame pool with free-list
 - Test scenarios without hardware
 
@@ -84,14 +90,14 @@ Tests specific to OS implementation:
 
 **Status**: ✅ Implemented
 - Real ChibiOS OSAL (threads, semaphores, virtual timers)
-- Mock stream simulating UART
+- Mock stream with the same abstract port/driver integration used by Linux
 - Tests on embedded target without physical hardware
 
 ### Level 2b: ChibiOS + Hardware
 
 **Status**: ✅ Implemented
-- UART adapter (`adapter_uart.c`): UARTD2/FUARTD1 physical loopback at 1.2 Mbaud
-- SPI adapter (`adapter_spi.c`): master/slave, `ADAPTER_CONSTRAINT_TWA_ONLY`
+- UART adapter (`adapter_uart.c`) for real-line testing
+- SPI adapter (`adapter_spi.c`) for real-line testing (`ADAPTER_CONSTRAINT_TWA_ONLY`)
 - Conditional build: `USE_UART_ADAPTER` / `USE_SPI_ADAPTER` defines
 - Same OS-agnostic scenarios run on real hardware
 
@@ -118,6 +124,9 @@ make
 # Build and run all tests
 make test
 
+# Run only the Linux OSAL checks
+make test-osal
+
 # Clean artifacts
 make clean
 ```
@@ -131,10 +140,14 @@ cd tests/linux
 
 # Protocol tests
 ./build/bin/test_basic_connection
+./build/bin/test_basic_connection_abm
 ./build/bin/test_basic_connection_twa
 ./build/bin/test_checkpoint_tws
 ./build/bin/test_checkpoint_twa
 ./build/bin/test_frame_pool
+./build/bin/test_frmr
+./build/bin/test_mod128_abm
+./build/bin/test_multipoint_nrm
 
 # Parametrized exchange test
 ./build/bin/test_exchange --help
@@ -209,7 +222,11 @@ CFLAGS_EXTRA="-DIOHDLC_LOG_LEVEL=2" make
 
 - [x] **test_data_exchange_twa**: Bidirectional transfer in TWA (Two-Way Alternate) mode
 
-### 3. Frame Pool (`test_frame_pool.c`)
+### 3. Basic Connection — ABM (`test_basic_connection_abm.c`)
+
+- [x] **test_abm_data_exchange**: SABM/UA handshake, bidirectional ABM-TWS transfer, disconnect
+
+### 4. Frame Pool (`test_frame_pool.c`)
 
 - [x] **test_pool_init**: Pool initialisation and capacity reporting
 - [x] **test_take_release**: Allocate and release cycles
@@ -217,7 +234,7 @@ CFLAGS_EXTRA="-DIOHDLC_LOG_LEVEL=2" make
 - [x] **test_watermark**: LOW/NORMAL watermark callback triggering
 - [x] **test_exhaust_pool**: Behaviour when pool is fully allocated
 
-### 4. Checkpoint Retransmission — TWS (`test_checkpoint_tws.c`)
+### 5. Checkpoint Retransmission — TWS (`test_checkpoint_tws.c`)
 
 #### A.1: Single Frame Loss
 
@@ -240,17 +257,31 @@ CFLAGS_EXTRA="-DIOHDLC_LOG_LEVEL=2" make
 
 **Assertions**: 45+ (15 per test)
 
-### 5. Checkpoint Retransmission — TWA (`test_checkpoint_twa.c`)
+### 6. Checkpoint Retransmission — TWA (`test_checkpoint_twa.c`)
 
 - [x] **test_A1_1_frame_loss_window_full_twa**: Single I-frame loss with checkpoint recovery in TWA mode
 - [x] **test_A2_1_multiple_frame_loss_twa**: Two non-adjacent I-frame losses in TWA mode
 - [x] **test_A2_2_first_and_last_frame_loss_twa**: First and last I-frame of a window lost in TWA mode
 
-### 6. Parametrized Exchange (`test_exchange.c`)
+### 7. FRMR (`test_frmr.c`)
 
-Configurable stress test with bidirectional traffic, error injection, latency/throughput measurement, and long-running support. See [Exchange Test Tool](../doc/TEST_EXCHANGE.md) for full documentation.
+- [x] **test_frmr_invalid_nr**: Invalid `N(R)` triggers FRMR, repetition on poll, suppression of I-frames, recovery after SNRM
 
-### 7. OSAL Tests (Linux-specific)
+### 8. Modulo 128 ABM/TWS (`test_mod128_abm.c`)
+
+- [x] **test_abm_mod128_wraparound**: SABM/UA in ABM, sustained modulo-128 transfer, explicit `127 -> 0` wrap-around
+
+### 9. Multipoint NRM (`test_multipoint_nrm.c`)
+
+- [x] **test_multipoint_connect_two_secondaries**: Sequential connection of two secondaries on a shared bus
+- [x] **test_multipoint_data_exchange**: Round-robin bidirectional exchange with both secondaries
+- [x] **test_multipoint_selective_disconnect**: Disconnect one secondary without affecting the other
+
+### 10. Parametrized Exchange (`test_exchange.c`)
+
+Configurable stress test with bidirectional traffic, error injection, latency/throughput measurement, selectable modulo (`8` or `128`), and long-running support. See [Exchange Test Tool](../doc/TEST_EXCHANGE.md) for full documentation.
+
+### 11. OSAL Tests (Linux-specific)
 
 - [x] **test_osal_bsem** (`linux/scenarios/test_osal_bsem.c`): Binary semaphore wait/signal semantics
 - [x] **test_osal_events** (`linux/scenarios/test_osal_events.c`): Event source broadcast and listener wake-up
@@ -323,12 +354,13 @@ See the [Testing Guide](../doc/TESTING.md) for a step-by-step walkthrough with a
 3. Creating a platform runner in `linux/test_runner_*.c`
 4. Adding the target to the `Makefile`
 
-
 ## Development Notes
 
 For design rationale and architectural details, see [Test Architecture](../doc/TEST_ARCHITECTURE.md).
 
 - **Mock Stream**: Circular buffers with OSAL-based synchronization (mutexes, condition variables). Portable across Linux and ChibiOS.
+- **Mock Bus**: Shared broadcast medium used by multipoint NRM tests; each endpoint gets its own `ioHdlcStreamPort`.
+- **Teardown**: Scenario cleanup uses `ioHdlcStationDeinit()` as the station-level, idempotent shutdown path.
 - **Peer Connection**: `mock_stream_connect()` allows bidirectional communication
 - **Loopback**: Optional, TX automatically goes to RX for single-station tests
 - **Error Injection**: Selective frame corruption via callback filter (see [Error Injection Framework](#error-injection-framework))

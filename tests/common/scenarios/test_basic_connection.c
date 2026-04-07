@@ -116,7 +116,7 @@ static int32_t init_test_station(iohdlc_station_t *station,
 
   /* Configure station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;  /* Primary station */
   config.log2mod = 3;  /* Modulo 8 */
   config.addr = addr;
@@ -152,7 +152,7 @@ bool test_station_creation(void) {
   /* Validate initialization */
   TEST_ASSERT(result == 0, "Station init should succeed");
   TEST_ASSERT(station.addr == PRIMARY_ADDR, "Station address should match");
-  TEST_ASSERT(station.mode == IOHDLC_OM_NRM, "Station mode should be NRM");
+  TEST_ASSERT(station.mode == IOHDLC_OM_NDM, "Station mode should be NDM");
   TEST_ASSERT(station.flags == IOHDLC_FLG_PRI, "Station should be primary");
   TEST_ASSERT(station.modmask == 7, "Modulo 8 should have modmask 7");
   TEST_ASSERT(station.ctrl_size == 1, "Modulo 8 should have ctrl_size 1");
@@ -201,7 +201,7 @@ bool test_peer_creation(void) {
   TEST_ASSERT(ioHdlc_frameq_isempty(&peer.i_trans_q), "Peer i_trans_q should be empty");
   
   /* Validate peer is in station's peer list */
-  iohdlc_station_peer_t *found_peer = addr2peer(&station, SECONDARY_ADDR);
+  iohdlc_station_peer_t *found_peer = ioHdlcAddr2peer(&station, SECONDARY_ADDR);
   TEST_ASSERT(found_peer == &peer, "Peer should be findable in station's peer list");
   
   /* Test duplicate address rejection */
@@ -236,7 +236,7 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
@@ -257,7 +257,7 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   
   /* Configure secondary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NDM;  /* Secondary starts in disconnected mode */
+  config.mode = IOHDLC_OM_NDM;
   config.flags = 0;  /* Secondary */
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
@@ -316,13 +316,14 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   
   test_printf("✅ SNRM handshake completed successfully\n");
   
-  /* Stop runners */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  
-  /* Stop drivers (terminate RX threads) */
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  TEST_ASSERT(ioHdlcStationDeinit(&station_primary) == 0,
+              "Primary deinit should succeed");
+  TEST_ASSERT(ioHdlcStationDeinit(&station_secondary) == 0,
+              "Secondary deinit should succeed");
+  TEST_ASSERT(ioHdlcStationDeinit(&station_primary) == 0,
+              "Primary deinit should be idempotent");
+  TEST_ASSERT(ioHdlcStationDeinit(&station_secondary) == 0,
+              "Secondary deinit should be idempotent");
   
   return 0;
 }
@@ -363,7 +364,7 @@ bool test_data_exchange(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;  /* | IOHDLC_FLG_TWA; */
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
@@ -496,13 +497,8 @@ bool test_data_exchange(const test_adapter_t *adapter) {
   
 test_cleanup:
   ioHdlc_sleep_ms(200);
-  /* Stop runners */
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  
-  /* Stop drivers (terminate RX threads) */
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
   
   return test_result;
 }

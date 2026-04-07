@@ -28,7 +28,7 @@ The test system is organized in layers, each depending only on those below it:
 
 **Layer 2 -- Test Framework** (`test_framework.h`): Structures for parametrized testing: `test_config_t` (mode, duration, traffic direction, error rate), `test_statistics_t` (latency, throughput, loss), `test_packet_t` (sequenced packets for validation). Used by `test_exchange.c`.
 
-**Layer 3 -- Adapter Abstraction** (`adapter_interface.h`): Decouples test scenarios from the stream backend. The `test_adapter_t` vtable provides `init`, `deinit`, `reset`, `get_port_a`, `get_port_b`, `configure_error_injection`, and a `constraints` bitmask. This allows the same scenario to run against `mock_adapter` (in-process loopback), `adapter_uart` (ChibiOS physical UART), or `adapter_spi` (ChibiOS SPI).
+**Layer 3 -- Adapter Abstraction** (`adapter_interface.h`): Decouples test scenarios from the stream backend. The `test_adapter_t` vtable provides `init`, `deinit`, `reset`, `get_port_a`, `get_port_b`, `configure_error_injection`, and a `constraints` bitmask that aliases `IOHDLC_PORT_CONSTR_*` from `ioHdlcStreamPort`. Primary constraint enforcement occurs inside the protocol core (at `ioHdlcStationInit` and `ioHdlcStationLinkUp`); test runners may additionally inspect `adapter->constraints` to skip scenarios incompatible with the physical backend. This allows the same scenario to run against `mock_adapter` (in-process loopback), `adapter_uart` (ChibiOS physical UART), or `adapter_spi` (ChibiOS SPI).
 
 **Layer 4 -- Mock Infrastructure** (`mock_stream.h`, `mock_stream_adapter.h`): `mock_stream` provides bidirectional byte streams with circular buffers, loopback mode, peer connection, and error injection via filter callbacks. `mock_stream_adapter` bridges `mock_stream` to the `ioHdlcStreamPort` interface, managing an RX thread for asynchronous frame reception.
 
@@ -42,9 +42,9 @@ The adapter layer exists so that **one scenario source file runs against any bac
 |---------|----------|---------|-------------|
 | `mock_adapter` | All | In-process mock stream | None |
 | `adapter_uart` | ChibiOS | Physical UART loopback | None |
-| `adapter_spi` | ChibiOS | Physical SPI | `ADAPTER_CONSTRAINT_TWA_ONLY` |
+| `adapter_spi` | ChibiOS | Physical SPI | `ADAPTER_CONSTRAINT_TWA_ONLY \| ADAPTER_CONSTRAINT_NRM_ONLY` |
 
-The `constraints` field lets adapters declare hardware limitations. Test runners check constraints before executing scenarios that require specific link modes.
+The `ADAPTER_CONSTRAINT_*` flags defined in `adapter_interface.h` are aliases of the `IOHDLC_PORT_CONSTR_*` flags on `ioHdlcStreamPort`. Backend implementations set `port.constraints` directly on their `ioHdlcStreamPort` instances; the protocol core validates these constraints during `ioHdlcStationInit` (TWA check) and `ioHdlcStationLinkUp` (NRM-only check). Test runners may additionally inspect `adapter->constraints` to skip scenarios that are incompatible with the physical backend.
 
 The error injection interface (`configure_error_injection`) is optional -- hardware adapters set it to `NULL`.
 
@@ -94,7 +94,7 @@ Adapter `init()`/`deinit()` per test ensures clean state -- no cross-test contam
 |-------|--------|-------------|
 | 1: Linux Mock | Implemented | POSIX OSAL, in-memory mock stream. Fast iteration, CI-friendly. |
 | 2a: ChibiOS Mock | Implemented | Real ChibiOS OSAL, mock stream on target. Validates RTOS integration. |
-| 2b: ChibiOS + Hardware | Implemented | Physical UART loopback (UARTD2/FUARTD1 at 1.2 Mbaud) and SPI (master/slave, TWA-only). Conditional build via `USE_UART_ADAPTER`/`USE_SPI_ADAPTER`. |
+| 2b: ChibiOS + Hardware | Implemented | Physical UART loopback and SPI (master/slave, `IOHDLC_PORT_CONSTR_TWA_ONLY \| IOHDLC_PORT_CONSTR_NRM_ONLY`). Conditional build via `USE_UART_ADAPTER`/`USE_SPI_ADAPTER`. |
 | 3: Core Unit Tests | Implemented | Isolated tests for frame pool (init, ref-counting, watermarks, exhaustion), OSAL primitives (binary semaphore, event system), and mock stream infrastructure. |
 
 ## Adding a New Platform

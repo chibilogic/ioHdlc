@@ -41,7 +41,7 @@ screen /dev/ttyACM0 115200
 Runs the HDLC exchange stress test. Accepts the same options as the Linux CLI:
 
 ```
-iohdlc> exchange --count=100 --size=120 --twa
+iohdlc> exchange --count=100 --size=512 --twa
 iohdlc> exchange --time=60 --error-rate=5 --direction=pri2sec
 iohdlc> exchange --help
 ```

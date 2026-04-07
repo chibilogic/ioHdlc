@@ -43,14 +43,29 @@ extern "C" {
 #endif
 
 /**
+ * @name Port constraint flags
+ * @brief Bitmask of transport-level limitations declared by a backend.
+ * @details Set in @ref ioHdlcStreamPort::constraints at initialisation time.
+ *          The protocol core checks these during station init and link-up to
+ *          reject configurations that the underlying transport cannot support.
+ * @{
+ */
+/** Link is half-duplex: only TWA (Two-Way Alternate) is supported. */
+#define IOHDLC_PORT_CONSTR_TWA_ONLY  (1u << 0)
+/** Link supports NRM only: ABM (Asynchronous Balanced Mode) is not supported. */
+#define IOHDLC_PORT_CONSTR_NRM_ONLY  (1u << 1)
+/** @} */
+
+/**
  * @name Stream error mask flags
  * @brief Bit flags reported by the RX error callback.
- * @{ 
+ * @{
  */
 #define IOHDLC_STREAM_ERR_OVERRUN  (1u << 0)
 #define IOHDLC_STREAM_ERR_FRAMING  (1u << 1)
 #define IOHDLC_STREAM_ERR_PARITY   (1u << 2)
 #define IOHDLC_STREAM_ERR_TMO      (1u << 3)
+#define IOHDLC_STREAM_ERR_OTHER    (1u << 4)
 /** @} */
 
 /**
@@ -118,6 +133,7 @@ typedef struct ioHdlcStreamPortOps {
 typedef struct ioHdlcStreamPort {
   void *ctx;                          /**< Opaque adapter context */
   const ioHdlcStreamPortOps *ops;     /**< Virtual method table */
+  uint32_t constraints;               /**< Transport constraints: IOHDLC_PORT_CONSTR_* bitmask (0 = no constraints) */
 } ioHdlcStreamPort;
 
 #ifdef __cplusplus

@@ -18,11 +18,12 @@ make exchange USE_SPI_ADAPTER=1
 
 # With custom parameters
 make exchange \
+  TEST_MODULO=128 \
   TEST_USE_TWA=1 \
   TEST_DURATION_TYPE=TEST_BY_TIME \
   TEST_DURATION_VALUE=60 \
   TEST_EXCHANGES=50 \
-  TEST_PACKET_SIZE=120
+  TEST_PACKET_SIZE=512
 ```
 
 **Output:** `build/iohdlc_exchange.elf`
@@ -31,12 +32,13 @@ make exchange \
 
 | Define | Default | Description |
 |--------|---------|-------------|
-| `TEST_MODE` | `IOHDLC_OM_NRM` | Operating mode (NRM, ARM, ABM) |
+| `TEST_MODE` | `IOHDLC_OM_NRM` | Operating mode (`IOHDLC_OM_NRM`, `IOHDLC_OM_ABM`) |
+| `TEST_MODULO` | 8 | HDLC modulo (`8` or `128`) |
 | `TEST_USE_TWA` | 0 | TWA mode (0=TWS, 1=TWA) |
 | `TEST_DURATION_TYPE` | `TEST_BY_COUNT` | Duration: `TEST_BY_COUNT`, `TEST_BY_TIME`, `TEST_INFINITE` |
 | `TEST_DURATION_VALUE` | 1000 | Iterations or seconds |
 | `TEST_EXCHANGES` | 97 | Packets per iteration |
-| `TEST_PACKET_SIZE` | 120 | Packet size in bytes (max 120) |
+| `TEST_PACKET_SIZE` | 120 | Packet size in bytes, header included (range: 10-1024) |
 | `TEST_DIRECTION` | `TRAFFIC_BIDIRECTIONAL` | `TRAFFIC_PRI_TO_SEC`, `TRAFFIC_SEC_TO_PRI`, `TRAFFIC_BIDIRECTIONAL` |
 | `TEST_ERROR_RATE` | 1 | Error injection 0-100% (mock adapter only) |
 | `TEST_REPLY_TIMEOUT` | 0 | Reply timeout in ms (0=100ms default) |

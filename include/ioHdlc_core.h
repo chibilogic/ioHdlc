@@ -76,21 +76,13 @@ void ioHdlcRxEntry(void *stationp);
 
 /* Mode-specific TX/RX handlers (exposed for ioHdlcStationInit). */
 /** @ingroup ioHdlc_core */
-uint32_t nrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
 /** @ingroup ioHdlc_core */
-void nrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
+void ioHdlcNrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
 /** @ingroup ioHdlc_core */
-uint32_t armTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+uint32_t ioHdlcAbmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
 /** @ingroup ioHdlc_core */
-void armRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
-/** @ingroup ioHdlc_core */
-uint32_t abmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
-/** @ingroup ioHdlc_core */
-void abmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
-
-/** @ingroup ioHdlc_core
- *  @see ioHdlcNextPeer() */
-iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *station, bool find_pending_only);
+void ioHdlcAbmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
 
 #ifdef __cplusplus
 }

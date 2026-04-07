@@ -59,13 +59,10 @@ static void chb_rxend_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (!ctx) return;
   chDbgAssert(ctx->cbs && ctx->cbs->on_rx, "uart rxend cb: callbacks not set");
-  /* RX of the armed buffer completed (usually 1 byte). */
-  ctx->rx_busy = false;
   ctx->cbs->on_rx(ctx->cbs->cb_ctx, 0);
 }
 
 static void chb_rxerr_cb(UARTDriver *uartp, uartflags_t e) {
-  (void)e;
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (!ctx) return;
   chDbgAssert(ctx->cbs && ctx->cbs->on_rx_error, "uart rxerr cb: callbacks not set");
@@ -79,6 +76,8 @@ static void chb_rxerr_cb(UARTDriver *uartp, uartflags_t e) {
 #if defined(UART_OVERRUN_ERROR)
   if (e & UART_OVERRUN_ERROR) mask |= IOHDLC_STREAM_ERR_OVERRUN;
 #endif
+  if (mask == 0U)
+    mask = IOHDLC_STREAM_ERR_OTHER;
   ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, mask);
 }
 
@@ -100,8 +99,6 @@ static void chb_start(void *vctx, const ioHdlcStreamCallbacks *cbs) {
               "uart start: invalid callbacks");
   ctx->cbs = cbs;
   ctx->tx_framep = NULL;
-  ctx->rx_busy = false;
-
   /* Bind callbacks and start UART. */
   ctx->uartp->ip = ctx;
   if (ctx->cfgp) {
@@ -139,8 +136,9 @@ static bool chb_tx_busy(void *vctx) {
 
 static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
-  if (ctx->rx_busy) return false; /* one RX at a time */
-  ctx->rx_busy = true; /* mark busy */
+  if (ctx->uartp->rxstate == UART_RX_ACTIVE) {
+    return false; /* one RX at a time */
+  }
   uartStartReceiveI(ctx->uartp, len, ptr);
   return true;
 }
@@ -148,7 +146,6 @@ static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
 static void chb_rx_cancel(void *vctx) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   uartStopReceiveI(ctx->uartp);
-  ctx->rx_busy = false;
 }
 
 static const ioHdlcStreamPortOps chibios_ops = {
@@ -179,7 +176,6 @@ void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
   obj->cfgp  = cfgp;
   obj->cbs   = NULL;
   obj->tx_framep = NULL;
-  obj->rx_busy = false;
 
   port->ctx = obj;
   port->ops = &chibios_ops;

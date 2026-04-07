@@ -157,7 +157,7 @@ bool test_frmr_invalid_nr(const test_adapter_t *adapter) {
 
   /* Configure primary station. */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NRM;
+  config.mode = IOHDLC_OM_NDM;
   config.flags = IOHDLC_FLG_PRI;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
@@ -282,7 +282,7 @@ bool test_frmr_invalid_nr(const test_adapter_t *adapter) {
   test_printf("Step 6: Recovery -- DISC then SNRM...\r\n");
   result = ioHdlcStationLinkDown(&station_primary, SECONDARY_ADDR);
   TEST_ASSERT_GOTO(result == 0, "LinkDown during FRMR failed");
-  ioHdlc_sleep_ms(200);
+  ioHdlc_sleep_ms(500);
 
   TEST_ASSERT_GOTO(peer_at_secondary.frmr_condition == false,
                    "FRMR condition should be cleared by DISC");
@@ -314,10 +314,8 @@ bool test_frmr_invalid_nr(const test_adapter_t *adapter) {
   }
 
 test_cleanup:
-  ioHdlcRunnerStop(&station_primary);
-  ioHdlcRunnerStop(&station_secondary);
-  ioHdlcSwDriverStop(&driver_primary);
-  ioHdlcSwDriverStop(&driver_secondary);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
 
   if (adapter_primary) mock_stream_adapter_destroy(adapter_primary);
   if (adapter_secondary) mock_stream_adapter_destroy(adapter_secondary);

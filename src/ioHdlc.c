@@ -35,6 +35,7 @@
 #include "ioHdlcosal.h"
 #include "ioHdlcqueue.h"
 #include "ioHdlclist.h"
+#include "ioHdlcstreamport.h"
 #include "ioHdlc_log.h"
 #include <string.h>
 #include <errno.h>
@@ -157,9 +158,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   uint32_t mod2 = 0;
   uint8_t mode = ioHdlcsconfp->mode;
 
-  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM) &&
-      (mode != IOHDLC_OM_NRM) && (mode != IOHDLC_OM_ARM) &&
-      (mode != IOHDLC_OM_ABM)) {
+  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM)) {
     iohdlc_errno = EINVAL;
     return -1;
   }
@@ -168,6 +167,18 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   if (ioHdlcsconfp->frame_arena == NULL || ioHdlcsconfp->frame_arena_size == 0) {
     iohdlc_errno = EINVAL;
     return -1;
+  }
+
+  /* Read port constraints from physical driver and validate against config.
+     phydriver points to ioHdlcStreamPort when the sw driver is used. */
+  uint32_t port_constr = 0;
+  if (ioHdlcsconfp->phydriver != NULL) {
+    port_constr = ((const ioHdlcStreamPort *)ioHdlcsconfp->phydriver)->constraints;
+    if ((port_constr & IOHDLC_PORT_CONSTR_TWA_ONLY) &&
+        !(ioHdlcsconfp->flags & IOHDLC_FLG_TWA)) {
+      iohdlc_errno = EINVAL;   /* Port requires TWA but config does not set FLG_TWA. */
+      return -1;
+    }
   }
 
   /* Basic station parameters */
@@ -181,13 +192,26 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->pfoctet = (mod2 + 1) / 8;
   ioHdlcsp->ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->pfoctet * 2);
 
-  /* Reply timeout: use config value, or default 100ms if 0 */
-  ioHdlcsp->reply_timeout_ms = (ioHdlcsconfp->reply_timeout_ms != 0) ? 
-                                ioHdlcsconfp->reply_timeout_ms : 100;
+  /* Reply timeout: use config value, or default 100ms if 0.
+     In ABM/ADM, both stations may initiate SABM simultaneously. To break
+     symmetry and reduce contention, add a small address-proportional skew
+     so that stations with different addresses use different timeouts. */
+  {
+    uint32_t base_tmo = (ioHdlcsconfp->reply_timeout_ms != 0) ?
+                          ioHdlcsconfp->reply_timeout_ms : 100;
+    if (ioHdlcsconfp->mode == IOHDLC_OM_ABM ||
+        ioHdlcsconfp->mode == IOHDLC_OM_ADM) {
+      base_tmo += ((ioHdlcsconfp->addr - 1U) & 0xFF) * (base_tmo / 10);
+    }
+    ioHdlcsp->reply_timeout_ms = base_tmo;
+  }
 
   /* Poll retry max: store config value for later use when adding peers */
   ioHdlcsp->poll_retry_max_cfg = (ioHdlcsconfp->poll_retry_max != 0) ?
                                   ioHdlcsconfp->poll_retry_max : 5;
+
+  /* Store port constraints for later checks (e.g. at link-up). */
+  ioHdlcsp->port_constraints = port_constr;
 
   /* Driver setup */
   ioHdlcsp->driver = ioHdlcsconfp->driver;
@@ -209,18 +233,17 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
 
   /* Initialize runner state */
   ioHdlcsp->stop_requested = false;
+  ioHdlcsp->driver_started = false;
+  ioHdlcsp->runner_started = false;
   ioHdlcsp->runner_context = NULL;
 
   /* Set TX/RX handlers based on mode */
-  if (mode == IOHDLC_OM_NRM) {
-    ioHdlcsp->tx_fn = nrmTx;
-    ioHdlcsp->rx_fn = nrmRx;
-  } else if (mode == IOHDLC_OM_ARM) {
-    ioHdlcsp->tx_fn = armTx;
-    ioHdlcsp->rx_fn = armRx;
-  } else if (mode == IOHDLC_OM_ABM) {
-    ioHdlcsp->tx_fn = abmTx;
-    ioHdlcsp->rx_fn = abmRx;
+  if (mode == IOHDLC_OM_NDM) {
+    ioHdlcsp->tx_fn = ioHdlcNrmTx;
+    ioHdlcsp->rx_fn = ioHdlcNrmRx;
+  } else {
+    ioHdlcsp->tx_fn = ioHdlcAbmTx;
+    ioHdlcsp->rx_fn = ioHdlcAbmRx;
   }
 
   /* Configure optional functions */
@@ -360,8 +383,38 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
               ioHdlcsconfp->phydriver,
               ioHdlcsconfp->phydriver_config,
               (ioHdlcFramePool *)&ioHdlcsp->frame_pool);
+    ioHdlcsp->driver_started = true;
   }
 
+  iohdlc_errno = 0;
+  return 0;
+}
+
+/**
+ * @brief   Tear down a station and stop its runtime components.
+ * @details Force-stops the runner if active and stops the associated driver.
+ *          Safe to call multiple times and after partial cleanup paths.
+ * @param[in] ioHdlcsp    station descriptor
+ * @return                0 on success, -1 on invalid argument
+ */
+int32_t ioHdlcStationDeinit(iohdlc_station_t *ioHdlcsp) {
+  if (ioHdlcsp == NULL) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  if (ioHdlcsp->runner_started || ioHdlcsp->runner_context != NULL) {
+    (void)ioHdlcRunnerStop(ioHdlcsp);
+  }
+
+  if (ioHdlcsp->driver != NULL) {
+    hdlcStop(ioHdlcsp->driver);
+  }
+
+  ioHdlcsp->stop_requested = false;
+  ioHdlcsp->driver_started = false;
+  ioHdlcsp->runner_started = false;
+  ioHdlcsp->runner_context = NULL;
   iohdlc_errno = 0;
   return 0;
 }
@@ -372,7 +425,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
  * @param[in] peer_addr   peer protocol address.
  * @return                matching peer descriptor, or NULL if not found.
  */
-iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
+iohdlc_station_peer_t *ioHdlcAddr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
   iohdlc_station_peer_t *p;
 
   /* Traverse circular peer list */
@@ -407,7 +460,8 @@ iohdlc_station_peer_t *addr2peer(iohdlc_station_t *s, uint32_t peer_addr) {
  */
 int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
                       uint32_t addr) {
-  /* Secondary stations can only add peer when in disconnected mode */
+  /* Secondary stations can only add peer when in disconnected mode.
+     ABM combined stations are not subject to this restriction. */
   if (IOHDLC_IS_SEC(s) &&
       (s->mode != IOHDLC_OM_NDM) && (s->mode != IOHDLC_OM_ADM)) {
     iohdlc_errno = EINVAL;
@@ -415,7 +469,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   }
 
   /* Check that addr does not already exist */
-  if (addr2peer(s, addr) != NULL) {
+  if (ioHdlcAddr2peer(s, addr) != NULL) {
     iohdlc_errno = EEXIST;
     return -1;
   }
@@ -531,11 +585,11 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
                               uint8_t mode, eventmask_t evt_mask) {
   iohdlc_station_peer_t *p;
   iohdlc_event_listener_t listener;
-  uint8_t u_cmd;
+  uint8_t u_cmd, s_mode = 0;
   int retry_count;
 
   /* Find peer by address */
-  p = addr2peer(s, peer_addr);
+  p = ioHdlcAddr2peer(s, peer_addr);
   if (p == NULL) {
     iohdlc_errno = EINVAL;
     return -1;
@@ -547,9 +601,23 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
     return -1;
   }
 
-  /* Secondary stations wait for primary to initiate connection */
-  if (IOHDLC_IS_SEC(s))
+  /* Secondary stations wait for primary to initiate connection.
+     ABM combined stations can initiate from either side. */
+  if (IOHDLC_IS_SEC(s) && (mode != IOHDLC_OM_ABM))
     return 0;
+
+  /* In ABM mode, there are no primary or secondary stations.
+     Both the stations are equal. Set it as primary.*/
+  if (mode == IOHDLC_OM_ABM) {
+    s->flags |= IOHDLC_FLG_PRI;
+  }
+
+  /* Check port constraints against requested mode. */
+  if ((s->port_constraints & IOHDLC_PORT_CONSTR_NRM_ONLY) &&
+      (mode == IOHDLC_OM_ABM)) {
+    iohdlc_errno = ENOTSUP;  /* Port does not support ABM. */
+    return -1;
+  }
 
   /* Validate mode and get corresponding U-frame command */
   u_cmd = IOHDLC_MODE_TO_UCMD(mode);
@@ -566,6 +634,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
      the same mode. Write only when transitioning from disconnected state
      to avoid a data race with concurrent LinkUpEx calls. */
   if (IOHDLC_IS_DISC(s)) {
+    s_mode = s->mode;
     s->mode = mode;
   }
   
@@ -600,6 +669,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
       if ((flags & IOHDLC_APP_LINK_REFUSED) && IOHDLC_PEER_DISC(p)) {
         /* Our peer was refused. */
         iohdlc_evt_unregister(&s->app_es, &listener);
+        s->mode = s_mode;
         iohdlc_errno = ECONNREFUSED;
         return -1;
       }
@@ -610,6 +680,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
 
   /* All retries exhausted */
   iohdlc_evt_unregister(&s->app_es, &listener);
+  s->mode = s_mode;
   iohdlc_errno = ETIMEDOUT;
   return -1;
 }
@@ -651,7 +722,7 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
   int retry_count;
 
   /* Find peer by address */
-  p = addr2peer(s, peer_addr);
+  p = ioHdlcAddr2peer(s, peer_addr);
   if (p == NULL) {
     iohdlc_errno = ENOTCONN;
     return -1;
@@ -663,8 +734,9 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
     return -1;
   }
 
-  /* Secondary stations wait for primary to disconnect */
-  if (IOHDLC_IS_SEC(s))
+  /* Secondary stations wait for primary to disconnect.
+     ABM combined stations can disconnect from either side. */
+  if (IOHDLC_IS_SEC(s) && !IOHDLC_IS_ABM(s))
     return 0;
 
   /* Register listener on app_es for link events */
@@ -712,8 +784,13 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
  * @brief   Flow control: writer wait condition is true
  *          until exceeding pending frames exist OR pool low
  */
+static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
+  uint32_t margin = p->ks / 8U;
+  return p->ks + ((margin < 7U) ? 7U : margin);
+}
+
 #define W_WAIT_COND(s, p) \
-	          (p->i_pending_count >= (2 * p->ks) || \
+	          (p->i_pending_count >= writer_pending_limit(p) || \
 	          hdlcPoolGetState(&s->frame_pool) != IOHDLC_POOL_NORMAL)
 /**
  * @brief   Write data to peer via HDLC I-frames.
@@ -819,7 +896,9 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     
     /* Build frame outside mutex (no shared state accessed) */
     
-    /* Set address field */
+    /* Set address field: commands use peer address, responses use station address.
+       In ABM, the final address is overwritten at TX time based on the
+       command/response decision (see ioHdlcNrmTx I-frame loop). */
     IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
     
     /* Set control field: I-frame ID */
