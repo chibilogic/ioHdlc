@@ -41,11 +41,16 @@
 #include "ioHdlc_log.h"
 #include "ioHdlclist.h"
 #include "ioHdlcosal.h"
-#include "ioHdlcswdriver.h"
 #include <errno.h>
+#include <string.h>
 
 /* Forward declarations for U-frame handler */
 static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
+static void stashTxSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
+                                  uint8_t ctrl_len);
+static uint32_t stashIFrameSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
+                                          uint8_t addr, uint32_t ns_seed,
+                                          uint32_t nr, bool set_pf);
 
 /*===========================================================================*/
 /* Module local definitions.                                                 */
@@ -68,6 +73,44 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
 /*===========================================================================*/
 
 static void setModeFunctions(iohdlc_station_t *s, uint8_t mode);
+
+static uint32_t extractNSFromCtrl(iohdlc_station_t *s, const uint8_t *ctrl) {
+  if (s->framing.modmask == 7) {
+    return (ctrl[0] >> 1) & 0x07;
+  }
+
+  return (ctrl[0] >> 1) & 0x7F;
+}
+
+static void setNSInCtrl(iohdlc_station_t *s, uint8_t *ctrl, uint32_t ns) {
+  if (s->framing.modmask == 7) {
+    ctrl[0] = (uint8_t)((ctrl[0] & ~0x0E) | (((ns) & 0x07) << 1));
+  } else {
+    ctrl[0] = (uint8_t)((ctrl[0] & ~0xFE) | (((ns) & 0x7F) << 1));
+  }
+}
+
+static void setNRInCtrl(iohdlc_station_t *s, uint8_t *ctrl, uint32_t nr) {
+  if (s->framing.modmask == 7) {
+    ctrl[0] = (uint8_t)((ctrl[0] & ~0xE0) | (((nr) & 0x07) << 5));
+  } else {
+    ctrl[1] = (uint8_t)((ctrl[1] & ~0xFE) | (((nr) & 0x7F) << 1));
+  }
+}
+
+static void setPFInCtrl(iohdlc_station_t *s, uint8_t *ctrl, bool pf) {
+  if (s->framing.pfoctet == 0) {
+    if (pf)
+      ctrl[0] |= IOHDLC_PF_BIT;
+    else
+      ctrl[0] &= (uint8_t)~IOHDLC_PF_BIT;
+  } else {
+    if (pf)
+      ctrl[s->framing.pfoctet] |= IOHDLC_PFx_BIT;
+    else
+      ctrl[s->framing.pfoctet] &= (uint8_t)~IOHDLC_PFx_BIT;
+  }
+}
 
 /**
  * @brief   Mark a peer as disconnected and wake blocked transmitters.
@@ -217,7 +260,7 @@ static void setFrmrCondition(iohdlc_station_t *s, iohdlc_station_peer_t *p,
  * @param[in] set_pf  true to set the P/F bit.
  */
 static void buildFrmrResponse(iohdlc_station_t *s, iohdlc_station_peer_t *p,
-                               iohdlc_frame_t *fp, bool set_pf) {
+                              iohdlc_frame_t *fp, bool set_pf) {
   /* Address: response uses station address. */
   IOHDLC_FRAME_ADDR(s, fp) = s->addr;
 
@@ -228,10 +271,10 @@ static void buildFrmrResponse(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     IOHDLC_FRAME_CTRL(s, fp, 0) |= IOHDLC_PF_BIT;
 
   /* Information field starts after FFF + addr(1) + ctrl(1). */
-  uint8_t *info = &fp->frame[s->frame_offset + 2];
+  uint8_t *info = &fp->frame[s->framing.frame_offset + 2];
   uint8_t info_len;
 
-  if (s->ctrl_size == 1) {
+  if (s->framing.ctrl_size == 1) {
     /* Modulo 8: 3-byte info field (ISO 13239, 5.5.3.1).
        Byte 0: rejected control field
        Byte 1: [V(S) bits 2-0] [C/R] [V(R) bits 2-0] [0]
@@ -257,7 +300,8 @@ static void buildFrmrResponse(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   }
 
   /* elen: FFF + addr(1) + ctrl(1) + info */
-  fp->elen = (uint16_t)(s->frame_offset + 2 + info_len);
+  fp->elen = (uint16_t)(s->framing.frame_offset + 2 + info_len);
+  stashTxSnapshotHeader(s, fp, 1U);
 }
 
 /**
@@ -563,7 +607,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
  */
 static uint32_t extractNS(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Extract N(S) from control field based on modmask. */
-  if (s->modmask == 7) {
+  if (s->framing.modmask == 7) {
     /* Modulo 8: N(S) in bits 1-3 of ctrl[0]. */
     return (IOHDLC_FRAME_CTRL(s, fp, 0) >> 1) & 0x07;
   } else {
@@ -580,7 +624,7 @@ static uint32_t extractNS(iohdlc_station_t *s, iohdlc_frame_t *fp) {
  */
 static uint32_t extractNR(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   /* Extract N(R) from control field based on modmask. */
-  if (s->modmask == 7) {
+  if (s->framing.modmask == 7) {
     /* Modulo 8: N(R) in bits 5-7 of ctrl[0]. */
     return (IOHDLC_FRAME_CTRL(s, fp, 0) >> 5) & 0x07;
   } else {
@@ -605,8 +649,8 @@ static bool isNRValid(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      Valid range: p->nr <= nr <= p->vs (in modular arithmetic)
      Equivalent: distance from p->nr to nr must be <= distance from p->nr to p->vs */
   
-  uint32_t nr_offset = (nr - p->nr) & s->modmask;     /* Distance from last ACK to new N(R) */
-  uint32_t vs_offset = (p->vs_highest - p->nr) & s->modmask;  /* Distance from last ACK to next to send */
+  uint32_t nr_offset = (nr - p->nr) & s->framing.modmask;     /* Distance from last ACK to new N(R) */
+  uint32_t vs_offset = (p->vs_highest - p->nr) & s->framing.modmask;  /* Distance from last ACK to next to send */
   
   return nr_offset <= vs_offset;
 }
@@ -645,11 +689,11 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     p->i_pending_count--;  /* Decrement pending counter */
     released_frames = true;
     /* Increment with modmask */
-    p->nr = (p->nr + 1) & s->modmask;
+    p->nr = (p->nr + 1) & s->framing.modmask;
 
     /* Inhibit retransmission on acknowledgment of the last P/F frame. */
     if (acked_ns == p->vs_atlast_pf) {
-      p->vs_atlast_pf = (p->vs_atlast_pf + 1) & s->modmask;
+      p->vs_atlast_pf = (p->vs_atlast_pf + 1) & s->framing.modmask;
     }
   }
   
@@ -888,7 +932,7 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   }
   
   /* Increment V(R) - frame accepted. */
-  p->vr = (p->vr + 1) & s->modmask;
+  p->vr = (p->vr + 1) & s->framing.modmask;
   
   return true;  /* Frame accepted */
 }
@@ -1039,7 +1083,7 @@ static void commonRx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
     nns = extractNS(s, fp);
     nnr = nr;
-    qns = ioHdlc_frameq_isempty(&p->i_retrans_q) ? s->modmask+1 :
+    qns = ioHdlc_frameq_isempty(&p->i_retrans_q) ? s->framing.modmask + 1 :
       extractNS(s, IOHDLC_FRAME_FROM_Q(p->i_retrans_q.next));
 
     /* Log received frame based on type */
@@ -1064,8 +1108,8 @@ static void commonRx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     {
       uint8_t rejected_ctrl[2];
       rejected_ctrl[0] = IOHDLC_FRAME_CTRL(s, fp, 0);
-      rejected_ctrl[1] = (s->ctrl_size > 1) ? IOHDLC_FRAME_CTRL(s, fp, 1) : 0;
-      setFrmrCondition(s, p, rejected_ctrl, s->ctrl_size, (addr != s->addr), IOHDLC_FRMR_Y);
+      rejected_ctrl[1] = (s->framing.ctrl_size > 1) ? IOHDLC_FRAME_CTRL(s, fp, 1) : 0;
+      setFrmrCondition(s, p, rejected_ctrl, s->framing.ctrl_size, (addr != s->addr), IOHDLC_FRMR_Y);
     }
     iohdlc_mutex_unlock(&p->state_mutex);
     hdlcReleaseFrame(&s->frame_pool, fp);
@@ -1165,8 +1209,9 @@ void ioHdlcRxEntry(void *stationp) {
       break;
     }
 
-    /* Use short timeout (500ms) to allow stop check */
-    iohdlc_frame_t *fp = hdlcRecvFrame(s->driver, (iohdlc_timeout_t)500);
+    /* Use a short timeout so stop requests are observed promptly. */
+    iohdlc_frame_t *fp = hdlcRecvFrame(s->driver,
+                                      (iohdlc_timeout_t)IOHDLC_RX_ENTRY_RECV_TIMEOUT_MS);
     if (fp == NULL) {
       /* Check again before treating as idle line */
       if (s->stop_requested) {
@@ -1246,11 +1291,80 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   }
   
   /* Calculate elen: FFF + ADDR + CTRL (U-frame always has 1 byte ctrl) */
-  uint8_t *end = fp->frame + s->frame_offset;
+  uint8_t *end = fp->frame + s->framing.frame_offset;
   end += 2;  /* ADDR(1) + CTRL(1) - U-frame control is always 1 byte */
   fp->elen = (uint16_t)(end - fp->frame);
   
   /* FFF will be valorized by driver (driver knows FCS size) */
+  stashTxSnapshotHeader(s, fp, 1U);
+}
+
+/**
+ * @brief   Snapshot TX header bytes into the per-frame snapshot slot.
+ * @details Stores the address octet and the prepared control field for the
+ *          pending transmission in @p fp->tx_snapshot. Adapters and drivers read this
+ *          snapshot when they need the per-send mutable header outside the
+ *          protocol state machine.
+ */
+static void stashTxSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
+                                  uint8_t ctrl_len) {
+  const uint8_t inline_len =
+      (ctrl_len <= IOHDLC_TXS_INLINE_CTRL_MAX) ? ctrl_len : IOHDLC_TXS_INLINE_CTRL_MAX;
+
+  fp->tx_snapshot.addr = IOHDLC_FRAME_ADDR(s, fp);
+  if (inline_len > 0U) {
+    memcpy(fp->tx_snapshot.ctrl, &IOHDLC_FRAME_CTRL(s, fp, 0), inline_len);
+  }
+  ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
+  ioHdlc_txs_set_trailer_len(&fp->tx_snapshot, 0U);
+}
+
+/**
+ * @brief   Snapshot the mutable I-frame header into the per-frame snapshot slot.
+ * @details Keeps N(S) stable across retransmissions and refreshes only the
+ *          per-send fields that may change while the frame remains queued.
+ */
+static uint32_t stashIFrameSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
+                                          uint8_t addr, uint32_t ns_seed,
+                                          uint32_t nr, bool set_pf) {
+  const uint8_t ctrl_len = s->framing.ctrl_size;
+  uint8_t *frame_ctrl = &IOHDLC_FRAME_CTRL(s, fp, 0);
+  uint32_t ns;
+  const bool inline_ctrl = ctrl_len <= IOHDLC_TXS_INLINE_CTRL_MAX;
+
+  if (inline_ctrl) {
+    if (ioHdlc_txs_get_ctrl_len(&fp->tx_snapshot) != ctrl_len ||
+        !IOHDLC_IS_I_FRM(fp->tx_snapshot.ctrl[0])) {
+      memset(fp->tx_snapshot.ctrl, 0, ctrl_len);
+      fp->tx_snapshot.ctrl[0] = IOHDLC_I_ID;
+      setNSInCtrl(s, fp->tx_snapshot.ctrl, ns_seed);
+      memset(frame_ctrl, 0, ctrl_len);
+      frame_ctrl[0] = IOHDLC_I_ID;
+      setNSInCtrl(s, frame_ctrl, ns_seed);
+      ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
+    }
+
+    ns = extractNSFromCtrl(s, fp->tx_snapshot.ctrl);
+    setNRInCtrl(s, fp->tx_snapshot.ctrl, nr);
+    setPFInCtrl(s, fp->tx_snapshot.ctrl, set_pf);
+  } else {
+    if (ioHdlc_txs_get_ctrl_len(&fp->tx_snapshot) != ctrl_len ||
+        !IOHDLC_IS_I_FRM(frame_ctrl[0])) {
+      memset(frame_ctrl, 0, ctrl_len);
+      frame_ctrl[0] = IOHDLC_I_ID;
+      setNSInCtrl(s, frame_ctrl, ns_seed);
+      ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
+    }
+
+    ns = extractNSFromCtrl(s, frame_ctrl);
+    setNRInCtrl(s, frame_ctrl, nr);
+    setPFInCtrl(s, frame_ctrl, set_pf);
+    memcpy(fp->tx_snapshot.ctrl, frame_ctrl, sizeof fp->tx_snapshot.ctrl);
+  }
+
+  fp->tx_snapshot.addr = addr;
+  ioHdlc_txs_set_trailer_len(&fp->tx_snapshot, 0U);
+  return ns;
 }
 
 /**
@@ -1271,7 +1385,7 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
  * @note This function always releases the frame, even on error.
  */
 static bool sendFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
-  size_t err = hdlcSendFrame(s->driver, fp);
+  int32_t err = hdlcSendFrame(s->driver, fp);
   hdlcReleaseFrame(&s->frame_pool, fp);
   return (err == 0);
 }
@@ -1308,11 +1422,12 @@ static void buildSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   IOHDLC_FRAME_SET_PF(s, fp, set_pf);
   
   /* Calculate elen: FFF + ADDR + CTRL (no info field for S-frames) */
-  uint8_t *end = fp->frame + s->frame_offset;
-  end += 1 + s->ctrl_size;  /* ADDR(1) + CTRL(1,2,4,8) */
+  uint8_t *end = fp->frame + s->framing.frame_offset;
+  end += 1 + s->framing.ctrl_size;  /* ADDR(1) + CTRL(1,2,4,8) */
   fp->elen = (uint16_t)(end - fp->frame);
   
   /* FFF will be valorized by driver (driver knows FCS size) */
+  stashTxSnapshotHeader(s, fp, s->framing.ctrl_size);
 }
 
 /**
@@ -1337,7 +1452,7 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
   const bool is_command = IOHDLC_IS_ABM(s) ?
       !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
 
-  const uint32_t outstanding = (p->vs - p->nr) & s->modmask;
+  const uint32_t outstanding = (p->vs - p->nr) & s->framing.modmask;
   const bool window_full = outstanding >= p->ks;
   const bool no_i_frame = ioHdlc_frameq_isempty(&p->i_trans_q) || window_full;
   bool set_pf = is_command ?
@@ -1442,7 +1557,7 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     }
     
     /* Check transmission window availability. */
-    const uint32_t outstanding = (p->vs - p->nr) & s->modmask;
+    const uint32_t outstanding = (p->vs - p->nr) & s->framing.modmask;
     if (outstanding >= p->ks) {
       /* Window full: cannot send I-frames. */
       iohdlc_mutex_unlock(&p->state_mutex);
@@ -1473,27 +1588,10 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       return cm_flags;
     }
     
-    /* Never mutate an I-frame while the reference software driver still could own
-       it. Wait outside the protocol
-       mutex and retry. */
-    iohdlc_frame_t *fp = NULL;
-    if (!ioHdlc_frameq_isempty(&p->i_trans_q)) {
-      fp = IOHDLC_FRAME_FROM_Q(p->i_trans_q.next);
-      if (ioHdlcSwDriverIsFrameTxOwned((ioHdlcSwDriver *)s->driver, fp)) {
-        iohdlc_mutex_unlock(&p->state_mutex);
-        if (s->stop_requested)
-          return cm_flags;
-        ioHdlcSwDriverWaitTxProgress((ioHdlcSwDriver *)s->driver, 10U);
-        if (s->stop_requested)
-          return cm_flags;
-        continue;
-      }
-    }
-
     /* Extract frame from transmission queue with lookahead. */
+    iohdlc_frame_t *fp = NULL;
     iohdlc_frame_q_t *next_qh = NULL;
-    iohdlc_frame_q_t *qh = fp ? ioHdlc_frameq_remove_la(&p->i_trans_q, &next_qh)
-                              : NULL;
+    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove_la(&p->i_trans_q, &next_qh);
     fp = qh ? IOHDLC_FRAME_FROM_Q(qh) : NULL;
     iohdlc_frame_t *next_fp = next_qh ? IOHDLC_FRAME_FROM_Q(next_qh) : NULL;
     if (fp == NULL) {
@@ -1510,11 +1608,7 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     const bool is_command = IOHDLC_IS_ABM(s) ?
         !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
 
-    /* Set address at TX time based on command/response decision.
-       ISO 13239 4.2.2: command addr = peer, response addr = station.
-       ISO 13239 5.4.3.2.3: in ABM, F must be set on the earliest possible
-       subsequent response frame after receiving P=1. */
-    IOHDLC_FRAME_ADDR(s, fp) = is_command ? p->addr : s->addr;
+    const uint8_t tx_addr = is_command ? p->addr : s->addr;
 
     /* Determine if P/F bit should be set in this I-frame.
        If local busy, never set P/F on I-frames. */
@@ -1548,12 +1642,14 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Move frame to retransmission queue. */
     ioHdlc_frameq_insert(&p->i_retrans_q, &fp->q);
 
-    /* Set N(S) and then advance V(S) - use
-       modmask for modular arithmetic on full numbering space. */
-    IOHDLC_FRAME_SET_NS(s, fp, p->vs);
+    const uint32_t tx_ns = stashIFrameSnapshotHeader(s, fp, tx_addr, p->vs,
+                                                     nr_value, set_pf);
+    (void)tx_ns;
+
+    /* Advance V(S) over the frame just queued for TX/retransmission. */
     if (p->vs == p->vs_highest)
-      p->vs_highest = (p->vs + 1) & s->modmask;
-    p->vs = (p->vs + 1) & s->modmask;
+      p->vs_highest = (p->vs + 1) & s->framing.modmask;
+    p->vs = (p->vs + 1) & s->framing.modmask;
 
     /* Update checkpoint reference and ACK P/F before sending.
        In ABM with crossed polls (sending F while own P outstanding),
@@ -1564,16 +1660,12 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       is_command ? IOHDLC_ACK_F(s) : IOHDLC_ACK_P(s);
     }
     
-    /* Update N(R) and P/F in frame */
-    IOHDLC_FRAME_SET_NR(s, fp, nr_value);
-    IOHDLC_FRAME_SET_PF(s, fp, set_pf);
-
 #if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
     /* Extract values for logging (before send, frame will be released) */
-    size_t info_len = fp->elen - (s->frame_offset + 1 + s->ctrl_size);
-    uint32_t log_ns = extractNS(s, fp);
-    uint32_t log_nr = extractNR(s, fp);
-    uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
+    size_t info_len = fp->elen - (s->framing.frame_offset + 1 + s->framing.ctrl_size);
+    uint32_t log_ns = tx_ns;
+    uint32_t log_nr = nr_value;
+    uint8_t log_addr = fp->tx_snapshot.addr;
     uint8_t fflags = 0;
 #endif
 

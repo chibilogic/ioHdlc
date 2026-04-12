@@ -16,10 +16,14 @@
 /**
  * @file    mock_stream_adapter.c
  * @brief   Mock stream adapter implementation (unified OSAL version).
- * @details Connects mock_stream to ioHdlcSwDriver via ioHdlcStreamPort.
+ * @details Binds @p mock_stream to @ref ioHdlcStreamPort for host-side tests.
+ *          The adapter consumes contiguous TX images prepared by the software
+ *          driver and reports completions synchronously to the registered
+ *          callbacks.
  */
 
 #include "mock_stream_adapter.h"
+#include "ioHdlcll.h"
 #include "ioHdlcstreamport.h"
 #include "ioHdlcosal.h"
 #include <string.h>
@@ -31,8 +35,12 @@
 static void* adapter_rx_thread(void *arg);
 
 /* Port operations */
-static void port_start(void *ctx, const ioHdlcStreamCallbacks *cbs);
+static const iohdlc_stream_caps_t *port_get_caps(void *ctx);
+static void port_start(void *ctx,
+                       const ioHdlcStreamCallbacks *cbs,
+                       const ioHdlcStreamDriverOps *drvops);
 static void port_stop(void *ctx);
+static int32_t port_tx_submit_frame(void *ctx, iohdlc_frame_t *fp);
 static bool port_tx_submit(void *ctx, const uint8_t *ptr, size_t len, void *framep);
 static bool port_tx_busy(void *ctx);
 static bool port_rx_submit(void *ctx, uint8_t *ptr, size_t len);
@@ -42,10 +50,17 @@ static void port_rx_cancel(void *ctx);
 /* Port operations table                                                     */
 /*===========================================================================*/
 
+static const iohdlc_stream_caps_t s_mock_caps = {
+  .constraints = 0,
+  .assists = IOHDLC_PORT_AST_TX_NEEDS_CONTIG,
+  .tx_fcs_offload_sizes = {0, 0, 0, 0},
+};
+
 static const ioHdlcStreamPortOps s_port_ops = {
+  .get_caps = port_get_caps,
   .start = port_start,
   .stop = port_stop,
-  .tx_submit = port_tx_submit,
+  .tx_submit_frame = port_tx_submit_frame,
   .tx_busy = port_tx_busy,
   .rx_submit = port_rx_submit,
   .rx_cancel = port_rx_cancel
@@ -60,7 +75,7 @@ mock_stream_adapter_t* mock_stream_adapter_create(mock_stream_t *stream) {
     return NULL;
   }
   
-  mock_stream_adapter_t *adapter = IOHDLC_MALLOC(sizeof(mock_stream_adapter_t));
+  mock_stream_adapter_t *adapter = IOHDLC_MALLOC(sizeof *adapter);
   if (!adapter) {
     return NULL;
   }
@@ -74,7 +89,7 @@ void mock_stream_adapter_init(mock_stream_adapter_t *adapter, mock_stream_t *str
     return;
   }
   
-  memset(adapter, 0, sizeof(*adapter));
+  memset(adapter, 0, sizeof *adapter);
   adapter->stream = stream;
   adapter->running = false;
   adapter->thread_started = false;
@@ -118,8 +133,16 @@ ioHdlcStreamPort mock_stream_adapter_get_port(mock_stream_adapter_t *adapter) {
 /* Port operations implementation                                            */
 /*===========================================================================*/
 
-static void port_start(void *ctx, const ioHdlcStreamCallbacks *cbs) {
+static const iohdlc_stream_caps_t *port_get_caps(void *ctx) {
+  (void)ctx;
+  return &s_mock_caps;
+}
+
+static void port_start(void *ctx,
+                       const ioHdlcStreamCallbacks *cbs,
+                       const ioHdlcStreamDriverOps *drvops) {
   mock_stream_adapter_t *adapter = (mock_stream_adapter_t *)ctx;
+  (void)drvops;
   
   if (!adapter) {
     return;
@@ -167,12 +190,28 @@ static void port_stop(void *ctx) {
   }
 }
 
+static int32_t port_tx_submit_frame(void *ctx, iohdlc_frame_t *fp) {
+  const uint8_t *ptr = fp->frame;
+  size_t len = (size_t)fp->elen + ioHdlc_txs_get_trailer_len(&fp->tx_snapshot);
+
+  IOHDLC_ASSERT(ctx != NULL, "mock tx_submit_frame: null adapter");
+  IOHDLC_ASSERT(fp != NULL, "mock tx_submit_frame: null frame");
+
+  if (fp->openingflag == IOHDLC_FLAG) {
+    ptr = &fp->openingflag;
+    len += 1U;
+  }
+
+  /* Mock backend consumes the contiguous wire image prepared by the swdriver. */
+  return port_tx_submit(ctx, ptr, len, fp) ? 0 : EIO;
+}
+
 static bool port_tx_submit(void *ctx, const uint8_t *ptr, size_t len, void *framep) {
   mock_stream_adapter_t *adapter = (mock_stream_adapter_t *)ctx;
-  
-  if (!adapter || !ptr || len == 0) {
-    return false;
-  }
+
+  IOHDLC_ASSERT(adapter != NULL, "mock tx_submit: null adapter");
+  IOHDLC_ASSERT(ptr != NULL, "mock tx_submit: null ptr");
+  IOHDLC_ASSERT(len > 0U, "mock tx_submit: zero length");
   
   /* Non-blocking write to mock stream */
   ssize_t written = mock_stream_write(adapter->stream, ptr, len, 0);
@@ -196,10 +235,10 @@ static bool port_tx_busy(void *ctx) {
 
 static bool port_rx_submit(void *ctx, uint8_t *ptr, size_t len) {
   mock_stream_adapter_t *adapter = (mock_stream_adapter_t *)ctx;
-  
-  if (!adapter || !ptr || len == 0) {
-    return false;
-  }
+
+  IOHDLC_ASSERT(adapter != NULL, "mock rx_submit: null adapter");
+  IOHDLC_ASSERT(ptr != NULL, "mock rx_submit: null ptr");
+  IOHDLC_ASSERT(len > 0U, "mock rx_submit: zero length");
   
   iohdlc_mutex_lock(&adapter->rx_lock);
   adapter->rx_buf = ptr;
@@ -212,10 +251,8 @@ static bool port_rx_submit(void *ctx, uint8_t *ptr, size_t len) {
 
 static void port_rx_cancel(void *ctx) {
   mock_stream_adapter_t *adapter = (mock_stream_adapter_t *)ctx;
-  
-  if (!adapter) {
-    return;
-  }
+
+  IOHDLC_ASSERT(adapter != NULL, "mock rx_cancel: null adapter");
   
   /* Clear RX buffer registration */
   iohdlc_mutex_lock(&adapter->rx_lock);

@@ -106,6 +106,8 @@ COMMON_DIR = $(TESTS_DIR)/common
 COMMON_SCENARIOS_DIR = $(COMMON_DIR)/scenarios
 CONFDIR = ./conf
 
+include $(ROOT_DIR)/mk/ioHdlc_version.mk
+
 # ChibiOS location
 CHIBIOS := ../../../ChibiOS
 
@@ -255,7 +257,7 @@ CPPWARN = -Wall -Wextra -Wundef
 ##############################################################################
 
 # User C defines
-UDEFS = -DCHPRINTF_USE_FLOAT=1 $(CFLAGS_EXTRA)
+UDEFS = -DCHPRINTF_USE_FLOAT=1 $(IOHDLC_VERSION_DEFS) $(CFLAGS_EXTRA)
 
 # Shell command configuration (when building shell target)
 ifeq ($(SHELL_TARGET),1)
@@ -389,4 +391,3 @@ shell-uart:
 shell-spi:
 	@echo "Building shell with SPI adapter (SPID1 master + SPID2 slave)..."
 	@$(MAKE) shell USE_SPI_ADAPTER=1
-

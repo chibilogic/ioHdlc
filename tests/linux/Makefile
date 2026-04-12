@@ -13,6 +13,8 @@ SCENARIOS_DIR = $(LINUX_DIR)/scenarios
 COMMON_DIR = $(TESTS_DIR)/common
 COMMON_SCENARIOS_DIR = $(COMMON_DIR)/scenarios
 
+include $(ROOT_DIR)/mk/ioHdlc_version.mk
+
 # Output
 BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
@@ -31,6 +33,7 @@ CFLAGS += -I$(COMMON_DIR)/adapters
 CFLAGS += -I$(LINUX_DIR)
 CFLAGS += -DIOHDLC_USE_POSIX
 CFLAGS += -DIOHDLC_ENABLE_STATISTICS
+CFLAGS += $(IOHDLC_VERSION_DEFS)
 CFLAGS += $(CFLAGS_EXTRA)
 
 # Linker flags

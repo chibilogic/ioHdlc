@@ -17,7 +17,8 @@
  * @file    ioHdlcstream_uart.h
  * @brief   ChibiOS UART adapter for HDLC stream port.
  *
- * @details Provides integration between ChibiOS UART driver and ioHdlc stream interface.
+ * @details Provides the UART-backed @ref ioHdlcStreamPort context used by
+ *          the software HDLC driver.
  */
 
 #ifndef IOHDLCSTREAM_UART_H
@@ -32,6 +33,7 @@ typedef struct ioHdlcStreamChibiosUart {
   UARTDriver  *uartp;
   UARTConfig  *cfgp;
   const ioHdlcStreamCallbacks *cbs;
+  const iohdlc_stream_caps_t *caps;
   void        * volatile tx_framep;        /* TX in-flight frame pointer */
 } ioHdlcStreamChibiosUart;
 

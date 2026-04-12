@@ -55,16 +55,87 @@
 extern "C" {
 #endif
 
+struct ioHdlcSwDriver;
+
+typedef bool (*iohdlc_swdriver_fcs_check_fn_t)(struct ioHdlcSwDriver *drv,
+                                               const uint8_t *buf,
+                                               size_t total_len);
+typedef void (*iohdlc_swdriver_fcs_compute_fn_t)(struct ioHdlcSwDriver *drv,
+                                                 const iohdlc_tx_seg_t *segv,
+                                                 uint8_t segc,
+                                                 uint8_t *fcs_out);
+
+typedef struct {
+  ioHdlcStreamPort handle;
+  ioHdlcStreamCallbacks callbacks;
+  iohdlc_stream_constraint_mask_t constraints;
+  iohdlc_stream_assist_mask_t assists;
+  uint8_t tx_fcs_offload_sizes[4];
+  bool tx_materialize_plan;
+} ioHdlcSwDriverPortState;
+
+typedef struct {
+  uint8_t supported_sizes[4]; /* FCS sizes handled by this backend. */
+  uint8_t default_size;       /* Preferred FCS size when also supported by the driver. */
+  bool (*check)(void *fcs_backend_ctx, uint8_t fcs_size,
+                const uint8_t *buf, size_t total_len);
+  void (*compute)(void *fcs_backend_ctx, uint8_t fcs_size,
+                  const iohdlc_tx_seg_t *segv, uint8_t segc, uint8_t *fcs);
+} ioHdlcSwDriverFcsBackend;
+
+typedef struct {
+  const ioHdlcSwDriverFcsBackend *fcs_backend;
+  void *fcs_backend_ctx;      /* Opaque context owned by the integration. */
+} ioHdlcSwDriverInitConfig;
+
+typedef struct {
+  uint8_t fcs_size;          /* Configured FCS size in bytes. */
+  bool apply_transparency;   /* Software transparency enabled. */
+  uint8_t frame_format_size; /* Frame Format Field size in bytes. */
+} ioHdlcSwDriverConfig;
+
+typedef struct {
+  uint8_t *stagep;          /* DMA-safe staging byte. */
+  iohdlc_frame_t *in_frame; /* Frame currently assembled, NULL if idle. */
+  iohdlc_sem_t recept_sem;
+  iohdlc_frame_q_t recept_q;
+  IOHDLC_RAWQ_MUTEX_DECLARE(recept_mtx);
+} ioHdlcSwDriverRxState;
+
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+typedef struct {
+  iohdlc_frame_q_t raw_q;    /* Driver-owned logical TX queue. */
+  iohdlc_frame_t *inflight_fp;
+  iohdlc_frame_t *shadow_fp; /* Staged resend image for the inflight frame. */
+  uint8_t shadow_prefix[IOHDLC_TXPLAN_PREFIX_MAX];
+  uint8_t shadow_suffix[IOHDLC_TXPLAN_SUFFIX_MAX];
+  uint8_t shadow_prefix_len;
+  uint8_t shadow_suffix_len;
+} ioHdlcSwDriverTxState;
+#endif
+
+typedef struct {
+  bool started;
+} ioHdlcSwDriverRuntimeState;
+
+typedef struct {
+  const ioHdlcSwDriverFcsBackend *backend;
+  void *backend_ctx;
+  iohdlc_swdriver_fcs_check_fn_t rx_check_fn;
+  iohdlc_swdriver_fcs_compute_fn_t tx_compute_fn;
+  bool tx_defer_to_port;
+} ioHdlcSwDriverFcsState;
+
 /**
- * @brief   HDLC software driver structure.
- * @details Implements complete HDLC protocol with software transparency and FCS.
- *          Integrates RX multi-chunk state machine, protocol logic, and blocking API.
- *          The structure stores both persistent configuration and runtime state.
+ * @brief   HDLC software driver instance.
+ * @details Stores the stream-port binding, framing configuration, RX assembly
+ *          state, TX execution state, and lifecycle flags used by the software
+ *          framer/deframer implementation.
  *
  *          Ownership notes:
- *          - @p port is copied into the driver at start time;
- *          - @p rx_stagep is allocated and freed by the driver;
- *          - frames queued in RX/TX paths remain subject to frame-pool
+ *          - the stream-port handle is copied into @p port at start time;
+ *          - @p rx.stagep is allocated and freed by the driver;
+ *          - frames held by RX/TX queues remain subject to frame-pool
  *            reference management.
  *
  *          Callers should treat the runtime fields as internal implementation
@@ -75,40 +146,21 @@ typedef struct ioHdlcSwDriver {
   const struct _iohdlc_driver_vmt *vmt;
   _iohdlc_driver_data
 
-  /* Port abstraction */
-  ioHdlcStreamPort    port;
-  ioHdlcStreamCallbacks hal_cbs;
-
-  /* Configuration (set by configure()) */
-  uint8_t fcs_size;         /* FCS size in bytes (0, 2, 4) */
-  bool apply_transparency;  /* Software transparency enabled */
-  uint8_t frame_format_size;/* Frame Format Field (0, 1, 2) */
-
-  /* RX state (multi-chunk assembly) */
-  uint8_t          *rx_stagep;    /* Staging octet buffer (DMA-safe) */
-  iohdlc_frame_t   *rx_in_frame;  /* Current frame being filled, NULL if idle */
-
-  /* RX queue for blocking API */
-  iohdlc_sem_t         raw_recept_sem;
-  iohdlc_frame_q_t     raw_recept_q;
-  IOHDLC_RAWQ_MUTEX_DECLARE(raw_recept_mtx);  /* Mutex protection (Linux only) */
+  ioHdlcDriverCapabilities caps;   /* Effective capabilities for this instance. */
+  ioHdlcSwDriverPortState port;  /* Transport binding and declared assists. */
+  ioHdlcSwDriverFcsState fcs;    /* Optional FCS backend binding. */
+  ioHdlcSwDriverConfig config;   /* Framing configuration selected at configure(). */
+  ioHdlcSwDriverRxState rx;      /* RX assembly state and blocking receive queue. */
 
 #ifndef IOHDLC_USE_MOCK_ADAPTER
-  /* TX queue for ISR processing (real HW only) */
-  iohdlc_frame_q_t     raw_tx_q;              /* Unbounded queue (limited by ks) */
-  iohdlc_sem_t         tx_progress_sem;       /* Signaled on each TX completion */
-  iohdlc_frame_t      *tx_inflight_fp;        /* Frame currently owned by HW */
+  ioHdlcSwDriverTxState tx;      /* TX execution state for the swdriver-owned queue. */
 #endif
 
-  bool     started;
+  ioHdlcSwDriverRuntimeState runtime;
 } ioHdlcSwDriver;
 
 /** @ingroup ioHdlc_drivers */
-void ioHdlcSwDriverInit(ioHdlcSwDriver *drv);
-
-bool ioHdlcSwDriverIsFrameTxOwned(ioHdlcSwDriver *drv,
-                                  const iohdlc_frame_t *fp);
-void ioHdlcSwDriverWaitTxProgress(ioHdlcSwDriver *drv, uint32_t timeout_ms);
+void ioHdlcSwDriverInit(ioHdlcSwDriver *drv, const ioHdlcSwDriverInitConfig *config);
 
 /**
  * @brief   Stop software HDLC driver.

@@ -53,6 +53,12 @@ static iohdlc_frame_t * take(void *ip) {
     fp = (iohdlc_frame_t *)fmpp->mp.free_list;
     fmpp->mp.free_list = *(void **)fmpp->mp.free_list;  /* Next in list */
     fp->refs = 1;
+    fp->q_aux.next = NULL;
+    fp->q_aux.prev = NULL;
+    fp->tx_snapshot.addr = 0;
+    memset(fp->tx_snapshot.ctrl, 0, sizeof fp->tx_snapshot.ctrl);
+    fp->tx_snapshot.lens = 0;
+    fp->openingflag = 0;
     fmpp->allocated++;
     
     /* Check low watermark with hysteresis (common logic) */
@@ -142,11 +148,12 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
               size_t framesize, uint32_t framealign) {
   uint32_t n, es;
   uint8_t *p;
+  iohdlc_frame_t *framep = NULL;
 
   assert((framealign & (framealign-1)) == 0 && "framealign must be a power of 2");
 
   fmpp->framesize = framesize;
-  framesize = framesize + sizeof(iohdlc_frame_t);
+  framesize = framesize + sizeof *framep;
   
   /* Align the arena and adjust its size */
   p = (uint8_t *)(((uintptr_t)arena + framealign - 1) & ~(uintptr_t)(framealign - 1));

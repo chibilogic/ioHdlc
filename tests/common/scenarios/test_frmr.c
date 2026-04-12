@@ -152,8 +152,8 @@ bool test_frmr_invalid_nr(const test_adapter_t *adapter) {
   ioHdlcStreamPort port_primary = mock_stream_adapter_get_port(adapter_primary);
   ioHdlcStreamPort port_secondary = mock_stream_adapter_get_port(adapter_secondary);
 
-  ioHdlcSwDriverInit(&driver_primary);
-  ioHdlcSwDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
 
   /* Configure primary station. */
   memset(&config, 0, sizeof config);

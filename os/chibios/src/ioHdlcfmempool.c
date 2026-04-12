@@ -21,6 +21,7 @@
 #include "ioHdlcframepool.h"
 #include "ioHdlcfmempool.h"
 #include "ioHdlcpool_common.h"
+#include <string.h>
 /**
  * HDLC frame pool implementation using ChibiOS mempools.
  */
@@ -52,6 +53,11 @@ static iohdlc_frame_t * take(void *ip) {
   if (fp != NULL) {
     fp->refs = 1;
     fp->q_aux.next = NULL;
+    fp->q_aux.prev = NULL;
+    fp->tx_snapshot.addr = 0;
+    memset(fp->tx_snapshot.ctrl, 0, sizeof fp->tx_snapshot.ctrl);
+    fp->tx_snapshot.lens = 0;
+    fp->openingflag = 0;
     fmpp->allocated++;
     
     /* Check low watermark with hysteresis (common logic) */

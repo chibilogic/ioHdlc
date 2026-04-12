@@ -123,6 +123,7 @@ void test_print_config(const test_config_t *cfg) {
   test_printf("Test Configuration:\n");
   test_printf("===================\n");
   test_printf("Test name:    %s\n", cfg->test_name ? cfg->test_name : "unnamed");
+  test_printf("ioHdlc:       %s\n", IOHDLC_VERSION_STRING);
   
   /* Mode */
   const char *mode_str;
@@ -168,8 +169,11 @@ void test_print_config(const test_config_t *cfg) {
   
   /* Protocol parameters */
   test_printf("Reply timeout: %u ms %s\n", 
-              cfg->reply_timeout_ms == 0 ? 100 : cfg->reply_timeout_ms,
+              cfg->reply_timeout_ms == 0 ? IOHDLC_REPLY_TIMEOUT_MS_DEFAULT : cfg->reply_timeout_ms,
               cfg->reply_timeout_ms == 0 ? "(default)" : "");
+  test_printf("Poll retry max: %u %s\n",
+              cfg->poll_retry_max == 0 ? IOHDLC_POLL_RETRY_MAX_DEFAULT : cfg->poll_retry_max,
+              cfg->poll_retry_max == 0 ? "(default)" : "");
   
   /* Watermark testing */
   if (cfg->watermark_delay_ms > 0) {
@@ -252,13 +256,14 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
   if (station->flags & IOHDLC_FLG_TWA) test_printf(" TWA");
   if (station->flags & IOHDLC_FLG_BUSY) test_printf(" BUSY");
   test_printf("\n");  
-  test_printf("  Modmask:        0x%08X (mod %u)\n", station->modmask, station->modmask + 1);
-  test_printf("  Frame offset:   %u byte%s", station->frame_offset,
-         station->frame_offset == 1 ? " (FFF TYPE0)" :
-         station->frame_offset == 2 ? "s (FFF TYPE1)" : " (No FFF)");
+  test_printf("  Modmask:        0x%08X (mod %u)\n", station->framing.modmask,
+              station->framing.modmask + 1);
+  test_printf("  Frame offset:   %u byte%s", station->framing.frame_offset,
+         station->framing.frame_offset == 1 ? " (FFF TYPE0)" :
+         station->framing.frame_offset == 2 ? "s (FFF TYPE1)" : " (No FFF)");
   test_printf("\n");
-  test_printf("  Control size:   %u byte%s\n", station->ctrl_size, 
-         station->ctrl_size > 1 ? "s" : "");
+  test_printf("  Control size:   %u byte%s\n", station->framing.ctrl_size,
+         station->framing.ctrl_size > 1 ? "s" : "");
   test_printf("  FCS size:       %u byte%s\n", station->fcs_size,
          station->fcs_size > 1 ? "s" : "");
   test_printf("  Reply timeout:  %u ms\n", station->reply_timeout_ms);
@@ -349,4 +354,3 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
   
   test_printf("\n========================================\n\n");
 }
-

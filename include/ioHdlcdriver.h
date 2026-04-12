@@ -55,7 +55,6 @@
 typedef struct {
   uint8_t  supported_sizes[4];  /**< Array of supported FCS sizes (e.g., [0,2,4,0]) */
   uint8_t  default_size;        /**< Default FCS size (e.g., 2 for 16-bit CRC) */
-  bool     hw_support;          /**< true if FCS computed/verified in hardware */
 } ioHdlcDriverFcsCapabilities;
 
 /**
@@ -93,7 +92,7 @@ typedef struct {
   void (*start)(void *ip, void *phydrvp, void *phyconfigp,          \
       ioHdlcFramePool *fpp);                                        \
   void (*stop)(void *ip);                                            \
-  size_t (*send_frame)(void *ip, iohdlc_frame_t *fp);               \
+  int32_t (*send_frame)(void *ip, iohdlc_frame_t *fp);              \
   iohdlc_frame_t * (*recv_frame)(void *ip, iohdlc_timeout_t tmo);   \
   const ioHdlcDriverCapabilities* (*get_capabilities)(void *ip);     \
   int32_t (*configure)(void *ip, uint8_t fcs_size, bool transparency, uint8_t fff_type);
@@ -149,17 +148,16 @@ typedef struct {
 
 /**
  * @brief   Hdlc send frame method.
- * @details The station uses this method to send the frame @p fp over the link
- *          managed by the @p ip driver instance. It blocks if the driver is
- *          busy.
- * @note    The implementation shall not use queuing mechanism. The station
- *          expects that the transmission of the frame to be in progress when
- *          returning from the call.
+ * @details The station uses this method to submit the frame @p fp to the link
+ *          managed by the @p ip driver instance.
+ * @note    Success means that the driver accepted the frame for transmission;
+ *          it does not guarantee that the frame has already reached the wire.
  * @note    The concrete driver defines whether it consumes, retains, or merely
  *          borrows the frame reference while transmission is pending.
  *
  * @param[in]   ip    ioHdlcDriver instance pointer
  * @param[in]   fp    pointer to the frame to send.
+ * @return            0 on success, errno-compatible error code otherwise.
  */
 #define hdlcSendFrame(ip, fp)         ((ip)->vmt->send_frame(ip, fp))
 

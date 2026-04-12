@@ -2,7 +2,9 @@ DOXYGEN ?= doxygen
 DOXYFILE ?= Doxyfile
 DOXYFILE_FULL ?= doc/build/Doxyfile_full
 DOXYGEN_OUT ?= build/doxygen
-VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo "dev")
+ROOT_DIR := .
+include $(ROOT_DIR)/mk/ioHdlc_version.mk
+VERSION ?= $(IOHDLC_VERSION_TAG_RAW)
 DOT ?= dot
 PLANTUML ?= plantuml
 DIAGRAM_SRC_DIR ?= doc/diagrams/src

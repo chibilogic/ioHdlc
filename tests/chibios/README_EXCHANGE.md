@@ -41,8 +41,8 @@ make exchange \
 | `TEST_PACKET_SIZE` | 120 | Packet size in bytes, header included (range: 10-1024) |
 | `TEST_DIRECTION` | `TRAFFIC_BIDIRECTIONAL` | `TRAFFIC_PRI_TO_SEC`, `TRAFFIC_SEC_TO_PRI`, `TRAFFIC_BIDIRECTIONAL` |
 | `TEST_ERROR_RATE` | 1 | Error injection 0-100% (mock adapter only) |
-| `TEST_REPLY_TIMEOUT` | 0 | Reply timeout in ms (0=100ms default) |
-| `TEST_POLL_RETRY_MAX` | 0 | Max retries (0=5 default) |
+| `TEST_REPLY_TIMEOUT` | 0 | Reply timeout in ms (`0` = `IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`) |
+| `TEST_POLL_RETRY_MAX` | 0 | Max retries (`0` = `IOHDLC_POLL_RETRY_MAX_DEFAULT`) |
 | `TEST_PROGRESS_INTERVAL` | 1000 | Progress update interval in ms |
 
 ## Flashing and Running

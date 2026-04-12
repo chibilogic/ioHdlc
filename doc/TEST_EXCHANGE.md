@@ -45,8 +45,8 @@ Unless noted otherwise, the semantics are identical on Linux and in the shell. T
 | `--size=N` | 64 | Packet size in bytes, including the 10-byte test header (range: 10-1024) |
 | `--direction=DIR` | both | Traffic direction: `pri2sec`, `sec2pri`, `both` |
 | `--error-rate=N` | 0 | Error injection rate 0-100% (mock adapter only) |
-| `--reply-timeout=N` | 0 (100ms) | HDLC reply timeout in ms |
-| `--poll-retry-max=N` | 0 (5) | Max poll retries before link failure |
+| `--reply-timeout=N` | `0` (`IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`) | HDLC reply timeout in ms |
+| `--poll-retry-max=N` | `0` (`IOHDLC_POLL_RETRY_MAX_DEFAULT`) | Max poll retries before link failure |
 | `--krs=N` | modmask | Window size (`ks = kr = N`) |
 | `--progress-interval=N` | 1000 | Progress report interval in ms |
 | `--watermark-delay=N` | 0 | Reader delay every 256 packets in ms (0=disabled) |
@@ -97,14 +97,15 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 
 ### Protocol Tuning
 
-- `--reply-timeout`: time the protocol waits for a response before retransmitting. Lower values increase retransmission aggressiveness. 0 uses the library default (100ms).
-- `--poll-retry-max`: maximum retransmission attempts before declaring link failure. 0 uses the library default (5).
+- `--reply-timeout`: time the protocol waits for a response before retransmitting. Lower values increase retransmission aggressiveness. `0` uses `IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`.
+- `--poll-retry-max`: maximum retransmission attempts before declaring link failure. `0` uses `IOHDLC_POLL_RETRY_MAX_DEFAULT`.
+- `--reply-timeout` and `--poll-retry-max` interact geometrically, not linearly: reply-timeout recovery doubles T1 at each expiry, so large values can push total detection time into the tens of seconds.
 - `--krs`: sets both `ks` and `kr`. The value must be at least 1 and no larger than the modmask of the selected modulo (`7` for modulo 8, `127` for modulo 128).
 
 ## Platform-Specific Defaults
 
 - Linux runtime defaults: `--count=10`, `--mode=nrm`, `--modulo=8`, `--tws`, `--reply-timeout=0`, `--poll-retry-max=0`
-- ChibiOS shell defaults: `--count=100`, `--mode=nrm`, `--modulo=8`, `--tws`, `--reply-timeout=100`, `--poll-retry-max=5`
+- ChibiOS shell defaults: `--count=100`, `--mode=nrm`, `--modulo=8`, `--tws`, `--reply-timeout=0`, `--poll-retry-max=0`
 - ChibiOS standalone defaults are compile-time:
   `TEST_MODE=IOHDLC_OM_NRM`, `TEST_MODULO=8`, `TEST_USE_TWA=0`, `TEST_DURATION_TYPE=TEST_BY_COUNT`, `TEST_DURATION_VALUE=1000`
 

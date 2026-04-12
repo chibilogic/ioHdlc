@@ -17,9 +17,9 @@
  * @file    ioHdlcstream_spi.h
  * @brief   ChibiOS SPI adapter for HDLC stream port.
  *
- * @details Provides integration between ChibiOS SPI driver and ioHdlc stream
- *          interface.  TX and RX DMA operations are mutually exclusive (the
- *          swdriver guarantees TWA half-duplex ordering).
+ * @details Provides the SPI-backed @ref ioHdlcStreamPort context used by the
+ *          software HDLC driver.  TX and RX DMA operations are mutually
+ *          exclusive.
  *
  * @note    The caller must configure @p SPIConfig with a @p NULL end_cb; the
  *          adapter installs its own @p end_cb at start time.
@@ -48,6 +48,7 @@ typedef struct ioHdlcStreamChibiosSpi {
   SPIConfig                    *cfgp;       /**< SPI configuration             */
   bool                          is_master;  /**< true = master, false = slave  */
   const ioHdlcStreamCallbacks  *cbs;        /**< Callbacks registered at start */
+  const iohdlc_stream_caps_t   *caps;       /**< Capability descriptor         */
 
   /* TX state */
   void                         *tx_framep;  /**< Cookie forwarded to on_tx_done */

@@ -49,12 +49,71 @@
 /* Test Helpers                                                              */
 /*===========================================================================*/
 
+typedef struct {
+  uint32_t check_calls;
+  uint32_t compute_calls;
+  uint8_t last_fcs_size;
+  size_t last_total_len;
+} test_fcs_backend_probe_t;
+
+static bool test_fcs_backend_check(void *fcs_backend_ctx, uint8_t fcs_size,
+                                   const uint8_t *buf, size_t total_len) {
+  test_fcs_backend_probe_t *probe = (test_fcs_backend_probe_t *)fcs_backend_ctx;
+  uint16_t fcs = 0;
+
+  if (probe != NULL) {
+    probe->check_calls++;
+    probe->last_fcs_size = fcs_size;
+    probe->last_total_len = total_len;
+  }
+
+  if (fcs_size == 0U)
+    return true;
+  if (fcs_size != 2U || total_len < 2U)
+    return false;
+
+  ioHdlcComputeFCS(buf, total_len - 2U, &fcs);
+  return buf[total_len - 2U] == (uint8_t)(fcs & 0xFFU) &&
+         buf[total_len - 1U] == (uint8_t)(fcs >> 8);
+}
+
+static void test_fcs_backend_compute(void *fcs_backend_ctx, uint8_t fcs_size,
+                                     const iohdlc_tx_seg_t *segv, uint8_t segc,
+                                     uint8_t *fcs_out) {
+  test_fcs_backend_probe_t *probe = (test_fcs_backend_probe_t *)fcs_backend_ctx;
+  uint16_t crc;
+  uint8_t i;
+
+  if (probe != NULL) {
+    probe->compute_calls++;
+    probe->last_fcs_size = fcs_size;
+  }
+
+  if (fcs_size != 2U)
+    return;
+
+  ioHdlcFcsInit(&crc);
+  for (i = 0U; i < segc; ++i) {
+    if (segv[i].len > 0U)
+      ioHdlcFcsUpdate(&crc, segv[i].ptr, segv[i].len);
+  }
+  crc = ioHdlcFcsFinalize(crc);
+  fcs_out[0] = (uint8_t)(crc & 0xFFU);
+  fcs_out[1] = (uint8_t)(crc >> 8);
+}
+
+static const ioHdlcSwDriverFcsBackend test_fcs_backend = {
+  .supported_sizes = {2, 0, 0, 0},
+  .default_size = 2,
+  .check = test_fcs_backend_check,
+  .compute = test_fcs_backend_compute,
+};
+
 /* Mock driver VMT with minimal capabilities */
 static const ioHdlcDriverCapabilities mock_caps = {
   .fcs = {
     .supported_sizes = {0, 2, 0, 0},
     .default_size = 2,
-    .hw_support = false
   },
   .transparency = {
     .hw_support = false,
@@ -81,7 +140,7 @@ static void mock_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrame
   (void)instance; (void)phyp; (void)phyconfigp; (void)fpp;
 }
 
-static size_t mock_send_frame(void *instance, iohdlc_frame_t *fp) {
+static int32_t mock_send_frame(void *instance, iohdlc_frame_t *fp) {
   (void)instance; (void)fp;
   return 0;
 }
@@ -154,8 +213,8 @@ bool test_station_creation(void) {
   TEST_ASSERT(station.addr == PRIMARY_ADDR, "Station address should match");
   TEST_ASSERT(station.mode == IOHDLC_OM_NDM, "Station mode should be NDM");
   TEST_ASSERT(station.flags == IOHDLC_FLG_PRI, "Station should be primary");
-  TEST_ASSERT(station.modmask == 7, "Modulo 8 should have modmask 7");
-  TEST_ASSERT(station.ctrl_size == 1, "Modulo 8 should have ctrl_size 1");
+  TEST_ASSERT(station.framing.modmask == 7, "Modulo 8 should have modmask 7");
+  TEST_ASSERT(station.framing.ctrl_size == 1, "Modulo 8 should have ctrl_size 1");
   TEST_ASSERT(station.frame_pool.framesize > 0, "Frame pool should be initialized");
   TEST_ASSERT(station.driver == &mock_driver, "Driver should be set");
 
@@ -191,7 +250,9 @@ bool test_peer_creation(void) {
   /* Validate mifl calculation: framesize - (FFF + ADDR + CTRL + FCS + 1)
      Should use actual frame_pool.framesize, not the constant FRAME_SIZE */
 
-  uint32_t expected_mifl = station.frame_pool.framesize - (station.frame_offset + 1 + station.ctrl_size + station.fcs_size +1);
+  uint32_t expected_mifl = station.frame_pool.framesize -
+                           (station.framing.frame_offset + 1 +
+                            station.framing.ctrl_size + station.fcs_size + 1);
   TEST_ASSERT(peer.mifls == expected_mifl, "Peer mifls should be calculated correctly");
   TEST_ASSERT(peer.miflr == expected_mifl, "Peer miflr should be calculated correctly");
   
@@ -215,6 +276,40 @@ bool test_peer_creation(void) {
 }
 
 /*===========================================================================*/
+/* Test: Software Driver FCS Backend Capabilities                            */
+/*===========================================================================*/
+
+bool test_swdriver_fcs_backend_capabilities(void) {
+  ioHdlcSwDriver sw_driver;
+  ioHdlcSwDriver hw_driver;
+  ioHdlcSwDriverInitConfig init_config;
+  test_fcs_backend_probe_t probe;
+  const ioHdlcDriverCapabilities *caps;
+
+  memset(&probe, 0, sizeof probe);
+  memset(&init_config, 0, sizeof init_config);
+  init_config.fcs_backend = &test_fcs_backend;
+  init_config.fcs_backend_ctx = &probe;
+
+  ioHdlcSwDriverInit(&sw_driver, NULL);
+  caps = hdlcGetCapabilities((ioHdlcDriver *)&sw_driver);
+  TEST_ASSERT(caps != NULL, "Software driver capabilities should be available");
+  TEST_ASSERT(caps->fcs.default_size == 2U, "Software driver default FCS should be 2");
+  TEST_ASSERT(caps->fcs.supported_sizes[0] == 0U, "Software driver should keep the no-FCS slot");
+  TEST_ASSERT(caps->fcs.supported_sizes[1] == 2U, "Software driver should expose FCS-16 support");
+
+  ioHdlcSwDriverInit(&hw_driver, &init_config);
+  caps = hdlcGetCapabilities((ioHdlcDriver *)&hw_driver);
+  TEST_ASSERT(caps != NULL, "Backend driver capabilities should be available");
+  TEST_ASSERT(caps->fcs.default_size == 2U, "Backend should preserve default FCS size");
+  TEST_ASSERT(caps->fcs.supported_sizes[0] == 0U, "Supported FCS size list should keep software fallback");
+  TEST_ASSERT(caps->fcs.supported_sizes[1] == 2U, "Supported FCS size list should retain FCS-16");
+
+  test_printf("✅ Software-driver FCS backend capabilities successful\n");
+  return 0;
+}
+
+/*===========================================================================*/
 /* Test: SNRM Handshake - Two Connected Stations                            */
 /*===========================================================================*/
 
@@ -231,8 +326,8 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   ioHdlcStreamPort port_secondary = adapter->get_port_b();
   
   /* Initialize stream drivers */
-  ioHdlcSwDriverInit(&driver_primary);
-  ioHdlcSwDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
@@ -359,8 +454,8 @@ bool test_data_exchange(const test_adapter_t *adapter) {
   ioHdlcStreamPort port_secondary = adapter->get_port_b();
   
   /* Initialize stream drivers */
-  ioHdlcSwDriverInit(&driver_primary);
-  ioHdlcSwDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
@@ -500,5 +595,121 @@ test_cleanup:
   ioHdlcStationDeinit(&station_primary);
   ioHdlcStationDeinit(&station_secondary);
   
+  return test_result;
+}
+
+/*===========================================================================*/
+/* Test: Data Exchange with FCS Backend                                     */
+/*===========================================================================*/
+
+bool test_data_exchange_with_fcs_backend(const test_adapter_t *adapter) {
+  int test_result = 0;
+  const char *test_msg = "FCS backend path";
+  size_t msg_len = strlen(test_msg);
+  ioHdlcSwDriver driver_primary, driver_secondary;
+  test_fcs_backend_probe_t probe_primary, probe_secondary;
+  ioHdlcSwDriverInitConfig init_primary, init_secondary;
+  iohdlc_station_t station_primary, station_secondary;
+  iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
+  iohdlc_station_config_t config;
+  ioHdlcStreamPort port_primary = adapter->get_port_a();
+  ioHdlcStreamPort port_secondary = adapter->get_port_b();
+  const ioHdlcDriverCapabilities *caps;
+  char recv_buf[64];
+  ssize_t sent;
+  ssize_t received;
+  int32_t result;
+  int ret;
+
+  memset(&station_primary, 0, sizeof station_primary);
+  memset(&station_secondary, 0, sizeof station_secondary);
+  memset(&probe_primary, 0, sizeof probe_primary);
+  memset(&probe_secondary, 0, sizeof probe_secondary);
+  memset(&init_primary, 0, sizeof init_primary);
+  memset(&init_secondary, 0, sizeof init_secondary);
+  init_primary.fcs_backend = &test_fcs_backend;
+  init_primary.fcs_backend_ctx = &probe_primary;
+  init_secondary.fcs_backend = &test_fcs_backend;
+  init_secondary.fcs_backend_ctx = &probe_secondary;
+
+  ioHdlcSwDriverInit(&driver_primary, &init_primary);
+  ioHdlcSwDriverInit(&driver_secondary, &init_secondary);
+
+  caps = hdlcGetCapabilities((ioHdlcDriver *)&driver_primary);
+  TEST_ASSERT_GOTO(caps != NULL, "Primary driver capabilities should be available");
+  TEST_ASSERT_GOTO(caps->fcs.supported_sizes[1] == 2U,
+                   "Primary driver should expose FCS-16 support");
+
+  caps = hdlcGetCapabilities((ioHdlcDriver *)&driver_secondary);
+  TEST_ASSERT_GOTO(caps != NULL, "Secondary driver capabilities should be available");
+  TEST_ASSERT_GOTO(caps->fcs.supported_sizes[1] == 2U,
+                   "Secondary driver should expose FCS-16 support");
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_NDM;
+  config.flags = IOHDLC_FLG_PRI;
+  config.log2mod = 3;
+  config.addr = PRIMARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.fff_type = 1;
+  config.phydriver = &port_primary;
+
+  memset(&station_primary, 0, sizeof station_primary);
+  result = ioHdlcStationInit(&station_primary, &config);
+  TEST_ASSERT_GOTO(result == 0, "Primary station init failed");
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_NDM;
+  config.flags = 0;
+  config.log2mod = 3;
+  config.addr = SECONDARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.fff_type = 1;
+  config.phydriver = &port_secondary;
+
+  memset(&station_secondary, 0, sizeof station_secondary);
+  result = ioHdlcStationInit(&station_secondary, &config);
+  TEST_ASSERT_GOTO(result == 0, "Secondary station init failed");
+
+  result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
+  TEST_ASSERT_GOTO(result == 0, "Add peer to primary failed");
+  result = ioHdlcAddPeer(&station_secondary, &peer_at_secondary, PRIMARY_ADDR);
+  TEST_ASSERT_GOTO(result == 0, "Add peer to secondary failed");
+
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
+
+  ioHdlc_sleep_ms(50);
+
+  ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
+  TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
+
+  ioHdlc_sleep_ms(100);
+
+  sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 500);
+  TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
+
+  memset(recv_buf, 0, sizeof recv_buf);
+  received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, sizeof recv_buf, 500);
+  TEST_ASSERT_GOTO(received == (ssize_t)msg_len, "Secondary read failed");
+  TEST_ASSERT_GOTO(memcmp(recv_buf, test_msg, msg_len) == 0, "Received data mismatch");
+
+  TEST_ASSERT_GOTO(probe_primary.check_calls > 0U, "Primary FCS backend check should be used");
+  TEST_ASSERT_GOTO(probe_secondary.check_calls > 0U, "Secondary FCS backend check should be used");
+  TEST_ASSERT_GOTO(probe_primary.compute_calls > 0U, "Primary FCS backend compute should be used");
+  TEST_ASSERT_GOTO(probe_secondary.compute_calls > 0U, "Secondary FCS backend compute should be used");
+  TEST_ASSERT_GOTO(probe_secondary.last_fcs_size == 2U, "Backend should validate FCS-16 frames");
+
+test_cleanup:
+  ioHdlc_sleep_ms(100);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
+
   return test_result;
 }

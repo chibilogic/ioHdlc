@@ -103,8 +103,8 @@ bool test_abm_mod128_wraparound(const test_adapter_t *adapter) {
   ioHdlcStreamPort port_b = adapter->get_port_b();
   uint32_t seq;
 
-  ioHdlcSwDriverInit(&driver_a);
-  ioHdlcSwDriverInit(&driver_b);
+  ioHdlcSwDriverInit(&driver_a, NULL);
+  ioHdlcSwDriverInit(&driver_b, NULL);
 
   memset(&config, 0, sizeof config);
   config.mode = IOHDLC_OM_ADM;
@@ -160,10 +160,10 @@ bool test_abm_mod128_wraparound(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_b), "Station B peer should be connected");
   TEST_ASSERT_GOTO(IOHDLC_IS_ABM(&station_a), "Station A should be in ABM mode");
   TEST_ASSERT_GOTO(IOHDLC_IS_ABM(&station_b), "Station B should be in ABM mode");
-  TEST_ASSERT_GOTO(station_a.modmask == 127, "Station A should use modulo 128");
-  TEST_ASSERT_GOTO(station_b.modmask == 127, "Station B should use modulo 128");
-  TEST_ASSERT_GOTO(station_a.ctrl_size == 2, "Station A should use 2-byte control field");
-  TEST_ASSERT_GOTO(station_b.ctrl_size == 2, "Station B should use 2-byte control field");
+  TEST_ASSERT_GOTO(station_a.framing.modmask == 127, "Station A should use modulo 128");
+  TEST_ASSERT_GOTO(station_b.framing.modmask == 127, "Station B should use modulo 128");
+  TEST_ASSERT_GOTO(station_a.framing.ctrl_size == 2, "Station A should use 2-byte control field");
+  TEST_ASSERT_GOTO(station_b.framing.ctrl_size == 2, "Station B should use 2-byte control field");
 
   test_printf("Sending %u packets A -> B...\r\n", MOD128_TOTAL_COUNT);
   for (seq = 0; seq < MOD128_WRAP_COUNT; ++seq) {

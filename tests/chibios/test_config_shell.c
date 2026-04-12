@@ -61,7 +61,10 @@ static void print_usage(void) {
   test_printf("  -w N                Watermark delay every 256 packets in ms (default: 0)\r\n");
   test_printf("  --error-rate=N      Error rate 0-100%% (default: 0)\r\n");
   test_printf("  --direction=DIR     Direction: both|pri2sec|sec2pri (aliases: a2b|b2a)\r\n");
-  test_printf("  --reply-timeout=N   Reply timeout in ms (default: 100)\r\n");
+  test_printf("  --reply-timeout=N   Reply timeout in ms (default: 0=library default %u)\r\n",
+              (unsigned)IOHDLC_REPLY_TIMEOUT_MS_DEFAULT);
+  test_printf("  --poll-retry-max=N  Max poll retries (default: 0=library default %u)\r\n",
+              (unsigned)IOHDLC_POLL_RETRY_MAX_DEFAULT);
   test_printf("  --mode=MODE         Mode: nrm|abm (default: nrm)\r\n");
   test_printf("  --twa               Use Two-Way Alternate\r\n");
   test_printf("  --tws               Use Two-Way Simultaneous (default)\r\n");
@@ -101,8 +104,8 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->bytes_per_exchange = 64;
   cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
   cfg->error_rate = 0;
-  cfg->reply_timeout_ms = 100;      /* Reply timeout default: 100ms */
-  cfg->poll_retry_max = 5;
+  cfg->reply_timeout_ms = 0;        /* Use library default (100ms) */
+  cfg->poll_retry_max = 0;          /* Use library default (8) */
   cfg->progress_interval_ms = 1000; /* Progress update default: 1000ms */
   cfg->watermark_delay_ms = 0;      /* Watermark delay disabled by default */
   cfg->krs = 0;                     /* Use modmask default */

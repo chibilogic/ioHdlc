@@ -77,8 +77,8 @@ bool test_data_exchange_twa(const test_adapter_t *adapter) {
   ioHdlcStreamPort port_secondary = adapter->get_port_b();
   
   /* Initialize stream drivers */
-  ioHdlcSwDriverInit(&driver_primary);
-  ioHdlcSwDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);

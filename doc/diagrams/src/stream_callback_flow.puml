@@ -15,20 +15,25 @@ skinparam NoteBackgroundColor #fffdf3
 participant "App thread" as App
 participant "Station/Core" as Core
 participant "TX runner" as Tx
-participant "Driver/Stream" as Drv
+participant "Sw driver" as Drv
+participant "Stream adapter" as Port
 participant Hardware as Hw
 
 App -> Core: ioHdlcWrite(peer, data, len)
 Core -> Tx: signal TX work
 Tx -> Core: take frame from pool
-Tx -> Core: encode HDLC fields
-Tx -> Drv: tx_submit(frame)
-Drv -> Hw: start TX
-Hw --> Drv: TX complete interrupt/event
-Drv --> Core: tx_callback(frame, status)
-Drv -> Hw: receive bytes / DMA buffer
-Hw --> Drv: RX ready interrupt/event
-Drv --> Core: rx_callback(buf, len, status)
+Tx -> Core: encode HDLC fields and tx_snapshot
+Tx -> Drv: hdlcSendFrame(fp)
+Drv -> Port: tx_submit_frame(fp)
+Port -> Hw: start TX
+Hw --> Port: TX complete interrupt/event
+Port --> Drv: on_tx_done(fp)
+Drv -> Port: tx_submit_frame(next fp) if queued
+Drv -> Port: rx_submit(buf, len)
+Port -> Hw: arm receive / DMA buffer
+Hw --> Port: RX ready interrupt/event
+Port --> Drv: on_rx(status)
+Drv --> Core: completed frame available
 Core -> Core: parse frame and update state
 Core --> App: wake readers / app events
 

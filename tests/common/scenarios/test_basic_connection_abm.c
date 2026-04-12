@@ -66,8 +66,8 @@ bool test_abm_data_exchange(const test_adapter_t *adapter) {
   ioHdlcStreamPort port_a = adapter->get_port_a();
   ioHdlcStreamPort port_b = adapter->get_port_b();
 
-  ioHdlcSwDriverInit(&driver_a);
-  ioHdlcSwDriverInit(&driver_b);
+  ioHdlcSwDriverInit(&driver_a, NULL);
+  ioHdlcSwDriverInit(&driver_b, NULL);
 
   /* Configure station A (combined, will initiate SABM) */
   memset(&config, 0, sizeof config);

@@ -70,10 +70,6 @@
 #define EAGAIN          11   /* Try again */
 #endif
 
-/* Maximum connection retry attempts */
-#define LINKUP_MAX_RETRIES   3
-#define LINKDOWN_MAX_RETRIES 3
-
 /*===========================================================================*/
 /* Module exported variables.                                                */
 /*===========================================================================*/
@@ -173,7 +169,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
      phydriver points to ioHdlcStreamPort when the sw driver is used. */
   uint32_t port_constr = 0;
   if (ioHdlcsconfp->phydriver != NULL) {
-    port_constr = ((const ioHdlcStreamPort *)ioHdlcsconfp->phydriver)->constraints;
+    const ioHdlcStreamPort *portp = (const ioHdlcStreamPort *)ioHdlcsconfp->phydriver;
+    const iohdlc_stream_caps_t *caps =
+      (portp->ops && portp->ops->get_caps) ? portp->ops->get_caps(portp->ctx) : NULL;
+    port_constr = caps ? caps->constraints : 0;
     if ((port_constr & IOHDLC_PORT_CONSTR_TWA_ONLY) &&
         !(ioHdlcsconfp->flags & IOHDLC_FLG_TWA)) {
       iohdlc_errno = EINVAL;   /* Port requires TWA but config does not set FLG_TWA. */
@@ -188,9 +187,9 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
 
   /* Calculate modulus parameters */
   mod2 = ioHdlcsconfp->log2mod;
-  ioHdlcsp->modmask = (1U << mod2) - 1;  /* 7, 127, 32767, 2147483647 */
-  ioHdlcsp->pfoctet = (mod2 + 1) / 8;
-  ioHdlcsp->ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->pfoctet * 2);
+  ioHdlcsp->framing.modmask = (1U << mod2) - 1;  /* 7, 127, 32767, 2147483647 */
+  ioHdlcsp->framing.pfoctet = (mod2 + 1) / 8;
+  ioHdlcsp->framing.ctrl_size = (mod2 == 3) ? 1 : (ioHdlcsp->framing.pfoctet * 2);
 
   /* Reply timeout: use config value, or default 100ms if 0.
      In ABM/ADM, both stations may initiate SABM simultaneously. To break
@@ -198,17 +197,20 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
      so that stations with different addresses use different timeouts. */
   {
     uint32_t base_tmo = (ioHdlcsconfp->reply_timeout_ms != 0) ?
-                          ioHdlcsconfp->reply_timeout_ms : 100;
+                          ioHdlcsconfp->reply_timeout_ms :
+                          IOHDLC_REPLY_TIMEOUT_MS_DEFAULT;
     if (ioHdlcsconfp->mode == IOHDLC_OM_ABM ||
         ioHdlcsconfp->mode == IOHDLC_OM_ADM) {
-      base_tmo += ((ioHdlcsconfp->addr - 1U) & 0xFF) * (base_tmo / 10);
+      base_tmo += ((ioHdlcsconfp->addr - 1U) & 0xFFU) *
+                  (base_tmo / IOHDLC_REPLY_TIMEOUT_ADDR_SKEW_DIVISOR);
     }
     ioHdlcsp->reply_timeout_ms = base_tmo;
   }
 
   /* Poll retry max: store config value for later use when adding peers */
   ioHdlcsp->poll_retry_max_cfg = (ioHdlcsconfp->poll_retry_max != 0) ?
-                                  ioHdlcsconfp->poll_retry_max : 5;
+                                  ioHdlcsconfp->poll_retry_max :
+                                  IOHDLC_POLL_RETRY_MAX_DEFAULT;
 
   /* Store port constraints for later checks (e.g. at link-up). */
   ioHdlcsp->port_constraints = port_constr;
@@ -265,9 +267,9 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   
   if (ioHdlcsp->optfuncs[IOHDLC_OPT_FFF_OCT] & IOHDLC_OPT_FFF) {
     ioHdlcsp->flags_critical |= IOHDLC_CFLG_FFF;
-    ioHdlcsp->frame_offset = 1;  /* FFF TYPE 0 present: addr starts at offset 1 */
+    ioHdlcsp->framing.frame_offset = 1;  /* FFF TYPE 0 present: addr starts at offset 1 */
   } else {
-    ioHdlcsp->frame_offset = 0;  /* No FFF: addr starts at offset 0 */
+    ioHdlcsp->framing.frame_offset = 0;  /* No FFF: addr starts at offset 0 */
   }
   
   if (ioHdlcsp->optfuncs[IOHDLC_OPT_REJ_OCT] & IOHDLC_OPT_REJ) {
@@ -284,7 +286,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   bool inh_precedence = (ioHdlcsp->optfuncs[IOHDLC_OPT_INH_OCT] & IOHDLC_OPT_INH) != 0;
   
   /* FFF and Transparency are mutually exclusive */
-  if (ioHdlcsp->frame_offset && want_transparency) {
+  if (ioHdlcsp->framing.frame_offset && want_transparency) {
     if (inh_precedence) {
       want_transparency = false;  /* FFF takes precedence (INH option) */
     } else {
@@ -307,7 +309,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   uint8_t fff_type = ioHdlcsconfp->fff_type;
   if (fff_type == 0) {
     /* Auto-detect from optfuncs */
-    if (ioHdlcsp->frame_offset != 0) {
+    if (ioHdlcsp->framing.frame_offset != 0) {
       /* FFF enabled: check for TYPE1 flag (future extension) */
       /* For now, default to TYPE0 when FFF enabled */
       fff_type = 1;  /* TYPE0 */
@@ -316,7 +318,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   }
   
   /* Update frame_offset based on final fff_type (may differ from optfuncs) */
-  ioHdlcsp->frame_offset = fff_type;  /* 0, 1, or 2 bytes */
+  ioHdlcsp->framing.frame_offset = fff_type;  /* 0, 1, or 2 bytes */
   
   /* Configure driver with validated settings */
   /* Select FCS size (default: 16-bit per ISO 13239) */
@@ -334,7 +336,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   uint32_t max_info = ioHdlcsconfp->max_info_len;
   if (max_info == 0) {
     /* Auto: optimal default based on FFF type */
-    uint8_t ctrl_size = ioHdlcsp->ctrl_size;
+    uint8_t ctrl_size = ioHdlcsp->framing.ctrl_size;
     if (fff_type == 1) {
       /* TYPE0: 127 - FFF(1) - ADDR(1) - CTRL - FCS */
       max_info = 127 - 1 - 1 - ctrl_size - caps->fcs.default_size;
@@ -342,8 +344,8 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
       /* TYPE1: 4095 - FFF(2) - ADDR(1) - CTRL - FCS */
       max_info = 4095 - 2 - 1 - ctrl_size - caps->fcs.default_size;
     } else {
-      /* No FFF: reasonable default (122 bytes INFO) */
-      max_info = 122;
+      /* No FFF: use the configured default INFO budget. */
+      max_info = IOHDLC_MAX_INFO_LEN_DEFAULT_NO_FFF;
     }
   }
   
@@ -354,13 +356,14 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
                                               max_info,
                                               want_transparency);
   
-  /* Calculate watermark percentage (default 20%) */
+  /* Calculate the low watermark percentage. */
   uint32_t num_frames = ioHdlcsconfp->frame_arena_size / frame_size;
   uint8_t watermark_pct = (ioHdlcsconfp->pool_watermark != 0) ? 
-                          ioHdlcsconfp->pool_watermark : 20;
+                          ioHdlcsconfp->pool_watermark :
+                          IOHDLC_POOL_WATERMARK_PCT_DEFAULT;
   
   /* Validate arena has reasonable size */
-  if (num_frames < 2) {
+  if (num_frames < IOHDLC_MIN_FRAME_POOL_FRAMES) {
     iohdlc_errno = ENOMEM;
     return -1;  /* Arena too small */
   }
@@ -370,11 +373,13 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
           ioHdlcsconfp->frame_arena,
           ioHdlcsconfp->frame_arena_size,
           frame_size,
-          8);  /* framealign: 8-byte alignment */
+          IOHDLC_FRAME_POOL_ALIGNMENT);
   
-  /* Configure watermark (20% low, 40% high for hysteresis) */
+  /* Configure low/high watermarks with the configured hysteresis multiplier. */
   hdlcPoolConfigWatermark((ioHdlcFramePool *)&ioHdlcsp->frame_pool, 
-                          watermark_pct, watermark_pct * 2, NULL,
+                          watermark_pct,
+                          watermark_pct * IOHDLC_POOL_WATERMARK_HIGH_MULTIPLIER,
+                          NULL,
                           NULL, NULL);
 
   /* Start driver if physical device provided */
@@ -476,15 +481,16 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
 
   /* Calculate mifl from frame pool size minus overhead.
      Overhead = FFF (frame_offset) + ADDR (1) + CTRL (ctrl_size) + FCS (fcs_size) + FLAG (1) */
-  uint32_t overhead = s->frame_offset + 1 + s->ctrl_size + s->fcs_size + 1;
+  uint32_t overhead = s->framing.frame_offset + 1 + s->framing.ctrl_size + s->fcs_size + 1;
   uint32_t mifl = (s->frame_pool.framesize > overhead) ? 
-                  (s->frame_pool.framesize - overhead) : 64;  /* Fallback to 64 */
+                  (s->frame_pool.framesize - overhead) :
+                  IOHDLC_PEER_MIFL_FALLBACK;
 
   /* Initialize the peer structure */
   memset(peer, 0, sizeof *peer);
   peer->addr = addr;
   peer->stationp = s;
-  peer->kr = peer->ks = s->modmask;
+  peer->kr = peer->ks = s->framing.modmask;
   peer->miflr = peer->mifls = mifl;
   peer->poll_retry_max = s->poll_retry_max_cfg;
   
@@ -537,8 +543,8 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
  * @note iohdlc_errno field contains detailed error code on failure.
  */
 int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t kr) {
-  if (ks == 0 || ks > peer->stationp->modmask ||
-      kr == 0 || kr > peer->stationp->modmask) {
+  if (ks == 0 || ks > peer->stationp->framing.modmask ||
+      kr == 0 || kr > peer->stationp->framing.modmask) {
     iohdlc_errno = EINVAL;
     return -1;
   }
@@ -556,7 +562,7 @@ int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t k
  *          Primary station behavior:
  *          - Sends set-mode command with P=1
  *          - Waits for UA response with F=1
- *          - Retries up to LINKUP_MAX_RETRIES on timeout
+ *          - Retries up to IOHDLC_LINKUP_MAX_RETRIES on timeout
  *          - Returns error on DM (connection refused)
  *          
  *          Secondary station behavior:
@@ -586,7 +592,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   iohdlc_station_peer_t *p;
   iohdlc_event_listener_t listener;
   uint8_t u_cmd, s_mode = 0;
-  int retry_count;
+  uint32_t retry_count;
 
   /* Find peer by address */
   p = ioHdlcAddr2peer(s, peer_addr);
@@ -639,7 +645,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   }
   
   /* Connection retry loop */
-  for (retry_count = 0; retry_count < LINKUP_MAX_RETRIES; retry_count++) {
+  for (retry_count = 0; retry_count < IOHDLC_LINKUP_MAX_RETRIES; retry_count++) {
     /* Set unnumbered command in peer descriptor */
     p->um_cmd = u_cmd;
 
@@ -693,7 +699,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
  *          Primary station behavior:
  *          - Sends DISC with P=1
  *          - Waits for UA or DM response with F=1
- *          - Retries up to LINKDOWN_MAX_RETRIES on timeout
+ *          - Retries up to IOHDLC_LINKDOWN_MAX_RETRIES on timeout
  *          - Clears peer state variables and queues on success
  *          
  *          Secondary station behavior:
@@ -719,7 +725,7 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
                                 eventmask_t evt_mask) {
   iohdlc_station_peer_t *p;
   iohdlc_event_listener_t listener;
-  int retry_count;
+  uint32_t retry_count;
 
   /* Find peer by address */
   p = ioHdlcAddr2peer(s, peer_addr);
@@ -744,7 +750,7 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
                       IOHDLC_APP_LINK_DOWN);
 
   /* Disconnection retry loop */
-  for (retry_count = 0; retry_count < LINKDOWN_MAX_RETRIES; retry_count++) {
+  for (retry_count = 0; retry_count < IOHDLC_LINKDOWN_MAX_RETRIES; retry_count++) {
     /* Set DISC command in peer descriptor */
     p->um_cmd = IOHDLC_U_DISC;
 
@@ -785,8 +791,9 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
  *          until exceeding pending frames exist OR pool low
  */
 static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
-  uint32_t margin = p->ks / 8U;
-  return p->ks + ((margin < 7U) ? 7U : margin);
+  uint32_t margin = p->ks / IOHDLC_WRITER_PENDING_MARGIN_DIVISOR;
+  return p->ks + ((margin < IOHDLC_WRITER_PENDING_MARGIN_MIN) ?
+                   IOHDLC_WRITER_PENDING_MARGIN_MIN : margin);
 }
 
 #define W_WAIT_COND(s, p) \
@@ -878,8 +885,8 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     
     /* Avoid creating frames with FFF == FLAG (0x7E)
        when FFF present and chunk_size > 1 */
-    if (s->frame_offset != 0 && chunk_size > 1) {
-      uint32_t frame_total = s->frame_offset + 1 + s->ctrl_size + chunk_size + s->fcs_size;
+    if (s->framing.frame_offset != 0 && chunk_size > 1) {
+      uint32_t frame_total = s->framing.frame_offset + 1 + s->framing.ctrl_size + chunk_size + s->fcs_size;
       if ((frame_total & 0xFF) == 0x7E) {
          chunk_size = chunk_size / 2;
       }
@@ -1061,7 +1068,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
     
     /* Get info field pointer and calculate total length */
     info_ptr = IOHDLC_FRAME_INFO(s, fp);
-    info_len = fp->elen - (s->frame_offset + 1 + s->ctrl_size);
+    info_len = fp->elen - (s->framing.frame_offset + 1 + s->framing.ctrl_size);
     
     /* Lock mutex for entire read-update-check sequence to ensure atomicity */
     iohdlc_mutex_lock(&peer->state_mutex);

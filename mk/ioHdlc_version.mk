@@ -1,0 +1,18 @@
+# ioHdlc semantic version derived from the latest repository tag.
+# Expected tag format: vX.Y.Z or X.Y.Z
+
+IOHDLC_VERSION_FALLBACK_TAG ?= v1.0.0
+
+IOHDLC_VERSION_TAG_RAW ?= $(shell git -C $(ROOT_DIR) describe --tags --abbrev=0 2>/dev/null || \
+	echo $(IOHDLC_VERSION_FALLBACK_TAG))
+IOHDLC_VERSION_TAG := $(patsubst v%,%,$(IOHDLC_VERSION_TAG_RAW))
+IOHDLC_VERSION_WORDS := $(subst ., ,$(IOHDLC_VERSION_TAG))
+
+IOHDLC_VERSION_MAJOR ?= $(or $(word 1,$(IOHDLC_VERSION_WORDS)),0)
+IOHDLC_VERSION_MINOR ?= $(or $(word 2,$(IOHDLC_VERSION_WORDS)),0)
+IOHDLC_VERSION_PATCH ?= $(or $(word 3,$(IOHDLC_VERSION_WORDS)),0)
+
+IOHDLC_VERSION_DEFS ?= \
+	-DIOHDLC_VERSION_MAJOR=$(IOHDLC_VERSION_MAJOR) \
+	-DIOHDLC_VERSION_MINOR=$(IOHDLC_VERSION_MINOR) \
+	-DIOHDLC_VERSION_PATCH=$(IOHDLC_VERSION_PATCH)

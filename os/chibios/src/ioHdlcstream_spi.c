@@ -17,34 +17,16 @@
  * @file    ioHdlcstream_spi.c
  * @brief   ChibiOS adapter for the OS-agnostic stream interface (SPI backend).
  *
- * @details Typical integration:
- *          - Prepare a @p SPIConfig and a @p SPIDriver (e.g. @p &SPID1).
- *          - Initialise the ChibiOS SPI adapter and bind the abstract port:
- *              @code
- *              static ioHdlcStreamChibiosSpi spi_obj;
- *              static ioHdlcStreamPort       port;
- *              ioHdlcStreamPortChibiosSpiObjectInit(&port, &spi_obj,
- *                                                  &SPID1, &spicfg,
- *                                                  true);
- *              @endcode
- *
- *          Operational notes:
- *          - TX and RX DMA operations are mutually exclusive.  The swdriver
- *            guarantees half-duplex ordering via TWA mode.
- *          - @p tx_submit() preempts a running RX: it calls
- *            @p spiStopTransferI() and restarts from TX. If there is a partial
- *            RX buffer, it is silently discarded; FCS mismatch in
- *            @p drv_recv_frame will discard the incomplete frame cleanly.
- *          - After TX completes (@p txend2), if @p rx_ptr is still armed and
- *            no new TX was triggered by @p on_tx_done, RX is restarted
- *            automatically.
- *          - The @p SPIConfig::end_cb field is overwritten at @p start time;
- *            do not set it in the caller-provided @p cfgp.
- *          - REJ will be disabled in the ioHdlc core config because SPI
- *            use TWA. It will use checkpoint retransmission for recovery.
+ * @details Binds a ChibiOS @p SPIDriver to @ref ioHdlcStreamPort.  SPI TX and
+ *          RX DMA operations are mutually exclusive; the software driver owns
+ *          TX ordering and this adapter executes the selected contiguous frame
+ *          submission.  If TX preempts RX, the partially received data is
+ *          discarded by the software deframer.
  */
 
 #include "ioHdlcstream_spi.h"
+#include "ioHdlcll.h"
+#include <errno.h>
 
 /*===========================================================================*/
 /* Forward declarations.                                                     */
@@ -52,6 +34,8 @@
 
 static void chb_spi_data_cb(SPIDriver *spip);
 static void chb_spi_error_cb(SPIDriver *spip);
+static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
+                              void *cookie);
 
 /*===========================================================================*/
 /* Local callback implementations.                                           */
@@ -77,8 +61,8 @@ static void chb_spi_data_cb(SPIDriver *spip) {
 
     spiUnselectI(spip);
 
-    /* Notify the swdriver.  on_tx_done() may synchronously call tx_submit()
-     * for the next queued frame, setting tx_active = true again. */
+    /* Notify the swdriver. on_tx_done() may synchronously submit the next
+     * frame selected by the driver, setting tx_active = true again. */
 #if defined(IOHDLC_SPI_USE_DR)
     /* Slave: deassert DATA_READY before notifying upper layer. */
     if (!ctx->is_master) {
@@ -87,7 +71,7 @@ static void chb_spi_data_cb(SPIDriver *spip) {
 #endif
     ctx->cbs->on_tx_done(ctx->cbs->cb_ctx, framep);
 
-    /* If on_tx_done did NOT enqueue a new TX and an RX buffer is ready,
+    /* If on_tx_done did not start a new TX and an RX buffer is ready,
      * restart receive. */
     if (!ctx->tx_active && ctx->rx_ptr != NULL) {
 #if defined(IOHDLC_SPI_USE_DR)
@@ -156,8 +140,22 @@ static void chb_spi_error_cb(SPIDriver *spip) {
 /* Port ops implementation.                                                  */
 /*===========================================================================*/
 
-static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs) {
+static const iohdlc_stream_caps_t chibios_spi_caps = {
+  .constraints = IOHDLC_PORT_CONSTR_TWA_ONLY | IOHDLC_PORT_CONSTR_NRM_ONLY,
+  .assists = IOHDLC_PORT_AST_TX_DONE_IN_ISR | IOHDLC_PORT_AST_TX_NEEDS_CONTIG,
+  .tx_fcs_offload_sizes = {0, 0, 0, 0},
+};
+
+static const iohdlc_stream_caps_t *chb_spi_get_caps(void *vctx) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
+  return ctx->caps ? ctx->caps : &chibios_spi_caps;
+}
+
+static void chb_spi_start(void *vctx,
+                          const ioHdlcStreamCallbacks *cbs,
+                          const ioHdlcStreamDriverOps *drvops) {
+  ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
+  (void)drvops;
 
   chDbgAssert(cbs && cbs->on_rx && cbs->on_tx_done,
               "spi start: invalid callbacks");
@@ -195,6 +193,27 @@ static void chb_spi_stop(void *vctx) {
   ctx->rx_n      = 0;
 }
 
+static int32_t chb_spi_tx_submit_frame(void *vctx, iohdlc_frame_t *fp) {
+  ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
+  const uint8_t *ptr = fp->frame;
+  size_t len = (size_t)fp->elen + ioHdlc_txs_get_trailer_len(&fp->tx_snapshot);
+
+  chDbgAssert(ctx != NULL, "spi tx_submit_frame: null ctx");
+  chDbgAssert(fp != NULL, "spi tx_submit_frame: null frame");
+  chDbgAssert(ctx->cbs != NULL, "spi tx_submit_frame: callbacks not set");
+
+  if (ctx->tx_active)
+    return EAGAIN;
+
+  if (fp->openingflag == IOHDLC_FLAG) {
+    ptr = &fp->openingflag;
+    len += 1U;
+  }
+
+  /* SPI consumes a contiguous wire image prepared by the swdriver. */
+  return chb_spi_tx_submit(vctx, ptr, len, fp) ? 0 : EIO;
+}
+
 /**
  * @brief   Submit a TX buffer.
  * @details If an RX is in progress it is aborted first (TX preempts RX).
@@ -205,6 +224,9 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
                                void *cookie) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
 
+  chDbgAssert(ctx != NULL, "spi tx_submit: null ctx");
+  chDbgAssert(ptr != NULL, "spi tx_submit: null ptr");
+  chDbgAssert(len > 0U, "spi tx_submit: zero length");
   chDbgAssert(!ctx->tx_active, "spi tx_submit: tx already active");
 
   if (ctx->rx_active) {
@@ -225,7 +247,7 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
   if (ctx->is_master) spiSelectI(ctx->spip);
   spiStartSendI(ctx->spip, len, ptr);
 #if defined(IOHDLC_SPI_USE_DR)
-  /* Slave: assert DATA_READY to signal the master that a frame is queued. */
+  /* Slave: assert DATA_READY to signal the master that TX data is ready. */
   if (!ctx->is_master) {
     palSetLine(ctx->dr_line);
   }
@@ -235,6 +257,7 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
 
 static bool chb_spi_tx_busy(void *vctx) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
+  chDbgAssert(ctx != NULL, "spi tx_busy: null ctx");
   return ctx->tx_active;
 }
 
@@ -246,6 +269,9 @@ static bool chb_spi_tx_busy(void *vctx) {
  */
 static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
+  chDbgAssert(ctx != NULL, "spi rx_submit: null ctx");
+  chDbgAssert(ptr != NULL, "spi rx_submit: null ptr");
+  chDbgAssert(len > 0U, "spi rx_submit: zero length");
 
   /* Save the armed buffer (also used as "pending" signal in txend2). */
   ctx->rx_ptr = ptr;
@@ -283,6 +309,7 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
 
 static void chb_spi_rx_cancel(void *vctx) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
+  chDbgAssert(ctx != NULL, "spi rx_cancel: null ctx");
   if (ctx->is_master && ctx->rx_active) {
     spiUnselectI(ctx->spip);
     spiStopTransferI(ctx->spip, NULL);
@@ -318,9 +345,10 @@ void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx) {
 #endif
 
 static const ioHdlcStreamPortOps chibios_spi_ops = {
+  .get_caps  = chb_spi_get_caps,
   .start     = chb_spi_start,
   .stop      = chb_spi_stop,
-  .tx_submit = chb_spi_tx_submit,
+  .tx_submit_frame = chb_spi_tx_submit_frame,
   .tx_busy   = chb_spi_tx_busy,
   .rx_submit = chb_spi_rx_submit,
   .rx_cancel = chb_spi_rx_cancel,
@@ -351,6 +379,7 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort       *port,
   obj->dr_line   = dr_line;
   obj->dr_armed  = false;
   obj->cbs       = NULL;
+  obj->caps      = &chibios_spi_caps;
   obj->tx_framep = NULL;
   obj->tx_active = is_master;
   obj->rx_ptr    = NULL;
