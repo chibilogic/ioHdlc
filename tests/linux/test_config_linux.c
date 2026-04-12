@@ -42,8 +42,10 @@ static void print_usage(const char *progname) {
          (unsigned)TEST_PACKET_HEADER_SIZE, (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
   printf("  --direction=DIR     Traffic direction: pri2sec, sec2pri, both (default: both)\n");
   printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
-  printf("  --reply-timeout=N   Reply timeout in ms (default: 0=100ms)\n");
-  printf("  --poll-retry-max=N  Max poll retries before link down (default: 0=5)\n");
+  printf("  --reply-timeout=N   Reply timeout in ms (default: 0=library default %u)\n",
+         (unsigned)IOHDLC_REPLY_TIMEOUT_MS_DEFAULT);
+  printf("  --poll-retry-max=N  Max poll retries before link down (default: 0=library default %u)\n",
+         (unsigned)IOHDLC_POLL_RETRY_MAX_DEFAULT);
   printf("  --progress-interval=ms  Progress update interval in ms (default: 1000)\n");
   printf("  --watermark-delay=N Reader delay every 256 packets in ms (default: 0=disabled)\n");
   printf("  --krs=N             Window size (ks=kr=N, 1..modmask; default: modmask)\n");
@@ -71,7 +73,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
   cfg->error_rate = 0;  /* Disabled by default */
   cfg->reply_timeout_ms = 0;  /* Use default (100ms) */
-  cfg->poll_retry_max = 0;  /* Use default (5) */
+  cfg->poll_retry_max = 0;  /* Use default (8) */
   cfg->progress_interval_ms = 1000;  /* 1 second by default */
   cfg->watermark_delay_ms = 0;  /* Disabled by default */
   cfg->krs = 0;                 /* Use modmask default */

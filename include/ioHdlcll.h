@@ -57,6 +57,30 @@ extern "C" {
   bool ioHdlcFrameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len);
 
   /**
+   * @brief   Initialize an incremental CRC/X.25 computation context.
+   * @param[out] crc  CRC accumulator initialized to the HDLC seed value.
+   * @ingroup ioHdlc_frames
+   */
+  void ioHdlcFcsInit(uint16_t *crc);
+
+  /**
+   * @brief   Update an incremental CRC/X.25 computation context.
+   * @param[in,out] crc  CRC accumulator.
+   * @param[in] buf      Next byte range to cover.
+   * @param[in] len      Number of bytes to cover.
+   * @ingroup ioHdlc_frames
+   */
+  void ioHdlcFcsUpdate(uint16_t *crc, const uint8_t *buf, size_t len);
+
+  /**
+   * @brief   Finalize an incremental CRC/X.25 computation context.
+   * @param[in] crc  CRC accumulator after all updates.
+   * @return         Complemented CRC ready to be emitted as HDLC FCS.
+   * @ingroup ioHdlc_frames
+   */
+  uint16_t ioHdlcFcsFinalize(uint16_t crc);
+
+  /**
    * @brief   Compute FCS-16 over a raw byte buffer.
    * @details CRC-16/X.25 (ISO 13239). The result is the complemented CRC
    *          ready to be appended as [lo, hi] after the payload.

@@ -73,9 +73,9 @@ static int mp_setup(mp_ctx_t *ctx) {
   ioHdlcStreamPort port_sec_a = mock_bus_get_port(&ctx->bus, 1);
   ioHdlcStreamPort port_sec_b = mock_bus_get_port(&ctx->bus, 2);
 
-  ioHdlcSwDriverInit(&ctx->drv_pri);
-  ioHdlcSwDriverInit(&ctx->drv_sec_a);
-  ioHdlcSwDriverInit(&ctx->drv_sec_b);
+  ioHdlcSwDriverInit(&ctx->drv_pri, NULL);
+  ioHdlcSwDriverInit(&ctx->drv_sec_a, NULL);
+  ioHdlcSwDriverInit(&ctx->drv_sec_b, NULL);
 
   /* Primary station. */
   memset(&config, 0, sizeof config);

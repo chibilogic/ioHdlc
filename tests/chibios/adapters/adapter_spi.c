@@ -115,11 +115,6 @@ static void adapter_spi_init(void) {
 #endif
                                        );
 
-  /* Declare SPI transport constraints on the ports so the protocol core can
-     validate configurations at station-init and link-up time. */
-  port_a.constraints = IOHDLC_PORT_CONSTR_TWA_ONLY | IOHDLC_PORT_CONSTR_NRM_ONLY;
-  port_b.constraints = IOHDLC_PORT_CONSTR_TWA_ONLY | IOHDLC_PORT_CONSTR_NRM_ONLY;
-
 #if defined(IOHDLC_SPI_USE_DR)
   /* Register DATA_READY callback and keep EXTI permanently armed.
    * The driver uses dr_armed flag to gate the callback — no

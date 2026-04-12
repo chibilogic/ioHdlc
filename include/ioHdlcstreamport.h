@@ -37,6 +37,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "ioHdlctx.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,7 +46,7 @@ extern "C" {
 /**
  * @name Port constraint flags
  * @brief Bitmask of transport-level limitations declared by a backend.
- * @details Set in @ref ioHdlcStreamPort::constraints at initialisation time.
+ * @details Reported through @ref ioHdlcStreamPortOps::get_caps.
  *          The protocol core checks these during station init and link-up to
  *          reject configurations that the underlying transport cannot support.
  * @{
@@ -94,6 +95,18 @@ typedef struct ioHdlcStreamCallbacks {
 } ioHdlcStreamCallbacks;
 
 /**
+ * @brief   Driver services exposed to the stream adapter.
+ * @details Called synchronously by the adapter using the same @p cb_ctx value
+ *          carried in @ref ioHdlcStreamCallbacks.
+ */
+typedef struct ioHdlcStreamDriverOps {
+  int32_t (*build_tx_plan)(void *cb_ctx,
+                           const iohdlc_frame_t *fp,
+                           const iohdlc_tx_plan_opts_t *opts,
+                           iohdlc_tx_plan_t *plan);
+} ioHdlcStreamDriverOps;
+
+/**
  * @brief Driver -> HAL/adapter operations.
  * @note  The OS-/HAL-specific adapter implementation provides these hooks.
  * @note  Ownership of RX and TX buffers submitted through this interface must
@@ -102,14 +115,29 @@ typedef struct ioHdlcStreamCallbacks {
  *        callback is supported and in which execution contexts that is valid.
  */
 typedef struct ioHdlcStreamPortOps {
-  /** Start the adapter and bind callbacks. */
-  void (*start)(void *ctx, const ioHdlcStreamCallbacks *cbs);
+  /** Query transport constraints and backend execution assists. */
+  const iohdlc_stream_caps_t *(*get_caps)(void *ctx);
+
+  /** Start the adapter and bind callbacks/services. */
+  void (*start)(void *ctx,
+                const ioHdlcStreamCallbacks *cbs,
+                const ioHdlcStreamDriverOps *drvops);
   
   /** Stop/shutdown the adapter. */
   void (*stop)(void *ctx);
 
-  /** Submit a TX buffer (non-blocking). Returns false if busy. */
-  bool (*tx_submit)(void *ctx, const uint8_t *ptr, size_t len, void *framep);
+  /**
+   * @brief Submit a frame send request.
+   * @details The adapter executes the current frame submission selected by the
+   *          driver. The frame carries the per-send header snapshot in
+   *          @p fp->tx_snapshot and may also carry a contiguous wire image
+   *          prepared by the driver. Backends may use the frame storage
+   *          directly or query @ref ioHdlcStreamDriverOps::build_tx_plan.
+   *          Backends that advertise TX FCS offload may leave the FCS deferred
+   *          in the plan only for sizes listed in @p get_caps()->tx_fcs_offload_sizes.
+   * @return 0 on success, errno-compatible error code otherwise.
+   */
+  int32_t (*tx_submit_frame)(void *ctx, iohdlc_frame_t *fp);
   
   /** Query TX busy (may be NULL if not needed). */
   bool (*tx_busy)(void *ctx);
@@ -133,7 +161,6 @@ typedef struct ioHdlcStreamPortOps {
 typedef struct ioHdlcStreamPort {
   void *ctx;                          /**< Opaque adapter context */
   const ioHdlcStreamPortOps *ops;     /**< Virtual method table */
-  uint32_t constraints;               /**< Transport constraints: IOHDLC_PORT_CONSTR_* bitmask (0 = no constraints) */
 } ioHdlcStreamPort;
 
 #ifdef __cplusplus

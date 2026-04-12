@@ -57,8 +57,17 @@ communication, ISO 13239 compliant data link layer.
   the same source builds on ChibiOS and other targets without modification
   (Linux is supported as a protocol test environment).
 - **Pluggable transport**: the stream-port abstraction (`ioHdlcStreamPort`)
-  decouples HDLC framing from the byte-stream backend — UART, SPI, or custom
-  adapters connect through the same interface.
+  decouples the software HDLC driver from the byte-stream backend — UART, SPI,
+  or custom adapters connect through the same interface.
+- **Driver-owned TX scheduling**: the software driver owns framing, FCS,
+  transparency, frame ordering, and the logical TX queue; adapters execute only
+  the current physical transfer and report completion through callbacks.
+- **TX hardware-assist aware**: stream adapters can declare transport
+  constraints and TX execution assists (for example contiguous-buffer
+  requirements, scatter/gather capability, seamless chaining, ISR completion
+  context, or 16-bit FCS offload). This keeps simple UART/SPI backends small
+  while leaving room for more capable TX hardware without changing the protocol
+  core.
 - **VMT-based extensibility**: drivers and frame pools implement a virtual
   method table; capabilities (FCS size, transparency, FFF) are negotiated at
   init time, allowing custom implementations without modifying the core.
@@ -116,7 +125,7 @@ static iohdlc_station_peer_t peer;
 static uint8_t               arena[2048]; /* example size; tune for your frame/pool requirements */
 
 /* 2. Init driver and set up transport (platform-specific) */
-ioHdlcSwDriverInit(&driver);
+ioHdlcSwDriverInit(&driver, NULL);
 ioHdlcStreamPort port;          /* init your UART/SPI adapter here */
 
 /* 3. Init station in disconnected mode.

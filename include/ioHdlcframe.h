@@ -34,6 +34,7 @@
 #define IOHDLCFRAME_H_
 
 #include "ioHdlctypes.h"
+#include "ioHdlctx.h"
 
 #define HDLC_BASIC_MIN_L  4  /**< Minimum serialized frame length without frame-format field. */
 #define HDLC_FRFMT_MIN_L  5  /**< Minimum serialized frame length when a frame-format field is present. */
@@ -67,6 +68,7 @@ struct iohdlc_frame_q {
 struct iohdlc_frame {
   iohdlc_frame_q_t  q;            /* Primary queue link (protocol queues: i_retrans_q, etc) */
   iohdlc_frame_q_t  q_aux;        /* Auxiliary queue link (driver use: TX queue, etc) */
+  iohdlc_tx_snapshot_t tx_snapshot; /* Embedded per-send TX snapshot. */
 
   uint16_t elen;                  /* Effective length of the frame, excluding
                                      FLAG and FCS. */
@@ -111,8 +113,8 @@ struct iohdlc_frame {
  * @brief   Direct access to frame fields in frame[] buffer.
  *          These macros handle optional FFF (Frame Format Field) offset.
  * 
- * @note    Use station->frame_offset.
- *          frame_offset is 0 if FFF not present, 1 if FFF present.
+ * @note    Use station->framing.frame_offset.
+ *          frame_offset is 0 if FFF not present, 1 or 2 if FFF present.
  */
 
 /**
@@ -121,7 +123,7 @@ struct iohdlc_frame {
  * @param   fp  Pointer to frame.
  * @return  Address field value.
  */
-#define IOHDLC_FRAME_ADDR(s, fp)  ((fp)->frame[(s)->frame_offset])
+#define IOHDLC_FRAME_ADDR(s, fp)  ((fp)->frame[(s)->framing.frame_offset])
 
 /**
  * @brief   Get control field octet from frame.
@@ -130,7 +132,7 @@ struct iohdlc_frame {
  * @param   idx Control field octet index (0 for first, 1-7 for extended).
  * @return  Control field octet value.
  */
-#define IOHDLC_FRAME_CTRL(s, fp, idx)  ((fp)->frame[(s)->frame_offset + 1 + (idx)])
+#define IOHDLC_FRAME_CTRL(s, fp, idx)  ((fp)->frame[(s)->framing.frame_offset + 1 + (idx)])
 
 /**
  * @brief   Get pointer to info field start.
@@ -143,7 +145,7 @@ struct iohdlc_frame {
  *          - Extended (modulo 32768): ctrl_size=4, offset = frame_offset + 1 + 4
  *          - Extended (modulo 2^31): ctrl_size=8, offset = frame_offset + 1 + 8
  */
-#define IOHDLC_FRAME_INFO(s, fp)  (&(fp)->frame[(s)->frame_offset + 1 + (s)->ctrl_size])
+#define IOHDLC_FRAME_INFO(s, fp)  (&(fp)->frame[(s)->framing.frame_offset + 1 + (s)->framing.ctrl_size])
 
 /**
  * @brief   Set N(S) in I-frame control field.
@@ -155,7 +157,7 @@ struct iohdlc_frame {
  */
 #define IOHDLC_FRAME_SET_NS(s, fp, ns) \
   do { \
-    if ((s)->modmask == 7) { \
+    if ((s)->framing.modmask == 7) { \
       IOHDLC_FRAME_CTRL(s, fp, 0) = \
         (IOHDLC_FRAME_CTRL(s, fp, 0) & ~0x0E) | (((ns) & 0x07) << 1); \
     } else { \
@@ -174,7 +176,7 @@ struct iohdlc_frame {
  */
 #define IOHDLC_FRAME_SET_NR(s, fp, nr) \
   do { \
-    if ((s)->modmask == 7) { \
+    if ((s)->framing.modmask == 7) { \
       IOHDLC_FRAME_CTRL(s, fp, 0) = \
         (IOHDLC_FRAME_CTRL(s, fp, 0) & ~0xE0) | (((nr) & 0x07) << 5); \
     } else { \
@@ -188,22 +190,22 @@ struct iohdlc_frame {
  * @param   s   Pointer to station (for pfoctet).
  * @param   fp  Pointer to frame.
  * @param   pf  true to set P/F bit, false to clear.
- * @note    Uses station->pfoctet to determine which control byte contains P/F.
+ * @note    Uses station->framing.pfoctet to determine which control byte contains P/F.
  *          pfoctet=0: P/F is bit 4 of ctrl[0] (modulo 8)
  *          pfoctet=1,2,4: P/F is bit 0 of ctrl[pfoctet] (modulo 128, 32768, 2^31)
  */
 #define IOHDLC_FRAME_SET_PF(s, fp, pf) \
   do { \
-    if ((s)->pfoctet == 0) { \
+    if ((s)->framing.pfoctet == 0) { \
       if (pf) \
         IOHDLC_FRAME_CTRL(s, fp, 0) |= IOHDLC_PF_BIT; \
       else \
         IOHDLC_FRAME_CTRL(s, fp, 0) &= ~IOHDLC_PF_BIT; \
     } else { \
       if (pf) \
-        IOHDLC_FRAME_CTRL(s, fp, (s)->pfoctet) |= IOHDLC_PFx_BIT; \
+        IOHDLC_FRAME_CTRL(s, fp, (s)->framing.pfoctet) |= IOHDLC_PFx_BIT; \
       else \
-        IOHDLC_FRAME_CTRL(s, fp, (s)->pfoctet) &= ~IOHDLC_PFx_BIT; \
+        IOHDLC_FRAME_CTRL(s, fp, (s)->framing.pfoctet) &= ~IOHDLC_PFx_BIT; \
     } \
   } while(0)
 
@@ -212,14 +214,14 @@ struct iohdlc_frame {
  * @param   s   Pointer to station (for pfoctet).
  * @param   fp  Pointer to frame.
  * @return  true if P/F bit is set, false otherwise.
- * @note    Uses station->pfoctet to determine which control byte contains P/F.
+ * @note    Uses station->framing.pfoctet to determine which control byte contains P/F.
  *          pfoctet=0: P/F is bit 4 of ctrl[0] (modulo 8)
  *          pfoctet=1,2,4: P/F is bit 0 of ctrl[pfoctet] (modulo 128, 32768, 2^31)
  */
 #define IOHDLC_FRAME_GET_PF(s, fp) \
-  (((s)->pfoctet == 0) ? \
+  (((s)->framing.pfoctet == 0) ? \
     ((IOHDLC_FRAME_CTRL(s, fp, 0) & IOHDLC_PF_BIT) != 0) : \
-    ((IOHDLC_FRAME_CTRL(s, fp, (s)->pfoctet) & IOHDLC_PFx_BIT) != 0))
+    ((IOHDLC_FRAME_CTRL(s, fp, (s)->framing.pfoctet) & IOHDLC_PFx_BIT) != 0))
 
 /** @} */
 

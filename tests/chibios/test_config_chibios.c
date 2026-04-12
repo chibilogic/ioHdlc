@@ -106,7 +106,7 @@
 #endif
 
 /**
- * @brief   Max poll retries (0 = use default 5)
+ * @brief   Max poll retries (0 = use default 8)
  */
 #ifndef TEST_POLL_RETRY_MAX
 #define TEST_POLL_RETRY_MAX 0

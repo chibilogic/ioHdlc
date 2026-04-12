@@ -49,8 +49,6 @@ static iohdlc_station_t *st_pri, *st_sec;
 #ifndef EXCHANGE_ARENA_SIZE
 #define EXCHANGE_ARENA_SIZE 32768
 #endif
-#define WTMO 4500
-#define RTMO 5000
 
 static volatile bool test_running_global = true;
 static uint8_t s_pri_writer_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
@@ -74,11 +72,29 @@ typedef struct {
   bool enabled;  /* Whether this thread should be active */
 } thread_context_t;
 
+static uint32_t s_exchange_io_timeout_ms(const iohdlc_station_t *station,
+                                         const iohdlc_station_peer_t *peer) {
+  uint32_t t1_ms;
+  uint8_t n2;
+
+  IOHDLC_ASSERT(station != NULL, "s_exchange_io_timeout_ms: null station");
+  IOHDLC_ASSERT(peer != NULL, "s_exchange_io_timeout_ms: null peer");
+
+  /* With exponential backoff and link-down on retry_count >= N2, the total
+     wait budget is T1 * 2^N2. */
+  t1_ms = station->reply_timeout_ms;
+  n2 = peer->poll_retry_max;
+  if (n2 >= 32U || t1_ms > (~(uint32_t)0U >> n2))
+    return ~(uint32_t)0U;
+  return (t1_ms << n2) + 1000;
+}
+
 /**
  * @brief Writer thread - only sends data
  */
 static void *writer_thread(void *arg) {
   thread_context_t *ctx = (thread_context_t *)arg;
+  const uint32_t write_tmo = s_exchange_io_timeout_ms(ctx->station, ctx->peer);
   uint32_t packets_sent = 0;
   uint32_t iterations = 0;
   uint32_t start_time = iohdlc_time_now_ms();
@@ -118,7 +134,7 @@ static void *writer_thread(void *arg) {
       if ((ctx->station->addr == 3) && ((ctx->seq & 0x0FF) == 0)) {
         ioHdlc_sleep_ms(600);
       }
-      ssize_t sent = ioHdlcWriteTmo(ctx->peer, ctx->buffer, packet_size, WTMO);
+      ssize_t sent = ioHdlcWriteTmo(ctx->peer, ctx->buffer, packet_size, write_tmo);
       if (sent >= (ssize_t)packet_size) {
         iohdlc_mutex_lock(ctx->stats_mutex);
         ctx->stats->packets_sent++;
@@ -154,6 +170,7 @@ static void *writer_thread(void *arg) {
  */
 static void *reader_thread(void *arg) {
   thread_context_t *ctx = (thread_context_t *)arg;
+  const uint32_t read_tmo = s_exchange_io_timeout_ms(ctx->station, ctx->peer);
   bool test_running = true;
 
   if (!ctx->enabled) {
@@ -162,7 +179,8 @@ static void *reader_thread(void *arg) {
   
   while (test_running && !test_should_stop()) {
    
-    ssize_t received = ioHdlcReadTmo(ctx->peer, ctx->buffer, ctx->config->bytes_per_exchange, RTMO);
+    ssize_t received = ioHdlcReadTmo(ctx->peer, ctx->buffer, ctx->config->bytes_per_exchange,
+                                     read_tmo);
 
     /* Watermark test: delay every 256 packets to simulate pool pressure */
     if (ctx->config->watermark_delay_ms > 0 && ((ctx->seq+1) & 0xFF) == 0) {
@@ -315,8 +333,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   port_secondary = adapter->get_port_b();
   
   /* Initialize drivers */
-  ioHdlcSwDriverInit(&driver_secondary);
-  ioHdlcSwDriverInit(&driver_primary);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
   
   /* Configure primary station */
   /* Note: Using default optfuncs (NULL) which enables TYPE0 FFF (max 127 bytes frame) */

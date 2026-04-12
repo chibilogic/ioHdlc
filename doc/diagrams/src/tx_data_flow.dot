@@ -27,10 +27,10 @@ digraph iohdlc_tx_data_flow {
   App [label="Application\nioHdlcWrite(...)"];
   Station [label="Station API\nvalidate and enqueue"];
   TxThread [label="TX runner entry\nioHdlcTxEntry()"];
-  Frame [label="Frame preparation\ntake frame and build fields"];
-  Policy [label="Driver policy\nFFF / transparency / FCS"];
-  Driver [label="Software driver\nframed HDLC output"];
-  Backend [label="Stream backend\nstream port ops"];
+  Frame [label="Frame preparation\nbuild fields + tx_snapshot"];
+  Policy [label="Software driver\nframing + TX queue"];
+  Driver [label="Physical submission\ntx_submit_frame(fp)"];
+  Backend [label="Stream adapter\ncurrent transfer only"];
   Wire [label="Transport / wire"];
 
   App -> Station -> TxThread -> Frame -> Policy -> Driver -> Backend -> Wire;

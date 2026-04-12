@@ -94,13 +94,13 @@ static uint16_t fcstab[256] = {
 /**
  * @brief   Compute the CRC/X-25 value over a raw octet range.
  */
-static void computeFCS(const uint8_t *buf, uint32_t l, uint16_t *crc)
-{
-  uint16_t val = 0xffff;
+static void updateFCS(uint16_t *crc, const uint8_t *buf, uint32_t l) {
+  uint16_t val;
 
   if (!crc)
     return;
 
+  val = *crc;
   while (l--)
     val = ((val >> 8) & 0xff) ^ fcstab[(val ^ *buf++) & 0xff];
 
@@ -111,13 +111,27 @@ static void computeFCS(const uint8_t *buf, uint32_t l, uint16_t *crc)
 /* Module exported functions.                                                */
 /*===========================================================================*/
 
+void ioHdlcFcsInit(uint16_t *crc) {
+  if (crc != NULL)
+    *crc = 0xFFFF;
+}
+
+void ioHdlcFcsUpdate(uint16_t *crc, const uint8_t *buf, size_t len) {
+  updateFCS(crc, buf, (uint32_t)len);
+}
+
+uint16_t ioHdlcFcsFinalize(uint16_t crc) {
+  return crc ^ 0xFFFF;
+}
+
 /**
  * @brief   Compute FCS-16 over a raw byte buffer.
  */
 void ioHdlcComputeFCS(const uint8_t *buf, size_t len, uint16_t *fcs) {
   uint16_t crc;
-  computeFCS(buf, (uint32_t)len, &crc);
-  *fcs = crc ^ 0xFFFF;
+  ioHdlcFcsInit(&crc);
+  updateFCS(&crc, buf, (uint32_t)len);
+  *fcs = ioHdlcFcsFinalize(crc);
 }
 
 /**
@@ -130,8 +144,9 @@ void ioHdlcComputeFCS(const uint8_t *buf, size_t len, uint16_t *fcs) {
 void ioHdlcFrameAddFCS_at(iohdlc_frame_t *frame, size_t offset) {
   uint16_t crc;
 
-  computeFCS(frame->frame, offset, &crc);
-  crc ^= 0xffff;
+  ioHdlcFcsInit(&crc);
+  updateFCS(&crc, frame->frame, (uint32_t)offset);
+  crc = ioHdlcFcsFinalize(crc);
   
   frame->frame[offset] = crc & 0xff;
   frame->frame[offset + 1] = crc >> 8;
@@ -147,7 +162,8 @@ void ioHdlcFrameAddFCS_at(iohdlc_frame_t *frame, size_t offset) {
 bool ioHdlcFrameCheckFCS_at(const iohdlc_frame_t *frame, size_t total_len) {
   uint16_t crc;
 
-  computeFCS(frame->frame, total_len, &crc);
+  ioHdlcFcsInit(&crc);
+  updateFCS(&crc, frame->frame, (uint32_t)total_len);
 
   return crc == 0xf0b8;   /* Bit reversed of the check 0x1d0f. */
 }

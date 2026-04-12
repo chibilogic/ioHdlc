@@ -236,8 +236,8 @@ bool test_A1_1_frame_loss_window_full(const test_adapter_t *adapter) {
   ioHdlcStreamPort port_secondary = mock_stream_adapter_get_port(adapter_secondary);
   
   /* Initialize stream drivers */
-  ioHdlcSwDriverInit(&driver_primary);
-  ioHdlcSwDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
   
   /* Initialize frame pools with shared arena */
   
@@ -462,8 +462,8 @@ bool test_A2_1_multiple_frame_loss(const test_adapter_t *adapter) {
   ioHdlcStreamPort port_secondary = mock_stream_adapter_get_port(adapter_secondary);
   
   /* Initialize stream drivers */
-  ioHdlcSwDriverInit(&driver_primary);
-  ioHdlcSwDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
   
   /* Configure optional functions: disable REJ, enable others */
   static const uint8_t optfuncs_norej[5] = {
@@ -694,8 +694,8 @@ bool test_A2_2_first_and_last_frame_loss(const test_adapter_t *adapter) {
   ioHdlcStreamPort port_secondary = mock_stream_adapter_get_port(adapter_secondary);
   
   /* Initialize stream drivers */
-  ioHdlcSwDriverInit(&driver_primary);
-  ioHdlcSwDriverInit(&driver_secondary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
   
   /* Configure optional functions: disable REJ, enable others */
   static const uint8_t optfuncs_norej[5] = {

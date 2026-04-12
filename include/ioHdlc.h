@@ -44,12 +44,15 @@
 #ifndef IOHDLC_H_
 #define IOHDLC_H_
 
+#include "ioHdlc_conf.h"
+#include "ioHdlc_version.h"
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
 #include "ioHdlcfmempool.h"
 #include "ioHdlcdriver.h"
 #include "ioHdlcqueue.h"
+#include "ioHdlctx.h"
 #include "ioHdlcosal.h"
 #include "ioHdlc_runner.h"
 
@@ -271,7 +274,7 @@
  * @name    System-defined parameters
  * @{
  */
-#define IOHDLC_DFL_I_SIZE       64  /**< Default I-frame payload budget used by legacy paths. */
+#define IOHDLC_DFL_I_SIZE       64  /**< Default I-frame payload budget. */
 #define IOHDLC_DFL_MODULUS      8   /**< Default modulo value for basic configurations. */
 #define IOHDLC_DFL_T3_T1_RATIO  5   /**< Default ratio between T3 and T1 timeouts. */
 /** @} */
@@ -312,6 +315,20 @@ struct iohdlc_peer_stats {
   volatile uint32_t pool_low_water;     /* Pool low-watermark events (RNR backpressure applied). */
 };
 #endif /* IOHDLC_ENABLE_STATISTICS */
+
+/**
+ * @brief   Precomputed framing/layout parameters of a station.
+ * @details Groups the static values used for fast frame field access and
+ *          modular arithmetic. These values are derived from station
+ *          configuration and driver capabilities during initialization.
+ */
+struct iohdlc_station_framing {
+  uint32_t modmask;            /* Modulus bit mask: 7 for mod 8, 127 for mod 128, 32767 for
+                                  mod 32768, 2147483647 for mod 2^31. */
+  uint8_t  pfoctet;            /* P/F octet number. Calculated from modulus. (0, 1, 2, 4). */
+  uint8_t  ctrl_size;          /* Control field size in bytes (1, 2, 4, 8). */
+  uint8_t  frame_offset;       /* Precalculated FFF offset: 0 if no FFF, 1 or 2 if FFF present. */
+};
 
 /**
  * @brief   Type of a HDLC station peer.
@@ -417,19 +434,13 @@ struct iohdlc_station {
   uint8_t   mode;               /* Operational mode of this station. */
   uint8_t   flags;              /* Station flags: TWA, PRIMARY, IDLE, BUSY. */
   uint8_t   pf_state;           /* P/F sent/received state. See definitions. */
-  uint8_t   pfoctet;            /* P/F octet number. Calculated from modulus. (0, 1, 2, 4). */
-  uint32_t  modmask;            /* Modulus bit mask: 7 for mod 8, 127 for mod 128, 32767 for
-                                   mod 32768, 2147483647 for mod 2^31. */
-  uint8_t   ctrl_size;          /* Control field size in bytes (1, 2, 4, 8). Precalculated
-                                   from modulus for fast frame field access. */
-  uint8_t   frame_offset;       /* Precalculated FFF offset: 0 if no FFF, 1 or, 2 if FFF present.
-                                   Used for fast frame field access without runtime checks. */
+  struct iohdlc_station_framing framing; /* Precomputed frame layout and numbering parameters. */
   uint8_t   fcs_size;           /* FCS size in bytes (0, 2, 4). Queried from driver. */
   uint8_t   flags_critical;     /* Time-critical option flags (FFF, REJ, STB) for fast access. */
   uint8_t   optfuncs[5];        /* Active HDLC optional functions among those supported.
                                    See ISO13239 Table 16. Maintains ISO format for XID. */
   uint16_t  reply_timeout_ms;   /* Reply timer timeout value in milliseconds. Default: 100ms. */
-  uint8_t   poll_retry_max_cfg; /* Configured max poll retries (from station config). Default: 5. */
+  uint8_t   poll_retry_max_cfg; /* Configured max poll retries (from station config). Default: 8. */
   uint32_t  port_constraints;  /* Transport constraints copied from phydriver at init. IOHDLC_PORT_CONSTR_* */
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
@@ -484,7 +495,7 @@ struct iohdlc_station_config {
   uint16_t reply_timeout_ms; /**< @brief T1 reply timeout in ms. Must account
                                       for: (ks × frame_tx_time) + wire_RTT +
                                       peer_processing + margin.              */
-  uint8_t poll_retry_max; /**< @brief max poll retries (0 = default 5)       */
+  uint8_t poll_retry_max; /**< @brief max poll retries (0 = default 8)       */
 };
 
 /*===========================================================================*/

@@ -94,16 +94,32 @@ hdlcReleaseFrame(pool, frame);                 // Decrement, free if 0
 **Source:** `include/ioHdlcswdriver.h`, `include/ioHdlcstreamport.h`
 
 **Purpose:**
-Separate HDLC framing logic from the byte-stream backend used to move data on a transport such as UART, SPI, or a mock adapter.
+Separate common software HDLC framing/deframing from the byte-stream backend
+used to move data on a transport such as UART, SPI, or a mock adapter.
+
+`ioHdlcSwDriver` is the common software framer/deframer. It owns FCS handling,
+transparency, Frame Format Field handling, RX frame assembly, and the only
+logical TX queue. A stream adapter owns only the transport-specific execution of
+the current physical submission.
 
 **Note:** The structs below are simplified for illustration; see `include/ioHdlcstreamport.h` for the authoritative definitions.
 
 **Architecture:**
 ```c
+typedef struct ioHdlcStreamDriverOps {
+  int32_t (*build_tx_plan)(void *cb_ctx,
+                           const iohdlc_frame_t *fp,
+                           const iohdlc_tx_plan_opts_t *opts,
+                           iohdlc_tx_plan_t *plan);
+} ioHdlcStreamDriverOps;
+
 typedef struct ioHdlcStreamPortOps {
-  void (*start)(void *ctx, const ioHdlcStreamCallbacks *cbs);
+  const iohdlc_stream_caps_t *(*get_caps)(void *ctx);
+  void (*start)(void *ctx,
+                const ioHdlcStreamCallbacks *cbs,
+                const ioHdlcStreamDriverOps *drvops);
   void (*stop)(void *ctx);
-  bool (*tx_submit)(void *ctx, const uint8_t *ptr, size_t len, void *framep);
+  int32_t (*tx_submit_frame)(void *ctx, iohdlc_frame_t *fp);
   bool (*tx_busy)(void *ctx);
   bool (*rx_submit)(void *ctx, uint8_t *ptr, size_t len);
   void (*rx_cancel)(void *ctx);
@@ -121,37 +137,76 @@ typedef struct ioHdlcStreamCallbacks {
 
 | Operation | Direction | Description |
 |---|---|---|
-| `start` | Driver → Backend | Bind the driver callback bundle; begin transport activity |
+| `get_caps` | Driver/Core → Backend | Return transport constraints and execution assists |
+| `start` | Driver → Backend | Bind the driver callback bundle and optional driver services; begin transport activity |
 | `stop` | Driver → Backend | Shutdown the transport; release backend-owned resources |
-| `tx_submit` | Driver → Backend | Submit a TX buffer (non-blocking); returns `false` if the transport is busy |
+| `tx_submit_frame` | Driver → Backend | Submit the current frame selected by the driver; returns `0` or an errno-compatible status |
 | `tx_busy` | Driver → Backend | Query whether a TX transfer is currently in progress |
 | `rx_submit` | Driver → Backend | Arm a receive transfer of `len` bytes into `ptr` |
 | `rx_cancel` | Driver → Backend | Cancel the currently armed RX transfer |
 
-At the interface level, `start`, `stop`, `tx_submit`, and `rx_submit` are the essential hooks. `tx_busy` is documented as optional in the generic interface, but the current `ioHdlcSwDriver` implementation expects it. `rx_cancel` is backend-capability-dependent and is used by the software driver for RX error/timeout recovery.
+`tx_submit_frame()` receives the `iohdlc_frame_t` selected by the software
+driver. The frame contains the per-send `tx_snapshot` prepared by the core and,
+for contiguous adapters, a driver-materialized wire image. UART, SPI, and the
+mock adapter currently consume that contiguous image directly. More capable
+adapters may use `ioHdlcStreamDriverOps::build_tx_plan()` to obtain a
+scatter/gather description or FCS-offload metadata for the same frame.
 
-**Port constraints:**
+**Driver services exposed to adapters:**
 
-`ioHdlcStreamPort` exposes a `constraints` field (bitmask of `IOHDLC_PORT_CONSTR_*`) that backend implementations use to declare transport-level limitations:
+| Operation | Direction | Description |
+|---|---|---|
+| `build_tx_plan` | Backend → Driver | Build a non-transparent TX plan for the supplied frame, using the frame snapshot and adapter-selected options |
+
+**Port capabilities:**
+
+`ioHdlcStreamPortOps::get_caps()` returns an `iohdlc_stream_caps_t` descriptor
+containing hard transport constraints and execution assists:
 
 | Flag | Value | Meaning |
 |---|---|---|
 | `IOHDLC_PORT_CONSTR_TWA_ONLY` | `1 << 0` | Link is half-duplex; `IOHDLC_FLG_TWA` must be set in the station config |
 | `IOHDLC_PORT_CONSTR_NRM_ONLY` | `1 << 1` | Transport does not support ABM; `ioHdlcStationLinkUp` returns `ENOTSUP` if ABM is requested |
 
-`ioHdlcStationInit` reads `constraints` from `config->phydriver` and validates them against the supplied station configuration. The value is stored in `station->port_constraints` for later checks at link-up time. A `constraints` value of zero means no transport-level restrictions.
+`ioHdlcStationInit()` reads the constraints from `config->phydriver` and
+validates them against the supplied station configuration. The value is stored
+in `station->port_constraints` for later checks at link-up time. A constraints
+value of zero means no transport-level restrictions.
+
+The assist mask currently describes TX-side execution properties:
+
+| Flag | Meaning |
+|---|---|
+| `IOHDLC_PORT_AST_TX_NEEDS_CONTIG` | Backend requires one contiguous TX buffer |
+| `IOHDLC_PORT_AST_TX_SCATTER_GATHER` | Backend can transmit a driver-generated segment list directly |
+| `IOHDLC_PORT_AST_TX_SEAMLESS_CHAIN` | Backend can arm the next TX without a visible wire gap |
+| `IOHDLC_PORT_AST_TX_DONE_IN_ISR` | TX completion callback runs in ISR context |
+
+TX FCS offload is described separately by `iohdlc_stream_caps_t::tx_fcs_offload_sizes`.
+This list declares which FCS sizes the backend can emit on TX when the driver
+keeps the FCS deferred in the transmit plan. It is an execution optimization,
+not part of the public driver capability contract.
+
+The public FCS capability remains unified at driver level:
+- `driver->caps.fcs.supported_sizes` means end-to-end FCS support for both TX and RX.
+- Software fallback, backend-side checking, and TX offload are internal mechanisms used to implement that support.
 
 **Responsibilities:**
 - `ioHdlcSwDriver` implements the framed HDLC driver on top of a stream port.
+- `ioHdlcSwDriver` owns the logical TX queue and the ordering policy.
 - `ioHdlcStreamPortOps` are provided by the backend and called by the driver.
 - `ioHdlcStreamCallbacks` are registered by the driver and invoked by the backend.
-- The stream layer moves bytes and transport events only; HDLC framing, FCS handling, transparency, and frame ownership remain in the driver/core layers.
+- The stream adapter executes the current physical submission only.
+- HDLC framing, FCS handling, transparency, receive assembly, and frame ownership remain in the driver/core layers.
 
 **Flow direction:**
-1. The driver starts the backend and registers its callback bundle.
-2. The driver submits RX/TX work through `ioHdlcStreamPortOps`.
-3. The backend reports RX progress, TX completion, and transport errors through `ioHdlcStreamCallbacks`.
-4. The software driver turns those byte-stream events into frame-oriented interactions for the core.
+1. Station initialization reads port capabilities through `get_caps()`.
+2. The software driver starts the backend and passes callbacks plus driver services.
+3. The core prepares per-send mutable fields in `fp->tx_snapshot`.
+4. The software driver serializes or queues the frame, then calls `tx_submit_frame()`.
+5. The backend starts the physical transfer and reports completion through `on_tx_done`.
+6. On TX completion, the driver may immediately submit the next queued frame from its own TX queue.
+7. RX callbacks feed the software deframer, which completes frame-oriented interactions for the core.
 
 The callback-oriented interaction is captured in the following sequence diagram.
 
@@ -228,7 +283,13 @@ The core is OS-agnostic but calls concrete functions defined in `src/ioHdlc_runn
 
 ### TX Path (Application → Wire)
 
-Application calls `ioHdlcWriteTmo()` → data is enqueued and `IOHDLC_EVT_TX_IFRM_ENQ` is broadcast → the TX thread wakes, builds an I-frame → the driver serializes it (FCS, transparency encoding) → the stream port transmits the bytes over the physical transport.
+Application calls `ioHdlcWriteTmo()` → data is enqueued and
+`IOHDLC_EVT_TX_IFRM_ENQ` is broadcast → the TX thread wakes and builds an
+I-frame → the core stores the per-send mutable fields in `fp->tx_snapshot` →
+the software driver serializes the frame or places it in its driver-owned TX
+queue → the stream adapter receives `tx_submit_frame(fp)` for the current
+physical submission → the backend transmits the bytes over the physical
+transport and reports completion with `on_tx_done`.
 
 ![TX data flow](diagrams/svg/tx_data_flow.svg)
 
@@ -309,7 +370,8 @@ protocol queues, driver usage, and final recycle.
 
 2. **Stream backends / adapters**
     - Map a transport implementation to `ioHdlcStreamPort`
-    - Define callback context, DMA constraints, and buffer ownership at the transport boundary
+    - Define callback context, DMA constraints, execution assists, and buffer ownership at the transport boundary
+    - Execute the current physical TX/RX operation without owning protocol ordering
 
 3. **Frame pool backend** (`os/<platform>/src/ioHdlcfmempool.c`)
     - Platform-specific allocation and synchronization details
@@ -353,6 +415,8 @@ iohdlc_station_config_t config = {
 
 The frame size and pool dimensions are determined based on the constraints imposed by the memory arena and the driver. The control field size and frame offset, on the other hand, depend on the selected modulo and the adopted FFF policy. Fast-access protocol flags are derived from the optional-functions bitmap, while the final driver configuration is established only after validating that FCS, transparency, and FFF compatibility align with the driver’s capabilities.
 
+Build-time policy defaults such as reply timeout, poll-retry limit, pool watermarks, and similar integration parameters are collected in `include/ioHdlc_conf.h`. The public umbrella header `include/ioHdlc.h` includes that file automatically. Integrators override those defaults through compile-time macro definitions; protocol constants and wire-format bit definitions remain outside this configuration header.
+
 `ioHdlcStationInit()` currently accepts only disconnected initial modes (`IOHDLC_OM_NDM` for unbalanced setups, `IOHDLC_OM_ADM` for balanced setups). The operational mode used on the link (`IOHDLC_OM_NRM` or `IOHDLC_OM_ABM`) is selected later by `ioHdlcStationLinkUp()`.
 
 ## Extension Points
@@ -369,11 +433,12 @@ The frame size and pool dimensions are determined based on the constraints impos
 ### Adding New Physical Layers
 
 1. Implement stream driver callbacks:
-    - backend ops such as `start()`, `tx_submit()`, `rx_submit()`
+    - backend ops such as `get_caps()`, `start()`, `tx_submit_frame()`, `rx_submit()`
     - callback notifications such as `on_rx()`, `on_tx_done()`, `on_rx_error()`
 2. Integrate with hardware (UART, SPI, USB, etc.)
-3. Handle DMA or interrupt-driven I/O
-4. Respect the ownership and callback-context contract documented by the backend
+3. Declare hard transport constraints and TX-side execution assists through `get_caps()`
+4. Handle DMA or interrupt-driven I/O
+5. Respect the ownership and callback-context contract documented by the backend
 
 ## Performance Considerations
 
@@ -408,7 +473,7 @@ Each abstract interface declares three building blocks in its header:
   void (*start)(void *ip, void *phydrvp, void *phyconfigp,           \
       ioHdlcFramePool *fpp);                                         \
   void (*stop)(void *ip);                                             \
-  size_t (*send_frame)(void *ip, iohdlc_frame_t *fp);                \
+  int32_t (*send_frame)(void *ip, iohdlc_frame_t *fp);               \
   iohdlc_frame_t * (*recv_frame)(void *ip, iohdlc_timeout_t tmo);    \
   const ioHdlcDriverCapabilities* (*get_capabilities)(void *ip);      \
   int32_t (*configure)(void *ip, uint8_t fcs_size,                   \
@@ -427,28 +492,33 @@ typedef struct {
 
 ### A.2 Concrete implementation
 
-A concrete type embeds the base struct as its **first field**, then adds its own state. It provides a `static const` vtable and assigns it in its init function:
+A concrete type embeds the base struct as its **first field**, or expands the
+same leading fields when the concrete structure is public and layout-compatible
+with the base. It provides a `static const` vtable and assigns it in its init
+function:
 
 ```c
 /* Concrete type — from src/ioHdlcswdriver.c */
 typedef struct {
-  ioHdlcDriver      base;    /* MUST be first */
-  ioHdlcStreamPort *port;
+  const struct _iohdlc_driver_vmt *vmt;   /* MUST be first */
+  _iohdlc_driver_data
+  ioHdlcSwDriverPortState port;
   /* ... other implementation-specific fields ... */
 } ioHdlcSwDriver;
 
 /* One vtable per type, shared by all instances */
-static const struct _iohdlc_driver_vmt swdrv_vmt = {
-  .start            = swdrv_start,
-  .stop             = swdrv_stop,
-  .send_frame       = swdrv_send_frame,
-  .recv_frame       = swdrv_recv_frame,
-  .get_capabilities = swdrv_get_capabilities,
-  .configure        = swdrv_configure,
+static const struct _iohdlc_driver_vmt s_vmt = {
+  .start            = drv_start,
+  .stop             = drv_stop,
+  .send_frame       = drv_send_frame,
+  .recv_frame       = drv_recv_frame,
+  .get_capabilities = drv_get_capabilities,
+  .configure        = drv_configure,
 };
 
-void ioHdlcSwDriverInit(ioHdlcSwDriver *drv, ...) {
-  drv->base.vmt = &swdrv_vmt;   /* bind vtable */
+void ioHdlcSwDriverInit(ioHdlcSwDriver *drv, const ioHdlcSwDriverInitConfig *config) {
+  (void)config;
+  drv->vmt = &s_vmt;   /* bind vtable */
   /* initialise remaining fields */
 }
 ```

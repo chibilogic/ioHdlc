@@ -528,9 +528,21 @@ frame loss.
 
 **Configuration:**
 ```c
-config.reply_timeout_ms = 100;   // 100ms (default)
-config.poll_retry_max = 5;       // Max retries (default)
+config.reply_timeout_ms = 100;   // IOHDLC_REPLY_TIMEOUT_MS_DEFAULT
+config.poll_retry_max = 8;       // IOHDLC_POLL_RETRY_MAX_DEFAULT
 ```
+
+`reply_timeout_ms` is the base T1 value. On each reply-timeout expiry, the
+next T1 window is doubled using the current retry count. In other words, the
+recovery wait is not linear:
+
+```
+T1(n) = reply_timeout_ms << n
+```
+
+This makes large `poll_retry_max` values expensive very quickly. Even moderate
+settings can push the cumulative wait into the tens of seconds, so `reply_timeout_ms`
+and `poll_retry_max` must be tuned together.
 
 #### T1 Sizing Formula
 
@@ -721,8 +733,8 @@ Two bytes:    0x02 0x03 (extended address)
 
 **Default Values:**
 ```c
-reply_timeout_ms = 100;      // T1: 100ms (default)
-poll_retry_max = 5;          // Max retries before link failure (default)
+reply_timeout_ms = 100;      // T1: IOHDLC_REPLY_TIMEOUT_MS_DEFAULT
+poll_retry_max = 8;          // IOHDLC_POLL_RETRY_MAX_DEFAULT
 ```
 
 **Platform-Specific:**

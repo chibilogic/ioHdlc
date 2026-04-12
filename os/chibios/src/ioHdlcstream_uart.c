@@ -16,43 +16,30 @@
 /**
  * @file    ioHdlcstream_uart.c
  * @brief   ChibiOS adapter for the OS-agnostic stream interface (UART backend).
- * @details Typical integration:
- *          - Prepare a @p UARTConfig and a @p UARTDriver (e.g. @p &UARTD1).
- *          - Initialize the ChibiOS adapter and bind the abstract port:
- *              @code
- *              static ioHdlcStreamChibiosUart uobj;
- *              static ioHdlcStreamPort        port;
- *              ioHdlcStreamPortChibiosUartObjectInit(&port, &uobj, &UARTD1, &uartcfg);
- *              @endcode
- *
- *          Operational notes:
- *          - The adapter assigns @p txend1_cb/@p rxend_cb/@p rxerr_cb/@p timeout_cb
- *            on @p UARTConfig.
- *          - RX timeout is propagated as a notification so the core can
- *            discard/rearm a frame as needed.
- *          - Only one RX is in-flight; the core re-arms subsequent portions of
- *            the same frame (multi-chunk) via @p on_rx according to the
- *            expected length.
+ * @details Binds a ChibiOS @p UARTDriver to @ref ioHdlcStreamPort.  The
+ *          software driver owns TX ordering and provides a contiguous wire
+ *          image for each submission; this adapter starts the UART transfer
+ *          and reports TX/RX completion through the registered callbacks.
  */
 
 #include "ioHdlcstream_uart.h"
+#include "ioHdlcll.h"
+#include "ioHdlcosal.h"
+#include <errno.h>
 
-/*===========================================================================*/
-/* Local types.                                                              */
-/*===========================================================================*/
-
-/*===========================================================================*/
-/* Local functions.                                                          */
-/*===========================================================================*/
+static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cookie);
 
 static void chb_txend_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
+  iohdlc_frame_t *done_fp;
+
   if (!ctx) return;
   chDbgAssert(ctx->cbs && ctx->cbs->on_tx_done, "uart txend cb: callbacks not set");
-  void *framep = ctx->tx_framep;
-  /* clear busy */
+  done_fp = (iohdlc_frame_t *)ctx->tx_framep;
+  /* Clear the in-flight cookie before the callback may submit again. */
   ctx->tx_framep = NULL;
-  ctx->cbs->on_tx_done(ctx->cbs->cb_ctx, framep);
+
+  ctx->cbs->on_tx_done(ctx->cbs->cb_ctx, done_fp);
 }
 
 static void chb_rxend_cb(UARTDriver *uartp) {
@@ -92,8 +79,23 @@ static void chb_timeout_cb(UARTDriver *uartp) {
 /* Port ops implementation.                                                  */
 /*===========================================================================*/
 
-static void chb_start(void *vctx, const ioHdlcStreamCallbacks *cbs) {
+static const iohdlc_stream_caps_t chibios_uart_caps = {
+  .constraints = 0,
+  .assists = IOHDLC_PORT_AST_TX_DONE_IN_ISR |
+             IOHDLC_PORT_AST_TX_NEEDS_CONTIG,
+  .tx_fcs_offload_sizes = {0, 0, 0, 0},
+};
+
+static const iohdlc_stream_caps_t *chb_get_caps(void *vctx) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
+  return ctx->caps ? ctx->caps : &chibios_uart_caps;
+}
+
+static void chb_start(void *vctx,
+                      const ioHdlcStreamCallbacks *cbs,
+                      const ioHdlcStreamDriverOps *drvops) {
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
+  (void)drvops;
   /* Validate callbacks once and treat them as invariants. */
   chDbgAssert(cbs && cbs->on_rx && cbs->on_tx_done && cbs->on_rx_error,
               "uart start: invalid callbacks");
@@ -119,23 +121,51 @@ static void chb_stop(void *vctx) {
   uartStop(ctx->uartp);
 }
 
+static int32_t chb_tx_submit_frame(void *vctx, iohdlc_frame_t *fp) {
+  ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
+  const uint8_t *ptr = fp->frame;
+  size_t len = (size_t)fp->elen + ioHdlc_txs_get_trailer_len(&fp->tx_snapshot);
+
+  chDbgAssert(ctx != NULL, "uart tx_submit: null ctx");
+  chDbgAssert(fp != NULL, "uart tx_submit: null frame");
+  chDbgAssert(ctx->cbs != NULL, "uart tx_submit: callbacks not set");
+
+  if (ctx->tx_framep != NULL || ctx->uartp->txstate == UART_TX_ACTIVE)
+    return EAGAIN;
+
+  if (fp->openingflag == IOHDLC_FLAG) {
+    ptr = &fp->openingflag;
+    len += 1U;
+  }
+
+  /* UART consumes a contiguous wire image prepared by the swdriver. */
+  return chb_tx_submit(vctx, ptr, len, fp) ? 0 : EIO;
+}
+
 static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cookie) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
-  
-    chDbgAssert(ctx->tx_framep == NULL && ctx->uartp->txstate != UART_TX_ACTIVE,
-                "uart tx_submit: tx is busy");
-    ctx->tx_framep = cookie;
-    uartStartSendI(ctx->uartp, len, ptr);
-    return true;
+
+  chDbgAssert(ctx != NULL, "uart tx_submit: null ctx");
+  chDbgAssert(ptr != NULL, "uart tx_submit: null ptr");
+  chDbgAssert(len > 0U, "uart tx_submit: zero length");
+  chDbgAssert(ctx->tx_framep == NULL && ctx->uartp->txstate != UART_TX_ACTIVE,
+              "uart tx_submit: tx is busy");
+  ctx->tx_framep = cookie;
+  uartStartSendI(ctx->uartp, len, ptr);
+  return true;
 }
 
 static bool chb_tx_busy(void *vctx) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
+  chDbgAssert(ctx != NULL, "uart tx_busy: null ctx");
   return ctx->uartp->txstate != UART_TX_IDLE;
 }
 
 static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
+  chDbgAssert(ctx != NULL, "uart rx_submit: null ctx");
+  chDbgAssert(ptr != NULL, "uart rx_submit: null ptr");
+  chDbgAssert(len > 0U, "uart rx_submit: zero length");
   if (ctx->uartp->rxstate == UART_RX_ACTIVE) {
     return false; /* one RX at a time */
   }
@@ -145,13 +175,15 @@ static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
 
 static void chb_rx_cancel(void *vctx) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
+  chDbgAssert(ctx != NULL, "uart rx_cancel: null ctx");
   uartStopReceiveI(ctx->uartp);
 }
 
 static const ioHdlcStreamPortOps chibios_ops = {
+  .get_caps  = chb_get_caps,
   .start     = chb_start,
   .stop      = chb_stop,
-  .tx_submit = chb_tx_submit,
+  .tx_submit_frame = chb_tx_submit_frame,
   .tx_busy   = chb_tx_busy,
   .rx_submit = chb_rx_submit,
   .rx_cancel = chb_rx_cancel,
@@ -175,6 +207,7 @@ void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
   obj->uartp = uartp;
   obj->cfgp  = cfgp;
   obj->cbs   = NULL;
+  obj->caps = &chibios_uart_caps;
   obj->tx_framep = NULL;
 
   port->ctx = obj;
