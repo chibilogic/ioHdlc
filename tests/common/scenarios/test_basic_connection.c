@@ -111,6 +111,9 @@ static const ioHdlcSwDriverFcsBackend test_fcs_backend = {
 
 /* Mock driver VMT with minimal capabilities */
 static const ioHdlcDriverCapabilities mock_caps = {
+  .modulo = {
+    .supported_log2mods = {3, 7, 0, 0},
+  },
   .fcs = {
     .supported_sizes = {0, 2, 0, 0},
     .default_size = 2,
@@ -294,6 +297,10 @@ bool test_swdriver_fcs_backend_capabilities(void) {
   ioHdlcSwDriverInit(&sw_driver, NULL);
   caps = hdlcGetCapabilities((ioHdlcDriver *)&sw_driver);
   TEST_ASSERT(caps != NULL, "Software driver capabilities should be available");
+  TEST_ASSERT(caps->modulo.supported_log2mods[0] == 3U,
+              "Software driver should expose modulo-8 support");
+  TEST_ASSERT(caps->modulo.supported_log2mods[1] == 7U,
+              "Software driver should expose modulo-128 support");
   TEST_ASSERT(caps->fcs.default_size == 2U, "Software driver default FCS should be 2");
   TEST_ASSERT(caps->fcs.supported_sizes[0] == 0U, "Software driver should keep the no-FCS slot");
   TEST_ASSERT(caps->fcs.supported_sizes[1] == 2U, "Software driver should expose FCS-16 support");
@@ -301,11 +308,42 @@ bool test_swdriver_fcs_backend_capabilities(void) {
   ioHdlcSwDriverInit(&hw_driver, &init_config);
   caps = hdlcGetCapabilities((ioHdlcDriver *)&hw_driver);
   TEST_ASSERT(caps != NULL, "Backend driver capabilities should be available");
+  TEST_ASSERT(caps->modulo.supported_log2mods[0] == 3U,
+              "Backend driver should preserve modulo-8 support");
+  TEST_ASSERT(caps->modulo.supported_log2mods[1] == 7U,
+              "Backend driver should preserve modulo-128 support");
   TEST_ASSERT(caps->fcs.default_size == 2U, "Backend should preserve default FCS size");
   TEST_ASSERT(caps->fcs.supported_sizes[0] == 0U, "Supported FCS size list should keep software fallback");
   TEST_ASSERT(caps->fcs.supported_sizes[1] == 2U, "Supported FCS size list should retain FCS-16");
 
   test_printf("✅ Software-driver FCS backend capabilities successful\n");
+  return 0;
+}
+
+bool test_swdriver_rejects_unsupported_modulo(void) {
+  ioHdlcSwDriver sw_driver;
+  iohdlc_station_t station;
+  iohdlc_station_config_t config;
+  uint8_t frame_arena[1024];
+  int32_t result;
+
+  ioHdlcSwDriverInit(&sw_driver, NULL);
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_NDM;
+  config.flags = IOHDLC_FLG_PRI;
+  config.log2mod = 15;
+  config.addr = PRIMARY_ADDR;
+  config.driver = (ioHdlcDriver *)&sw_driver;
+  config.frame_arena = frame_arena;
+  config.frame_arena_size = sizeof frame_arena;
+  config.fff_type = 1;
+
+  memset(&station, 0, sizeof station);
+  result = ioHdlcStationInit(&station, &config);
+
+  TEST_ASSERT(result == -1, "Station init should reject unsupported modulo");
+  TEST_ASSERT(iohdlc_errno == ENOTSUP, "Unsupported modulo should report ENOTSUP");
   return 0;
 }
 

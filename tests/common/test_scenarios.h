@@ -48,6 +48,7 @@ int test_exhaust_pool(void);
 bool test_station_creation(void);
 bool test_peer_creation(void);
 bool test_swdriver_fcs_backend_capabilities(void);
+bool test_swdriver_rejects_unsupported_modulo(void);
 bool test_snrm_handshake(const test_adapter_t *adapter);
 bool test_data_exchange(const test_adapter_t *adapter);
 bool test_data_exchange_with_fcs_backend(const test_adapter_t *adapter);

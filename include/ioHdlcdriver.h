@@ -75,10 +75,18 @@ typedef struct {
 } ioHdlcDriverFffCapabilities;
 
 /**
+ * @brief Driver modulo capabilities.
+ */
+typedef struct {
+  uint8_t  supported_log2mods[4]; /**< Array of supported log2(modulus) values (e.g., [3,7,0,0]) */
+} ioHdlcDriverModuloCapabilities;
+
+/**
  * @brief Complete driver capabilities.
  * @note Driver must provide this via get_capabilities() before start().
  */
 typedef struct {
+  ioHdlcDriverModuloCapabilities       modulo;
   ioHdlcDriverFcsCapabilities          fcs;
   ioHdlcDriverTransparencyCapabilities transparency;
   ioHdlcDriverFffCapabilities          fff;

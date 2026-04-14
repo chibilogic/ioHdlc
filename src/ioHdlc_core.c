@@ -512,12 +512,10 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     ioHdlcBroadcastFlags(s, IOHDLC_EVT_UM_RECVD);
     
   } else {
-    /* U-frame response received (we are Primary).
-       Per 5.5.3.3: responses must match P bit. */
-    
-    /* Verify that a UM command is outstanding (UM_SENT)
-       and that the F bit matches the P bit of the transmitted command. */
-    if (!(p->um_state & IOHDLC_UM_SENT) || (has_pf ^ IOHDLC_P_SENT(s))) {
+    /* U-frame response received (we are Primary or Combined in ABM).
+       Match it only against the outstanding UM transaction, not against the
+       global P/F state shared with ordinary I/S traffic. */
+    if (!(p->um_state & IOHDLC_UM_SENT) || !has_pf) {
       /* Unsolicited or mismatched response -> discard. */
       hdlcReleaseFrame(&s->frame_pool, fp);
       iohdlc_mutex_unlock(&p->state_mutex);
@@ -532,10 +530,11 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     
     if (u_cmd == IOHDLC_U_UA) {
       /* UA received: command accepted. */
+      uint8_t cmd = p->um_cmd;  /* Save command for state transition and app notification. */
       
       /* Reset peer variables. */
       resetPeerVars(p);
-      if (p->um_cmd == IOHDLC_U_DISC) {
+      if (cmd == IOHDLC_U_DISC) {
         /* DISC accepted: disconnect this peer. */
         ioHdlcSetDisconnected(p);
 
@@ -551,7 +550,6 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
         ioHdlcSetConnected(p);
       }
       
-      uint8_t cmd = p->um_cmd;  /* Save command for app notification */
       /* Clear UM state. */
       resetPeerUm(p);
       
@@ -565,6 +563,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       
     } else if (u_cmd == IOHDLC_U_DM) {
       /* DM received: peer disconnected or refused connection. */
+      uint8_t cmd = p->um_cmd;  /* Save command before clearing UM state. */
       ioHdlcSetDisconnected(p);
       p->ss_state |= IOHDLC_SS_ST_DISM;
       resetPeerUm(p);
@@ -572,9 +571,9 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       /* Re-trigger LINK_REQ (same rationale as UA path above). */
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_ST_CHG | IOHDLC_EVT_LINK_REQ);
       
-      /* Notify application: DM means link refused or link down. */
-      ioHdlcBroadcastFlagsApp(s, (p->um_state & IOHDLC_UM_SENT) ? 
-                            IOHDLC_APP_LINK_REFUSED : IOHDLC_APP_LINK_LOST);
+      /* DM closes a pending DISC, otherwise it refuses the pending link-up. */
+      ioHdlcBroadcastFlagsApp(s, (cmd == IOHDLC_U_DISC) ?
+                            IOHDLC_APP_LINK_DOWN : IOHDLC_APP_LINK_REFUSED);
       
     } else if (u_cmd == IOHDLC_U_FRMR) {
       /* FRMR received: peer detected protocol error.
@@ -1300,26 +1299,6 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 }
 
 /**
- * @brief   Snapshot TX header bytes into the per-frame snapshot slot.
- * @details Stores the address octet and the prepared control field for the
- *          pending transmission in @p fp->tx_snapshot. Adapters and drivers read this
- *          snapshot when they need the per-send mutable header outside the
- *          protocol state machine.
- */
-static void stashTxSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
-                                  uint8_t ctrl_len) {
-  const uint8_t inline_len =
-      (ctrl_len <= IOHDLC_TXS_INLINE_CTRL_MAX) ? ctrl_len : IOHDLC_TXS_INLINE_CTRL_MAX;
-
-  fp->tx_snapshot.addr = IOHDLC_FRAME_ADDR(s, fp);
-  if (inline_len > 0U) {
-    memcpy(fp->tx_snapshot.ctrl, &IOHDLC_FRAME_CTRL(s, fp, 0), inline_len);
-  }
-  ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
-  ioHdlc_txs_set_trailer_len(&fp->tx_snapshot, 0U);
-}
-
-/**
  * @brief   Snapshot the mutable I-frame header into the per-frame snapshot slot.
  * @details Keeps N(S) stable across retransmissions and refreshes only the
  *          per-send fields that may change while the frame remains queued.
@@ -1328,43 +1307,48 @@ static uint32_t stashIFrameSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *f
                                           uint8_t addr, uint32_t ns_seed,
                                           uint32_t nr, bool set_pf) {
   const uint8_t ctrl_len = s->framing.ctrl_size;
-  uint8_t *frame_ctrl = &IOHDLC_FRAME_CTRL(s, fp, 0);
   uint32_t ns;
-  const bool inline_ctrl = ctrl_len <= IOHDLC_TXS_INLINE_CTRL_MAX;
+  IOHDLC_ASSERT(ctrl_len <= IOHDLC_TXS_INLINE_CTRL_MAX,
+                "stashIFrameSnapshotHeader: control field exceeds "
+                "TX snapshot contract");
 
-  if (inline_ctrl) {
-    if (ioHdlc_txs_get_ctrl_len(&fp->tx_snapshot) != ctrl_len ||
-        !IOHDLC_IS_I_FRM(fp->tx_snapshot.ctrl[0])) {
-      memset(fp->tx_snapshot.ctrl, 0, ctrl_len);
-      fp->tx_snapshot.ctrl[0] = IOHDLC_I_ID;
-      setNSInCtrl(s, fp->tx_snapshot.ctrl, ns_seed);
-      memset(frame_ctrl, 0, ctrl_len);
-      frame_ctrl[0] = IOHDLC_I_ID;
-      setNSInCtrl(s, frame_ctrl, ns_seed);
-      ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
-    }
-
-    ns = extractNSFromCtrl(s, fp->tx_snapshot.ctrl);
-    setNRInCtrl(s, fp->tx_snapshot.ctrl, nr);
-    setPFInCtrl(s, fp->tx_snapshot.ctrl, set_pf);
-  } else {
-    if (ioHdlc_txs_get_ctrl_len(&fp->tx_snapshot) != ctrl_len ||
-        !IOHDLC_IS_I_FRM(frame_ctrl[0])) {
-      memset(frame_ctrl, 0, ctrl_len);
-      frame_ctrl[0] = IOHDLC_I_ID;
-      setNSInCtrl(s, frame_ctrl, ns_seed);
-      ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
-    }
-
-    ns = extractNSFromCtrl(s, frame_ctrl);
-    setNRInCtrl(s, frame_ctrl, nr);
-    setPFInCtrl(s, frame_ctrl, set_pf);
-    memcpy(fp->tx_snapshot.ctrl, frame_ctrl, sizeof fp->tx_snapshot.ctrl);
+  if (ioHdlc_txs_get_ctrl_len(&fp->tx_snapshot) != ctrl_len ||
+      !IOHDLC_IS_I_FRM(fp->tx_snapshot.ctrl[0])) {
+    fp->tx_snapshot.ctrl[0] = IOHDLC_I_ID;
+    if (ctrl_len > 1U)
+      fp->tx_snapshot.ctrl[1] = 0U;
+    setNSInCtrl(s, fp->tx_snapshot.ctrl, ns_seed);
+    ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
   }
+
+  ns = extractNSFromCtrl(s, fp->tx_snapshot.ctrl);
+  setNRInCtrl(s, fp->tx_snapshot.ctrl, nr);
+  setPFInCtrl(s, fp->tx_snapshot.ctrl, set_pf);
 
   fp->tx_snapshot.addr = addr;
   ioHdlc_txs_set_trailer_len(&fp->tx_snapshot, 0U);
   return ns;
+}
+
+/**
+ * @brief   Snapshot TX header bytes into the per-frame snapshot slot.
+ * @details Not strictly needed for U/S frames, but convenient to keep
+ *          a uniform TX contract and avoid forcing drivers to discriminate
+ *          on frame type.
+ */
+static void stashTxSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
+                                  uint8_t ctrl_len) {
+  const uint8_t inline_len =
+      (ctrl_len <= IOHDLC_TXS_INLINE_CTRL_MAX) ? ctrl_len : IOHDLC_TXS_INLINE_CTRL_MAX;
+
+  fp->tx_snapshot.addr = IOHDLC_FRAME_ADDR(s, fp);
+  if (inline_len > 0U) {
+    fp->tx_snapshot.ctrl[0] = IOHDLC_FRAME_CTRL(s, fp, 0);
+    if (inline_len > 1U)
+      fp->tx_snapshot.ctrl[1] = IOHDLC_FRAME_CTRL(s, fp, 1);
+  }
+  ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
+  ioHdlc_txs_set_trailer_len(&fp->tx_snapshot, 0U);
 }
 
 /**

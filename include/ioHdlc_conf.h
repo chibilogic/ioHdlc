@@ -29,20 +29,6 @@
 #define IOHDLC_CONF_H_
 
 /**
- * @brief   Maximum number of retries for link establishment.
- */
-#ifndef IOHDLC_LINKUP_MAX_RETRIES
-#define IOHDLC_LINKUP_MAX_RETRIES 3U
-#endif
-
-/**
- * @brief   Maximum number of retries for link termination.
- */
-#ifndef IOHDLC_LINKDOWN_MAX_RETRIES
-#define IOHDLC_LINKDOWN_MAX_RETRIES 3U
-#endif
-
-/**
  * @brief   Default base reply timeout in milliseconds.
  * @details This is the base T1 value before the per-peer retry backoff is
  *          applied. Reply-timeout recovery does not use linear waits.

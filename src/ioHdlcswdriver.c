@@ -49,6 +49,9 @@ static const ioHdlcStreamDriverOps s_stream_drvops;
 /*===========================================================================*/
 
 static const ioHdlcDriverCapabilities s_swdriver_base_caps = {
+  .modulo = {
+    .supported_log2mods = {3, 7, 0, 0},  /* Supports modulo 8 and 128. */
+  },
   .fcs = {
     .supported_sizes = {0, 2, 0, 0},  /* Supports FCS 0 (none) and 2 (16-bit) */
     .default_size = 2,

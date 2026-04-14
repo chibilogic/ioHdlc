@@ -83,6 +83,31 @@
 /*===========================================================================*/
 
 /**
+ * @brief   Derive the API safety timeout for a link-management transaction.
+ * @details The protocol core uses exponential T1 backoff and declares failure
+ *          after a cumulative budget of @c T1 * (2^N2 - 1). The public API
+ *          waits one extra base slot, i.e. @c T1 * 2^N2, as a safety margin.
+ *          Saturates on overflow.
+ * @param[in] s   Station descriptor.
+ * @param[in] p   Peer descriptor.
+ * @return  Safety timeout in milliseconds.
+ */
+static uint32_t s_link_api_timeout_ms(const iohdlc_station_t *s,
+                                      const iohdlc_station_peer_t *p) {
+  uint32_t t1_ms;
+  uint8_t n2;
+
+  IOHDLC_ASSERT(s != NULL, "s_link_api_timeout_ms: null station");
+  IOHDLC_ASSERT(p != NULL, "s_link_api_timeout_ms: null peer");
+
+  t1_ms = s->reply_timeout_ms;
+  n2 = p->poll_retry_max;
+  if (n2 >= 32U || t1_ms > (~(uint32_t)0U >> n2))
+    return ~(uint32_t)0U;
+  return t1_ms << n2;
+}
+
+/**
  * @brief   Calculate optimal frame buffer size based on configuration.
  * @details Computes frame size = FFF + ADDR + CTRL + INFO + FCS + CLOSING_FLAG.
  *          Respects FFF TYPE0 limit (127 bytes) and TYPE1 limit (4095 bytes).
@@ -125,6 +150,17 @@ static uint32_t calculate_frame_size(uint8_t log2mod, uint8_t fff_type,
   return frame_size;
 }
 
+static bool s_log2mod_supported(const uint8_t *supported_log2mods, uint8_t log2mod) {
+  size_t i;
+
+  for (i = 0U; i < 4U; ++i) {
+    if (supported_log2mods[i] == log2mod)
+      return true;
+  }
+
+  return false;
+}
+
 /*===========================================================================*/
 /* Module exported functions.                                                */
 /*===========================================================================*/
@@ -153,6 +189,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
                           const iohdlc_station_config_t *ioHdlcsconfp) {
   uint32_t mod2 = 0;
   uint8_t mode = ioHdlcsconfp->mode;
+  const ioHdlcDriverCapabilities *caps = NULL;
 
   if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM)) {
     iohdlc_errno = EINVAL;
@@ -185,6 +222,26 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->flags = ioHdlcsconfp->flags;
   ioHdlcsp->mode = mode;
 
+  /* Driver setup */
+  ioHdlcsp->driver = ioHdlcsconfp->driver;
+
+  /* Validate driver is present - station cannot operate without driver */
+  if (ioHdlcsp->driver == NULL || ioHdlcsp->driver->vmt == NULL) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  caps = hdlcGetCapabilities(ioHdlcsp->driver);
+  if (caps == NULL) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  if (!s_log2mod_supported(caps->modulo.supported_log2mods, ioHdlcsconfp->log2mod)) {
+    iohdlc_errno = ENOTSUP;
+    return -1;
+  }
+
   /* Calculate modulus parameters */
   mod2 = ioHdlcsconfp->log2mod;
   ioHdlcsp->framing.modmask = (1U << mod2) - 1;  /* 7, 127, 32767, 2147483647 */
@@ -214,15 +271,6 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
 
   /* Store port constraints for later checks (e.g. at link-up). */
   ioHdlcsp->port_constraints = port_constr;
-
-  /* Driver setup */
-  ioHdlcsp->driver = ioHdlcsconfp->driver;
-  
-  /* Validate driver is present - station cannot operate without driver */
-  if (ioHdlcsp->driver == NULL || ioHdlcsp->driver->vmt == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
 
   /* Initialize peer list */
   ioHdlc_peerl_init(&ioHdlcsp->peers);
@@ -294,9 +342,6 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
       return -1;  /* Conflicting options */
     }
   }
-  
-  /* Query driver capabilities */
-  const ioHdlcDriverCapabilities *caps = hdlcGetCapabilities(ioHdlcsp->driver);
   
   /* Validate transparency against driver capabilities */
   if (want_transparency && !caps->transparency.hw_support && 
@@ -555,14 +600,14 @@ int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t k
 
 /**
  * @brief   Establish data link connection with a peer (extended version).
- * @details Initiates connection by sending appropriate U-frame command
- *          (SNRM/SARM/SABM) and waiting for UA response. Implements
- *          retry logic with configurable timeout.
+ * @details Initiates connection by sending the appropriate U-frame command
+ *          (SNRM/SARM/SABM) once, then waits for the protocol core to conclude
+ *          the transaction or for the API safety timeout.
  *          
  *          Primary station behavior:
  *          - Sends set-mode command with P=1
  *          - Waits for UA response with F=1
- *          - Retries up to IOHDLC_LINKUP_MAX_RETRIES on timeout
+ *          - Waits once for completion with a safety timeout
  *          - Returns error on DM (connection refused)
  *          
  *          Secondary station behavior:
@@ -578,7 +623,7 @@ int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t k
  * @retval -1           Error occurred:
  *                      - EISCONN: Already connected
  *                      - EINVAL: Invalid mode or peer not found
- *                      - ETIMEDOUT: No response after max retries
+ *                      - ETIMEDOUT: No terminal link event before timeout
  *                      - ECONNREFUSED: Peer sent DM (refused connection)
  * 
  * @note iohdlc_errno field contains detailed error code on failure.
@@ -592,7 +637,6 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
   iohdlc_station_peer_t *p;
   iohdlc_event_listener_t listener;
   uint8_t u_cmd, s_mode = 0;
-  uint32_t retry_count;
 
   /* Find peer by address */
   p = ioHdlcAddr2peer(s, peer_addr);
@@ -644,47 +688,48 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
     s->mode = mode;
   }
   
-  /* Connection retry loop */
-  for (retry_count = 0; retry_count < IOHDLC_LINKUP_MAX_RETRIES; retry_count++) {
-    /* Set unnumbered command in peer descriptor */
-    p->um_cmd = u_cmd;
+  iohdlc_mutex_lock(&p->state_mutex);
 
-    /* Clear disconnected-mode flag (we're attempting connection) */
-    p->ss_state &= ~IOHDLC_SS_ST_DISM;
+  /* Set unnumbered command in peer descriptor */
+  p->um_cmd = u_cmd;
 
-    /* Signal TX task to send the command */
-    ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
+  /* Clear disconnected-mode flag (we're attempting connection) */
+  p->ss_state &= ~IOHDLC_SS_ST_DISM;
 
-    /* Wait for app event with timeout.
-       Multiple threads may call LinkUp on different peers concurrently.
-       Verify that the event is for our peer before accepting it;
-       if not, re-wait with the same timeout. */
-    uint32_t timeout_ms = s->reply_timeout_ms * p->poll_retry_max;
-    for (;;) {
-      eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
-      if (evt == 0) break;  /* Timeout: fall through to retry */
+  iohdlc_mutex_unlock(&p->state_mutex);
 
-      eventflags_t flags = iohdlc_evt_get_and_clear_flags(&listener);
+  /* Signal TX task to send the command */
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
 
-      if ((flags & IOHDLC_APP_LINK_UP) &&
-          (p->ss_state & IOHDLC_SS_ST_CONN)) {
-        /* Our peer is connected. */
-        iohdlc_evt_unregister(&s->app_es, &listener);
-        return 0;
-      }
-      if ((flags & IOHDLC_APP_LINK_REFUSED) && IOHDLC_PEER_DISC(p)) {
-        /* Our peer was refused. */
-        iohdlc_evt_unregister(&s->app_es, &listener);
-        s->mode = s_mode;
-        iohdlc_errno = ECONNREFUSED;
-        return -1;
-      }
-      /* Event was for another peer: re-wait. */
+  /* Wait for app event with timeout.
+     Multiple threads may call LinkUp on different peers concurrently.
+     Verify that the event is for our peer before accepting it;
+     if not, re-wait with the same timeout. */
+  uint32_t timeout_ms = s_link_api_timeout_ms(s, p);
+  for (;;) {
+    eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
+    if (evt == 0)
+      break;
+
+    eventflags_t flags = iohdlc_evt_get_and_clear_flags(&listener);
+
+    if ((flags & IOHDLC_APP_LINK_UP) &&
+        (p->ss_state & IOHDLC_SS_ST_CONN)) {
+      /* Our peer is connected. */
+      iohdlc_evt_unregister(&s->app_es, &listener);
+      return 0;
     }
-    /* Timeout: retry */
+    if ((flags & IOHDLC_APP_LINK_REFUSED) && IOHDLC_PEER_DISC(p)) {
+      /* Our peer was refused. */
+      iohdlc_evt_unregister(&s->app_es, &listener);
+      s->mode = s_mode;
+      iohdlc_errno = ECONNREFUSED;
+      return -1;
+    }
+    /* Event was for another peer: re-wait. */
   }
 
-  /* All retries exhausted */
+  /* Safety timeout expired before the protocol concluded the transaction. */
   iohdlc_evt_unregister(&s->app_es, &listener);
   s->mode = s_mode;
   iohdlc_errno = ETIMEDOUT;
@@ -693,13 +738,13 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
 
 /**
  * @brief   Terminate data link connection with a peer (extended version).
- * @details Sends DISC command and waits for UA/DM response.
- *          Implements retry logic with configurable timeout.
+ * @details Sends DISC once and waits for the protocol core to conclude the
+ *          disconnect transaction or for the API safety timeout.
  *          
  *          Primary station behavior:
  *          - Sends DISC with P=1
  *          - Waits for UA or DM response with F=1
- *          - Retries up to IOHDLC_LINKDOWN_MAX_RETRIES on timeout
+ *          - Waits once for completion with a safety timeout
  *          - Clears peer state variables and queues on success
  *          
  *          Secondary station behavior:
@@ -713,7 +758,7 @@ int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
  * @retval 0            Link terminated successfully
  * @retval -1           Error occurred:
  *                      - ENOTCONN: Not connected or peer not found
- *                      - ETIMEDOUT: No response after max retries
+ *                      - ETIMEDOUT: No terminal link event before timeout
  * 
  * @note iohdlc_errno field contains detailed error code on failure.
  * @note This function blocks until disconnection completes or fails.
@@ -725,7 +770,6 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
                                 eventmask_t evt_mask) {
   iohdlc_station_peer_t *p;
   iohdlc_event_listener_t listener;
-  uint32_t retry_count;
 
   /* Find peer by address */
   p = ioHdlcAddr2peer(s, peer_addr);
@@ -749,38 +793,39 @@ int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
   iohdlc_evt_register(&s->app_es, &listener, evt_mask,
                       IOHDLC_APP_LINK_DOWN);
 
-  /* Disconnection retry loop */
-  for (retry_count = 0; retry_count < IOHDLC_LINKDOWN_MAX_RETRIES; retry_count++) {
-    /* Set DISC command in peer descriptor */
-    p->um_cmd = IOHDLC_U_DISC;
+  iohdlc_mutex_lock(&p->state_mutex);
 
-    /* Clear disconnected-mode flag (not yet confirmed) */
-    p->ss_state &= ~IOHDLC_SS_ST_DISM;
+  /* Set DISC command in peer descriptor */
+  p->um_cmd = IOHDLC_U_DISC;
 
-    /* Signal TX task to send DISC */
-    ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
+  /* Clear disconnected-mode flag (not yet confirmed) */
+  p->ss_state &= ~IOHDLC_SS_ST_DISM;
 
-    /* Wait for app event with timeout.
-       Verify that the event is for our peer before accepting it. */
-    uint32_t timeout_ms = s->reply_timeout_ms * p->poll_retry_max;
-    for (;;) {
-      eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
-      if (evt == 0) break;  /* Timeout: fall through to retry */
+  iohdlc_mutex_unlock(&p->state_mutex);
 
-      eventflags_t flags = iohdlc_evt_get_and_clear_flags(&listener);
+  /* Signal TX task to send DISC */
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
 
-      if ((flags & IOHDLC_APP_LINK_DOWN) &&
-          !(p->ss_state & IOHDLC_SS_ST_CONN)) {
-        /* Our peer is disconnected. */
-        iohdlc_evt_unregister(&s->app_es, &listener);
-        return 0;
-      }
-      /* Event was for another peer: re-wait. */
+  /* Wait for app event with timeout.
+     Verify that the event is for our peer before accepting it. */
+  uint32_t timeout_ms = s_link_api_timeout_ms(s, p);
+  for (;;) {
+    eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
+    if (evt == 0)
+      break;
+
+    eventflags_t flags = iohdlc_evt_get_and_clear_flags(&listener);
+
+    if ((flags & IOHDLC_APP_LINK_DOWN) &&
+        !(p->ss_state & IOHDLC_SS_ST_CONN)) {
+      /* Our peer is disconnected. */
+      iohdlc_evt_unregister(&s->app_es, &listener);
+      return 0;
     }
-    /* Timeout: retry */
+    /* Event was for another peer: re-wait. */
   }
 
-  /* All retries exhausted */
+  /* Safety timeout expired before the protocol concluded the transaction. */
   iohdlc_evt_unregister(&s->app_es, &listener);
   iohdlc_errno = ETIMEDOUT;
   return -1;

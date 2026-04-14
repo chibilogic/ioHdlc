@@ -36,6 +36,9 @@ CFLAGS += -DIOHDLC_ENABLE_STATISTICS
 CFLAGS += $(IOHDLC_VERSION_DEFS)
 CFLAGS += $(CFLAGS_EXTRA)
 
+# Generate header dependency files next to object files.
+DEPFLAGS = -MMD -MP
+
 # Linker flags
 LDFLAGS = -pthread -lrt
 
@@ -144,54 +147,54 @@ dirs:
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR)
 
 # Compile core sources
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | dirs
 	@echo "CC $<"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Compile OSAL sources
-$(OBJ_DIR)/osal_%.o: $(OS_LINUX_DIR)/src/%.c
+$(OBJ_DIR)/osal_%.o: $(OS_LINUX_DIR)/src/%.c | dirs
 	@echo "CC $<"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Compile mock sources
-$(OBJ_DIR)/mock_%.o: $(MOCKS_DIR)/%.c
+$(OBJ_DIR)/mock_%.o: $(MOCKS_DIR)/%.c | dirs
 	@echo "CC $<"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Compile adapter sources (from common/adapters)
-$(OBJ_DIR)/adapter_%.o: $(COMMON_DIR)/adapters/adapter_%.c
+$(OBJ_DIR)/adapter_%.o: $(COMMON_DIR)/adapters/adapter_%.c | dirs
 	@echo "CC $< (adapter)"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Compile platform config sources
-$(OBJ_DIR)/test_config_%.o: $(LINUX_DIR)/test_config_%.c
+$(OBJ_DIR)/test_config_%.o: $(LINUX_DIR)/test_config_%.c | dirs
 	@echo "CC $< (config)"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Compile common sources
-$(OBJ_DIR)/common_%.o: $(COMMON_DIR)/%.c
+$(OBJ_DIR)/common_%.o: $(COMMON_DIR)/%.c | dirs
 	@echo "CC $<"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Compile common test scenarios (OS-agnostic)
-$(OBJ_DIR)/test_%.o: $(COMMON_SCENARIOS_DIR)/test_%.c
+$(OBJ_DIR)/test_%.o: $(COMMON_SCENARIOS_DIR)/test_%.c | dirs
 	@echo "CC $< (common)"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Compile Linux-specific test scenarios
-$(OBJ_DIR)/test_%.o: $(SCENARIOS_DIR)/test_%.c
+$(OBJ_DIR)/test_%.o: $(SCENARIOS_DIR)/test_%.c | dirs
 	@echo "CC $< (linux)"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Compile Linux test programs (in current directory)
-$(OBJ_DIR)/test_%.o: $(LINUX_DIR)/test_%.c
+$(OBJ_DIR)/test_%.o: $(LINUX_DIR)/test_%.c | dirs
 	@echo "CC $< (linux)"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Compile test runners (Linux-specific entry points)
-$(OBJ_DIR)/test_runner_%.o: $(LINUX_DIR)/test_runner_%.c
+$(OBJ_DIR)/test_runner_%.o: $(LINUX_DIR)/test_runner_%.c | dirs
 	@echo "CC $< (runner)"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Link test binaries
 $(BIN_DIR)/$(TEST_MOCK_STREAM): $(OBJ_DIR)/test_mock_stream.o $(MOCK_OBJS) $(COMMON_OBJS) $(OSAL_MINIMAL) $(OBJ_DIR)/ioHdlcll.o
@@ -287,6 +290,8 @@ test-osal: $(BIN_DIR)/$(TEST_OSAL_BSEM) $(BIN_DIR)/$(TEST_OSAL_EVENTS)
 clean:
 	@echo "Cleaning build directory..."
 	@rm -rf $(BUILD_DIR)
+
+-include $(wildcard $(OBJ_DIR)/*.d)
 
 # Help
 help:

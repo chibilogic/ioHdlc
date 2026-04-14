@@ -38,6 +38,7 @@ int main(void) {
   RUN_TEST(test_station_creation);
   RUN_TEST(test_peer_creation);
   RUN_TEST(test_swdriver_fcs_backend_capabilities);
+  RUN_TEST(test_swdriver_rejects_unsupported_modulo);
   
   /* Each adapter test gets fresh streams to avoid cross-test contamination */
   mock_adapter.init();
