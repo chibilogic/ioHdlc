@@ -330,8 +330,8 @@ bool test_swdriver_rejects_unsupported_modulo(void) {
   ioHdlcSwDriverInit(&sw_driver, NULL);
 
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NDM;
-  config.flags = IOHDLC_FLG_PRI;
+  config.mode = IOHDLC_OM_ADM;
+  config.flags = 0;
   config.log2mod = 15;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&sw_driver;
@@ -344,6 +344,49 @@ bool test_swdriver_rejects_unsupported_modulo(void) {
 
   TEST_ASSERT(result == -1, "Station init should reject unsupported modulo");
   TEST_ASSERT(iohdlc_errno == ENOTSUP, "Unsupported modulo should report ENOTSUP");
+  return 0;
+}
+
+bool test_read_zero_length_returns_zero(void) {
+  iohdlc_station_t station;
+  uint8_t frame_arena[1024];
+  ioHdlcDriver mock_driver;
+  iohdlc_station_peer_t peer;
+  char dummy = 0;
+  int32_t result;
+  ssize_t received;
+
+  result = init_test_station(&station, frame_arena, &mock_driver, PRIMARY_ADDR);
+  TEST_ASSERT(result == 0, "Station init should succeed");
+
+  result = ioHdlcAddPeer(&station, &peer, SECONDARY_ADDR);
+  TEST_ASSERT(result == 0, "Peer add should succeed");
+
+  received = ioHdlcReadTmo(&peer, &dummy, 0U, 0U);
+  TEST_ASSERT(received == 0, "Zero-length read should return 0");
+
+  return 0;
+}
+
+bool test_read_never_connected_returns_enotconn(void) {
+  iohdlc_station_t station;
+  uint8_t frame_arena[1024];
+  ioHdlcDriver mock_driver;
+  iohdlc_station_peer_t peer;
+  char dummy = 0;
+  int32_t result;
+  ssize_t received;
+
+  result = init_test_station(&station, frame_arena, &mock_driver, PRIMARY_ADDR);
+  TEST_ASSERT(result == 0, "Station init should succeed");
+
+  result = ioHdlcAddPeer(&station, &peer, SECONDARY_ADDR);
+  TEST_ASSERT(result == 0, "Peer add should succeed");
+
+  received = ioHdlcReadTmo(&peer, &dummy, 1U, 0U);
+  TEST_ASSERT(received == -1, "Read on never-connected peer should fail");
+  TEST_ASSERT(iohdlc_errno == ENOTCONN, "Never-connected read should report ENOTCONN");
+
   return 0;
 }
 
@@ -369,7 +412,7 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   
   /* Configure primary station */
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NDM;
+  config.mode = IOHDLC_OM_ADM;
   config.flags = IOHDLC_FLG_PRI;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
@@ -684,8 +727,8 @@ bool test_data_exchange_with_fcs_backend(const test_adapter_t *adapter) {
                    "Secondary driver should expose FCS-16 support");
 
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NDM;
-  config.flags = IOHDLC_FLG_PRI;
+  config.mode = IOHDLC_OM_ADM;
+  config.flags = 0;
   config.log2mod = 3;
   config.addr = PRIMARY_ADDR;
   config.driver = (ioHdlcDriver *)&driver_primary;
@@ -699,7 +742,7 @@ bool test_data_exchange_with_fcs_backend(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(result == 0, "Primary station init failed");
 
   memset(&config, 0, sizeof config);
-  config.mode = IOHDLC_OM_NDM;
+  config.mode = IOHDLC_OM_ADM;
   config.flags = 0;
   config.log2mod = 3;
   config.addr = SECONDARY_ADDR;
@@ -725,7 +768,7 @@ bool test_data_exchange_with_fcs_backend(const test_adapter_t *adapter) {
 
   ioHdlc_sleep_ms(50);
 
-  ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
+  ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_ABM);
   TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
 
   ioHdlc_sleep_ms(100);
@@ -750,4 +793,291 @@ test_cleanup:
   ioHdlcStationDeinit(&station_secondary);
 
   return test_result;
+}
+
+/*===========================================================================*/
+/* Test: Orderly Close Preserves Buffered RX                                 */
+/*===========================================================================*/
+
+bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter) {
+  int test_result = 0;
+  const char *test_msg = "Buffered RX survives local DISC";
+  size_t msg_len = strlen(test_msg);
+  ioHdlcSwDriver driver_primary, driver_secondary;
+  iohdlc_station_t station_primary, station_secondary;
+  iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
+  iohdlc_station_config_t config;
+  ioHdlcStreamPort port_primary = adapter->get_port_a();
+  ioHdlcStreamPort port_secondary = adapter->get_port_b();
+  char recv_buf[64];
+  ssize_t sent;
+  ssize_t received;
+  int32_t result;
+  int ret;
+  bool rx_queued = false;
+  int i;
+
+  memset(&station_primary, 0, sizeof station_primary);
+  memset(&station_secondary, 0, sizeof station_secondary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_ADM;
+  config.flags = 0;
+  config.log2mod = 3;
+  config.addr = PRIMARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.fff_type = 1;
+  config.phydriver = &port_primary;
+
+  result = ioHdlcStationInit(&station_primary, &config);
+  TEST_ASSERT_GOTO(result == 0, "Primary station init failed");
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_ADM;
+  config.flags = 0;
+  config.log2mod = 3;
+  config.addr = SECONDARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.fff_type = 1;
+  config.phydriver = &port_secondary;
+
+  result = ioHdlcStationInit(&station_secondary, &config);
+  TEST_ASSERT_GOTO(result == 0, "Secondary station init failed");
+
+  result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
+  TEST_ASSERT_GOTO(result == 0, "Add peer to primary failed");
+  result = ioHdlcAddPeer(&station_secondary, &peer_at_secondary, PRIMARY_ADDR);
+  TEST_ASSERT_GOTO(result == 0, "Add peer to secondary failed");
+
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
+
+  ioHdlc_sleep_ms(50);
+
+  ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_ABM);
+  TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
+
+  ioHdlc_sleep_ms(100);
+
+  sent = ioHdlcWriteTmo(&peer_at_secondary, test_msg, msg_len, 500);
+  TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Secondary write failed");
+
+  for (i = 0; i < 25; ++i) {
+    iohdlc_mutex_lock(&peer_at_primary.state_mutex);
+    rx_queued = !ioHdlc_frameq_isempty(&peer_at_primary.i_recept_q);
+    iohdlc_mutex_unlock(&peer_at_primary.state_mutex);
+    if (rx_queued)
+      break;
+    ioHdlc_sleep_ms(20);
+  }
+  TEST_ASSERT_GOTO(rx_queued,
+                   "Primary RX queue should contain unread data before DISC");
+
+  ret = ioHdlcStationLinkDown(&station_primary, SECONDARY_ADDR);
+  TEST_ASSERT_GOTO(ret == 0, "LinkDown failed");
+
+  TEST_ASSERT_GOTO(IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_primary),
+                   "Primary peer should be marked orderly closed");
+  TEST_ASSERT_GOTO(IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_secondary),
+                   "Secondary peer should be marked orderly closed");
+  TEST_ASSERT_GOTO(!IOHDLC_PEER_ABORTED(&peer_at_primary),
+                   "Primary peer should not be marked aborted");
+
+  memset(recv_buf, 0, sizeof recv_buf);
+  received = ioHdlcReadTmo(&peer_at_primary, recv_buf, sizeof recv_buf, 100);
+  TEST_ASSERT_GOTO(received == (ssize_t)msg_len,
+                   "Primary should still read buffered data after orderly close");
+  TEST_ASSERT_GOTO(memcmp(recv_buf, test_msg, msg_len) == 0,
+                   "Buffered data should survive orderly close");
+  received = ioHdlcReadTmo(&peer_at_primary, recv_buf, sizeof recv_buf, 0);
+  TEST_ASSERT_GOTO(received == 0,
+                   "Primary should observe EOF once orderly-close RX is drained");
+
+test_cleanup:
+  ioHdlc_sleep_ms(100);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
+
+  return test_result;
+}
+
+bool test_remote_disc_preserves_buffered_rx(const test_adapter_t *adapter) {
+  int test_result = 0;
+  const char *test_msg = "Buffered RX survives remote DISC";
+  size_t msg_len = strlen(test_msg);
+  ioHdlcSwDriver driver_primary, driver_secondary;
+  iohdlc_station_t station_primary, station_secondary;
+  iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
+  iohdlc_station_config_t config;
+  ioHdlcStreamPort port_primary = adapter->get_port_a();
+  ioHdlcStreamPort port_secondary = adapter->get_port_b();
+  char recv_buf[64];
+  ssize_t sent;
+  ssize_t received;
+  int32_t result;
+  int ret;
+  bool rx_queued = false;
+  int i;
+
+  memset(&station_primary, 0, sizeof station_primary);
+  memset(&station_secondary, 0, sizeof station_secondary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_NDM;
+  config.flags = IOHDLC_FLG_PRI;
+  config.log2mod = 3;
+  config.addr = PRIMARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.fff_type = 1;
+  config.phydriver = &port_primary;
+
+  result = ioHdlcStationInit(&station_primary, &config);
+  TEST_ASSERT_GOTO(result == 0, "Primary station init failed");
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_NDM;
+  config.flags = 0;
+  config.log2mod = 3;
+  config.addr = SECONDARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.fff_type = 1;
+  config.phydriver = &port_secondary;
+
+  result = ioHdlcStationInit(&station_secondary, &config);
+  TEST_ASSERT_GOTO(result == 0, "Secondary station init failed");
+
+  result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
+  TEST_ASSERT_GOTO(result == 0, "Add peer to primary failed");
+  result = ioHdlcAddPeer(&station_secondary, &peer_at_secondary, PRIMARY_ADDR);
+  TEST_ASSERT_GOTO(result == 0, "Add peer to secondary failed");
+
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
+
+  ioHdlc_sleep_ms(50);
+
+  ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_ABM);
+  TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
+
+  ioHdlc_sleep_ms(100);
+
+  sent = ioHdlcWriteTmo(&peer_at_secondary, test_msg, msg_len, 500);
+  TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Secondary write failed");
+
+  for (i = 0; i < 25; ++i) {
+    iohdlc_mutex_lock(&peer_at_primary.state_mutex);
+    rx_queued = !ioHdlc_frameq_isempty(&peer_at_primary.i_recept_q);
+    iohdlc_mutex_unlock(&peer_at_primary.state_mutex);
+    if (rx_queued)
+      break;
+    ioHdlc_sleep_ms(20);
+  }
+  TEST_ASSERT_GOTO(rx_queued,
+                   "Primary RX queue should contain unread data before remote DISC");
+
+  ret = ioHdlcStationLinkDown(&station_secondary, PRIMARY_ADDR);
+  TEST_ASSERT_GOTO(ret == 0, "Secondary LinkDown failed");
+
+  TEST_ASSERT_GOTO(IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_primary),
+                   "Primary peer should be marked orderly closed after remote DISC");
+  TEST_ASSERT_GOTO(IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_secondary),
+                   "Secondary peer should be marked orderly closed after remote DISC");
+  TEST_ASSERT_GOTO(!IOHDLC_PEER_ABORTED(&peer_at_primary),
+                   "Primary peer should not be marked aborted after remote DISC");
+
+  memset(recv_buf, 0, sizeof recv_buf);
+  received = ioHdlcReadTmo(&peer_at_primary, recv_buf, sizeof recv_buf, 100);
+  TEST_ASSERT_GOTO(received == (ssize_t)msg_len,
+                   "Primary should still read buffered data after remote DISC");
+  TEST_ASSERT_GOTO(memcmp(recv_buf, test_msg, msg_len) == 0,
+                   "Buffered data should survive remote DISC");
+  received = ioHdlcReadTmo(&peer_at_primary, recv_buf, sizeof recv_buf, 0);
+  TEST_ASSERT_GOTO(received == 0,
+                   "Primary should observe EOF once remote DISC RX is drained");
+
+test_cleanup:
+  ioHdlc_sleep_ms(100);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
+
+  return test_result;
+}
+
+bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
+  ioHdlcSwDriver driver_primary;
+  iohdlc_station_t station_primary;
+  iohdlc_station_peer_t peer_at_primary;
+  iohdlc_station_config_t config;
+  ioHdlcStreamPort port_primary = adapter->get_port_a();
+  int32_t result;
+  int ret;
+
+  memset(&station_primary, 0, sizeof station_primary);
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_NDM;
+  config.flags = IOHDLC_FLG_PRI;
+  config.log2mod = 3;
+  config.addr = PRIMARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.fff_type = 1;
+  config.phydriver = &port_primary;
+  config.reply_timeout_ms = 20U;
+  config.poll_retry_max = 1U;
+
+  result = ioHdlcStationInit(&station_primary, &config);
+  TEST_ASSERT(result == 0, "Primary station init failed");
+
+  result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
+  TEST_ASSERT(result == 0, "Add peer to primary failed");
+  TEST_ASSERT(!IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_primary),
+              "Peer should not start in orderly-closed state");
+  TEST_ASSERT(!IOHDLC_PEER_ABORTED(&peer_at_primary),
+              "Peer should not start in aborted state");
+
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT(result == 0, "Failed to start primary runner");
+
+  ioHdlc_sleep_ms(20);
+
+  ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
+  TEST_ASSERT(ret == -1, "LinkUp without responder should fail");
+  TEST_ASSERT(iohdlc_errno == ETIMEDOUT, "LinkUp failure should surface as timeout");
+  TEST_ASSERT(IOHDLC_PEER_DISC(&peer_at_primary),
+              "Peer should be disconnected after failed LinkUp");
+  TEST_ASSERT(IOHDLC_PEER_ABORTED(&peer_at_primary),
+              "Peer should be marked aborted after link timeout");
+  TEST_ASSERT(!IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_primary),
+              "Peer should not be marked orderly closed after timeout");
+  {
+    char dummy = 0;
+    ssize_t received = ioHdlcReadTmo(&peer_at_primary, &dummy, 1U, 0U);
+    TEST_ASSERT(received == -1, "Read on aborted peer should fail");
+    TEST_ASSERT(iohdlc_errno == ECONNRESET,
+                "Read on aborted peer should report ECONNRESET");
+  }
+
+  ioHdlc_sleep_ms(50);
+  ioHdlcStationDeinit(&station_primary);
+
+  return 0;
 }

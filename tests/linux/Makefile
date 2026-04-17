@@ -34,6 +34,17 @@ CFLAGS += -I$(LINUX_DIR)
 CFLAGS += -DIOHDLC_USE_POSIX
 CFLAGS += -DIOHDLC_ENABLE_STATISTICS
 CFLAGS += $(IOHDLC_VERSION_DEFS)
+
+# Linux/mock stress runs need a larger arena and mock stream buffers than the
+# generic test defaults, otherwise high-load ABM/mod128 exchange profiles end
+# up probing harness limits rather than the protocol itself.
+LINUX_EXCHANGE_ARENA_SIZE ?= 132768
+LINUX_MOCK_STREAM_BUFFER_SIZE ?= 65536
+LINUX_MOCK_STREAM_MAX_PEERS ?= 2
+
+CFLAGS += -DEXCHANGE_ARENA_SIZE=$(LINUX_EXCHANGE_ARENA_SIZE)
+CFLAGS += -DMOCK_STREAM_BUFFER_SIZE=$(LINUX_MOCK_STREAM_BUFFER_SIZE)
+CFLAGS += -DMOCK_STREAM_MAX_PEERS=$(LINUX_MOCK_STREAM_MAX_PEERS)
 CFLAGS += $(CFLAGS_EXTRA)
 
 # Generate header dependency files next to object files.

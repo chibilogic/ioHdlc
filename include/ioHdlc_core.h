@@ -45,6 +45,7 @@
 
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
+#include "ioHdlc.h"
 
 /**
  * @brief   Broadcast internal core event flags.
@@ -59,6 +60,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+extern const iohdlc_peer_rx_ops_t ioHdlcPeerRawRxOps;
 
 /* Runner -> Core: entry points */
 

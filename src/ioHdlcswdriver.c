@@ -887,7 +887,8 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
   if (drv->rx.in_frame != NULL) {
     b = &drv->rx.in_frame->frame[drv->rx.in_frame->elen];
     
-    if (*b == IOHDLC_FLAG) {
+    if ((*b == IOHDLC_FLAG) && (drv->config.frame_format_size != 2 ||
+        drv->rx.in_frame->elen != 1)) {
       /* Frame complete */
       if (!drv->rx.in_frame->elen)
         goto nextoctet;  /* Empty frame */
