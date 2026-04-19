@@ -205,12 +205,13 @@
 #define IOHDLC_UM_RCVED   0x02  /**< Unnumbered command received and pending response. */
 
 /* ss_state definitions. */
-#define IOHDLC_SS_BUSY    0x01  /**< Peer-side busy state; I-frames cannot currently be accepted. */
-#define IOHDLC_SS_REJPEND 0x02  /**< A REJ supervisory frame still needs to be sent. */
-#define IOHDLC_SS_RECVING 0x04  /**< Peer is currently receiving I-frames. */
-#define IOHDLC_SS_NEED_P  0x08  /**< Primary-side hint that the next suitable S-frame should carry P. */
-#define IOHDLC_SS_ST_DISM 0x40  /**< Peer is known to be in disconnected mode. */
-#define IOHDLC_SS_ST_CONN 0x80  /**< Peer is currently connected. */
+#define IOHDLC_SS_BUSY         0x01  /**< Peer-side busy state; I-frames cannot currently be accepted. */
+#define IOHDLC_SS_REJPEND      0x02  /**< A REJ supervisory frame still needs to be sent. */
+#define IOHDLC_SS_RECVING      0x04  /**< Peer is currently receiving I-frames. */
+#define IOHDLC_SS_NEED_P       0x08  /**< Primary-side hint that the next suitable S-frame should carry P. */
+#define IOHDLC_SS_TERM_ORDERLY 0x10  /**< Peer has been closed orderly; buffered RX data remains readable. */
+#define IOHDLC_SS_TERM_ABORTED 0x20  /**< Peer has terminated abnormally; buffered RX data is stale. */
+#define IOHDLC_SS_ST_CONN      0x80  /**< Peer is currently connected. */
 
 /* helper macros */
 /** @brief Test whether the local station is secondary. */
@@ -261,6 +262,10 @@
 #define IOHDLC_UM_ISSENT(p)   ((p)->um_state & IOHDLC_UM_SENT)
 /** @brief Test whether a peer is currently disconnected. */
 #define IOHDLC_PEER_DISC(p)   (!((p)->ss_state & IOHDLC_SS_ST_CONN))
+/** @brief Test whether a peer has been closed orderly. */
+#define IOHDLC_PEER_ORDERLY_CLOSED(p)  (((p)->ss_state & IOHDLC_SS_TERM_ORDERLY) != 0U)
+/** @brief Test whether a peer terminated abnormally. */
+#define IOHDLC_PEER_ABORTED(p)         (((p)->ss_state & IOHDLC_SS_TERM_ABORTED) != 0U)
 /** @brief Test whether a peer has advertised busy state. */
 #define IOHDLC_PEER_BUSY(p)   (((p)->ss_state & IOHDLC_SS_BUSY))
 /** @brief Test whether a peer state indicates the need to send P. */
@@ -331,6 +336,23 @@ struct iohdlc_station_framing {
 };
 
 /**
+ * @brief   Per-peer RX delivery hook.
+ * @details Called by the core after an I-frame has been accepted at the HDLC
+ *          level. The caller holds @p peer->state_mutex while invoking it.
+ *          Return true if the frame has been retained by the delivery endpoint;
+ *          return false to request the caller to discard and release it.
+ */
+typedef bool (*iohdlc_peer_rx_deliver_fn_t)(iohdlc_station_peer_t *peer,
+                                            iohdlc_frame_t *fp);
+
+/**
+ * @brief   Per-peer RX delivery operations.
+ */
+typedef struct {
+  iohdlc_peer_rx_deliver_fn_t deliver;
+} iohdlc_peer_rx_ops_t;
+
+/**
  * @brief   Type of a HDLC station peer.
  * @note    A station peer represents the state of the
  *          link that the station maintains with a peer.
@@ -370,6 +392,7 @@ struct iohdlc_station_peer {
   volatile uint8_t  ss_state;   /* Supervision state. See definitions. */
   uint8_t  um_cmd;              /* Unnumbered command event payload. */
   uint8_t  um_rsp;              /* Unnumbered response event payload. */
+  const iohdlc_peer_rx_ops_t *rx_ops; /* RX delivery endpoint for accepted I-frames. */
 
   /* data queues. */
   iohdlc_frame_q_t i_retrans_q; /* I-frame retransmission queue. No more than ks frames
@@ -388,13 +411,14 @@ struct iohdlc_station_peer {
                                    Blocks app when i_pending_count >= 2*ks or pool is LOW_WATER.
                                    Broadcast when space becomes available (ACK received or
                                    pool normal). */
-  iohdlc_sem_t i_recept_sem;    /* RX data available counting semaphore (one count per frame).
-                                   Signaled when I-frame arrives in i_recept_q.
-                                   Used by Read to block until data available. */
+  iohdlc_condvar_t rx_cv;       /* RX stream condition variable.
+                                   Read waits on the stream predicate:
+                                   partial frame available, queued RX data,
+                                   or terminal peer state. */
   iohdlc_mutex_t state_mutex;   /* Mutex protecting protocol state variables:
                                    nr, vr, vs, i_pending_count, queues (i_retrans_q, i_trans_q),
                                    chkpt_actioned, rej_actioned, ss_state,
-				   partial_read_frame/offset. */
+				   partial_read_frame/offset, and RX stream state. */
   /* partial read state. */
   iohdlc_frame_t *partial_read_frame;  /* Frame being read partially (NULL if none). */
   size_t partial_read_offset;          /* Offset within partial_read_frame's info field. */

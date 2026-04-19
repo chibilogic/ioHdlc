@@ -113,15 +113,21 @@ static void setPFInCtrl(iohdlc_station_t *s, uint8_t *ctrl, bool pf) {
 }
 
 /**
- * @brief   Mark a peer as disconnected and wake blocked transmitters.
- * @param[in] p   Peer state to update.
+ * @brief   Mark a peer as disconnected and publish its terminal state.
+ * @param[in] p           Peer state to update.
+ * @param[in] term_bits   One of IOHDLC_SS_TERM_ORDERLY, IOHDLC_SS_TERM_ABORTED,
+ *                        or zero for a neutral disconnected state.
  */
-static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p) {
+static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p, uint8_t term_bits) {
   if (p->ss_state & IOHDLC_SS_ST_CONN) {
     p->stationp->connected_count--;
   }
-  p->ss_state &= ~IOHDLC_SS_ST_CONN;
+  p->ss_state &= (uint8_t)~(IOHDLC_SS_ST_CONN |
+                            IOHDLC_SS_TERM_ORDERLY |
+                            IOHDLC_SS_TERM_ABORTED);
+  p->ss_state |= term_bits;
   iohdlc_condvar_broadcast(&p->tx_cv);
+  iohdlc_condvar_broadcast(&p->rx_cv);
 }
 
 /**
@@ -132,6 +138,7 @@ static void ioHdlcSetConnected(iohdlc_station_peer_t *p) {
   if (!(p->ss_state & IOHDLC_SS_ST_CONN)) {
     p->stationp->connected_count++;
   }
+  p->ss_state &= (uint8_t)~(IOHDLC_SS_TERM_ORDERLY | IOHDLC_SS_TERM_ABORTED);
   p->ss_state |= IOHDLC_SS_ST_CONN;
   iohdlc_condvar_broadcast(&p->tx_cv);
 }
@@ -149,6 +156,65 @@ static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
     iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(q);
     iohdlc_frame_t *fp = IOHDLC_FRAME_FROM_Q(qh);
     hdlcReleaseFrame(&p->stationp->frame_pool, fp);
+  }
+}
+
+/**
+ * @brief   Reset unnumbered-frame negotiation state for a peer.
+ * @param[in] p   Peer state to reset.
+ */
+static void resetPeerUm(iohdlc_station_peer_t *p) {
+  p->um_state = 0;
+  p->um_cmd = 0;
+}
+
+static void clearPeerTxQueues(iohdlc_station_peer_t *p) {
+  clearFrameQ(p, &p->i_retrans_q);
+  clearFrameQ(p, &p->i_trans_q);
+  p->i_pending_count = 0;
+}
+
+static void clearPeerRxBuffered(iohdlc_station_peer_t *p) {
+  if (p->partial_read_frame != NULL) {
+    hdlcReleaseFrame(&p->stationp->frame_pool, p->partial_read_frame);
+    p->partial_read_frame = NULL;
+  }
+  p->partial_read_offset = 0;
+  clearFrameQ(p, &p->i_recept_q);
+}
+
+static void resetPeerProtocolState(iohdlc_station_peer_t *p) {
+  ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
+  ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
+  p->nr = p->vr = p->vs = p->vs_highest = 0;
+  p->ss_state &= (uint8_t)(IOHDLC_SS_ST_CONN |
+                           IOHDLC_SS_TERM_ORDERLY |
+                           IOHDLC_SS_TERM_ABORTED);
+  p->poll_retry_count = 0;
+  p->frmr_condition = false;
+  p->um_rsp = 0;
+  resetPeerUm(p);
+}
+
+static void closePeerOrderly(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
+  resetPeerProtocolState(p);
+  clearPeerTxQueues(p);
+  ioHdlcSetDisconnected(p, IOHDLC_SS_TERM_ORDERLY);
+
+  if (s->connected_count == 0) {
+    s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+    setModeFunctions(s, s->mode);
+  }
+}
+
+static void abortPeerLink(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
+  resetPeerProtocolState(p);
+  clearPeerTxQueues(p);
+  ioHdlcSetDisconnected(p, IOHDLC_SS_TERM_ABORTED);
+
+  if (s->connected_count == 0) {
+    s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+    setModeFunctions(s, s->mode);
   }
 }
 
@@ -171,35 +237,14 @@ static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
   if (p->poll_retry_count >= p->poll_retry_max) {
     /* Max retries exceeded: declare link down. */
     ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_DOWN);
-    
-    /* Cleanup: stop timers, reset counters, clear U-frame state. */
-    ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
-    ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
-    p->poll_retry_count = 0;
-    p->um_state &= ~(IOHDLC_UM_SENT);
-    
-    /* Mark peer disconnected (blocks further transmissions). */
-    ioHdlcSetDisconnected(p);
 
-    /* Enter disconnected mode if no other peer is still connected. */
-    if (s->connected_count == 0) {
-      s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-      setModeFunctions(s, s->mode);
-    }
+    /* Link loss is an abnormal terminal state. */
+    abortPeerLink(s, p);
 
     return false;  /* Link down, do not retry. */
   }
   
   return true;  /* Retry allowed. */
-}
-
-/**
- * @brief   Reset unnumbered-frame negotiation state for a peer.
- * @param[in] p   Peer state to reset.
- */
-static void resetPeerUm(iohdlc_station_peer_t *p) {
-  p->um_state = 0;
-  p->um_cmd = 0;
 }
 
 /**
@@ -209,17 +254,10 @@ static void resetPeerUm(iohdlc_station_peer_t *p) {
  * @param[in] p   Peer state to reset.
  */
 static void resetPeerVars(iohdlc_station_peer_t *p) {
-  ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
-  ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
-  p->nr = p->vr = p->vs = p->vs_highest = 0;
+  resetPeerProtocolState(p);
   p->ss_state = 0;
-  p->poll_retry_count = 0;
-  p->i_pending_count = 0;
-  p->frmr_condition = false;
-  clearFrameQ(p, &p->i_retrans_q);
-  clearFrameQ(p, &p->i_recept_q);
-  clearFrameQ(p, &p->i_trans_q);
-  iohdlc_sem_init(&p->i_recept_sem, 0);
+  clearPeerTxQueues(p);
+  clearPeerRxBuffered(p);
 }
 
 /**
@@ -532,18 +570,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       /* UA received: command accepted. */
       uint8_t cmd = p->um_cmd;  /* Save command for state transition and app notification. */
       
-      /* Reset peer variables. */
-      resetPeerVars(p);
       if (cmd == IOHDLC_U_DISC) {
-        /* DISC accepted: disconnect this peer. */
-        ioHdlcSetDisconnected(p);
-
-        /* Enter disconnected mode only if no other peer is still connected. */
-        if (s->connected_count == 0) {
-          s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-          setModeFunctions(s, s->mode);
-        }
+        /* DISC accepted: close the peer orderly and keep buffered RX readable. */
+        closePeerOrderly(s, p);
       } else {
+        /* Reset peer variables. */
+        resetPeerVars(p);
         /* Connection command accepted (SNRM/SARM/SABM).
            Mode was already set by linkup() before sending command. */
         setModeFunctions(s, s->mode);
@@ -564,9 +596,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     } else if (u_cmd == IOHDLC_U_DM) {
       /* DM received: peer disconnected or refused connection. */
       uint8_t cmd = p->um_cmd;  /* Save command before clearing UM state. */
-      ioHdlcSetDisconnected(p);
-      p->ss_state |= IOHDLC_SS_ST_DISM;
-      resetPeerUm(p);
+      if (cmd == IOHDLC_U_DISC) {
+        closePeerOrderly(s, p);
+      } else {
+        ioHdlcSetDisconnected(p, 0U);
+        resetPeerUm(p);
+      }
       
       /* Re-trigger LINK_REQ (same rationale as UA path above). */
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_ST_CHG | IOHDLC_EVT_LINK_REQ);
@@ -860,7 +895,7 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
  * @param[in] fp                   Received I-frame.
  * @param[in] pf                   Poll/final bit extracted from the frame.
  * @param[out] broadcast_flags_out Accumulated core event flags to broadcast.
- * @return  true if the frame was accepted and queued for upper-layer reading.
+ * @return  true if the frame was accepted and retained by the RX delivery path.
  */
 static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p, 
                          iohdlc_frame_t *fp,
@@ -906,8 +941,11 @@ static bool handleIFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     return false;  /* Discard frame */
   }
   
-  /* Frame is in sequence: enqueue for application. */
-  ioHdlc_frameq_insert(&p->i_recept_q, &fp->q);
+  /* Frame is in sequence: hand it to the peer RX delivery endpoint. */
+  IOHDLC_ASSERT(p->rx_ops != NULL && p->rx_ops->deliver != NULL,
+                "handleIFrame: missing RX delivery hook");
+  if (!p->rx_ops->deliver(p, fp))
+    return false;
   
   /* Signal the reception of a valid I-frame */
   *broadcast_flags_out |= IOHDLC_EVT_I_RECVD;
@@ -1139,13 +1177,9 @@ static void commonRx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
   iohdlc_mutex_unlock(&p->state_mutex);
 
-  /* Signal application that I-frame is ready to read */
-  if (frame_accepted) {
-    iohdlc_sem_signal(&p->i_recept_sem);
-    return;
-  }
-
-  hdlcReleaseFrame(&s->frame_pool, fp);
+  /* Release I-frame if not accepted */
+  if (!frame_accepted)
+    hdlcReleaseFrame(&s->frame_pool, fp);
 }
 
 void ioHdlcNrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp) {
@@ -1840,8 +1874,6 @@ void ioHdlcTxEntry(void *stationp) {
       if (s_flags & IOHDLC_EVT_C_RPLYTMO) {
         if (!handleTimeoutRetry(s, p)) {
           /* Link down: max retries exceeded, switch to next peer. */
-          resetPeerUm(p);
-          resetPeerVars(p);
           ioHdlcNextPeer(s, false);
           cm_flags = 0;
           iohdlc_mutex_unlock(&p->state_mutex);
@@ -1917,14 +1949,8 @@ void ioHdlcTxEntry(void *stationp) {
 
         if (p->um_cmd == IOHDLC_U_DISC) {
           /* DISC has been received: disconnect the link. */
-          ioHdlcSetDisconnected(p);           /* Do not reset the queues to allow */
-          iohdlc_sem_signal(&p->i_recept_sem);/* the reading of remaining frames*/
-
-          /* Enter disconnected mode only if no other peer connected. */
-          if (s->connected_count == 0) {
-            s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-            setModeFunctions(s, s->mode);
-          }
+          closePeerOrderly(s, p); /* Do not reset the queues to allow */
+                                  /* the reading of remaining frames */
         }
       }
     }

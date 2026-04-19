@@ -49,9 +49,14 @@ bool test_station_creation(void);
 bool test_peer_creation(void);
 bool test_swdriver_fcs_backend_capabilities(void);
 bool test_swdriver_rejects_unsupported_modulo(void);
+bool test_read_zero_length_returns_zero(void);
+bool test_read_never_connected_returns_enotconn(void);
 bool test_snrm_handshake(const test_adapter_t *adapter);
 bool test_data_exchange(const test_adapter_t *adapter);
 bool test_data_exchange_with_fcs_backend(const test_adapter_t *adapter);
+bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter);
+bool test_remote_disc_preserves_buffered_rx(const test_adapter_t *adapter);
+bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter);
 
 /*===========================================================================*/
 /* Test: Basic Connection TWA                                                */

@@ -60,11 +60,13 @@ A **peer** represents a remote station that this station communicates with.
 
 **Peer contains:**
 - Remote address
-- Connection state (disconnected, connecting, connected)
+- Connection and terminal state (disconnected, connecting, connected,
+  orderly closed, aborted)
 - TX/RX sequence numbers (V(S), V(R), N(R))
 - Send window management
 - Retry counters
 - Timer state
+- Per-peer RX delivery endpoint for accepted I-frames
 
 **Multi-peer support:**
 One station can communicate with multiple peers (multi-point configuration).
@@ -198,6 +200,7 @@ The public FCS capability remains unified at driver level:
 - `ioHdlcStreamCallbacks` are registered by the driver and invoked by the backend.
 - The stream adapter executes the current physical submission only.
 - HDLC framing, FCS handling, transparency, receive assembly, and frame ownership remain in the driver/core layers.
+- Delivery of accepted I-frame payloads is delegated by the core to a per-peer RX endpoint; the current default endpoint is the raw peer byte stream.
 
 **Flow direction:**
 1. Station initialization reads port capabilities through `get_caps()`.
@@ -295,7 +298,7 @@ transport and reports completion with `on_tx_done`.
 
 ### RX Path (Wire → Application)
 
-The stream port receives bytes → the software driver assembles a frame and validates wire-level integrity → `ioHdlcRxEntry()` pulls the completed frame through `hdlcRecvFrame()` → the mode-specific RX handler processes the control fields, enqueues accepted I-frames into the peer reception queue, and signals the peer receive semaphore → the application's `ioHdlcReadTmo()` call wakes and returns the data. `IOHDLC_EVT_I_RECVD` is also broadcast internally so the TX/core side can react to acknowledgements and receive-side state changes.
+The stream port receives bytes → the software driver assembles a frame and validates wire-level integrity → `ioHdlcRxEntry()` pulls the completed frame through `hdlcRecvFrame()` → the mode-specific RX handler processes the control fields and hands accepted I-frames to the peer RX delivery endpoint → the current raw endpoint enqueues the payload in the peer byte-stream state and signals the RX stream predicate (`rx_cv`) → the application's `ioHdlcReadTmo()` call wakes and returns the data. `IOHDLC_EVT_I_RECVD` is also broadcast internally so the TX/core side can react to acknowledgements and receive-side state changes.
 
 ![RX data flow](diagrams/svg/rx_data_flow.svg)
 

@@ -39,6 +39,8 @@ int main(void) {
   RUN_TEST(test_peer_creation);
   RUN_TEST(test_swdriver_fcs_backend_capabilities);
   RUN_TEST(test_swdriver_rejects_unsupported_modulo);
+  RUN_TEST(test_read_zero_length_returns_zero);
+  RUN_TEST(test_read_never_connected_returns_enotconn);
   
   /* Each adapter test gets fresh streams to avoid cross-test contamination */
   mock_adapter.init();
@@ -51,6 +53,18 @@ int main(void) {
 
   mock_adapter.init();
   RUN_TEST_ADAPTER(test_data_exchange_with_fcs_backend, &mock_adapter);
+  mock_adapter.deinit();
+
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_orderly_close_preserves_buffered_rx, &mock_adapter);
+  mock_adapter.deinit();
+
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_remote_disc_preserves_buffered_rx, &mock_adapter);
+  mock_adapter.deinit();
+
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_link_timeout_marks_peer_aborted, &mock_adapter);
   mock_adapter.deinit();
 
   TEST_SUMMARY();
