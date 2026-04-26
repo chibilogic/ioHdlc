@@ -24,7 +24,7 @@ iohdlc> exchange --count=100 --size=120 --twa
 **ChibiOS standalone (compile-time):**
 
 ```bash
-make -C tests/chibios exchange TEST_MODULO=128 TEST_USE_TWA=1 TEST_DURATION_VALUE=100
+make -C tests/chibios/stm32g474re exchange TEST_MODULO=128 TEST_USE_TWA=1 TEST_DURATION_VALUE=100
 ```
 
 ## Command-Line Options

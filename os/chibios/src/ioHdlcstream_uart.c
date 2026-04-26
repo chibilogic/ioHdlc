@@ -112,6 +112,9 @@ static void chb_start(void *vctx,
 #ifdef USART_CR1_IDLEIE
     ctx->cfgp->cr1 = USART_CR1_IDLEIE;
 #endif
+#ifdef USART_CR1_FIFOEN
+    //ctx->cfgp->cr1 |= USART_CR1_FIFOEN;
+#endif
   }
   uartStart(ctx->uartp, ctx->cfgp);
 }

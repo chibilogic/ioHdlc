@@ -101,7 +101,7 @@ typedef struct __attribute__((packed)) {
   uint8_t payload[];      /**< Variable length data */
 } test_packet_t;
 
-#define TEST_PACKET_HEADER_SIZE (sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint16_t))
+#define TEST_PACKET_HEADER_SIZE 10U
 #define TEST_EXCHANGE_MAX_PACKET_SIZE 1024U
 
 /*===========================================================================*/

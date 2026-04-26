@@ -10,6 +10,7 @@ Test suite supports two execution modes via adapter pattern:
 
 ### Mock Adapter (Default)
 ```bash
+cd tests/chibios/stm32g474re
 make clean
 make              # or: make test-mock
 ```
@@ -17,6 +18,7 @@ make              # or: make test-mock
 
 ### UART Hardware Adapter  
 ```bash
+cd tests/chibios/stm32g474re
 make clean
 make test-uart
 ```
@@ -25,11 +27,11 @@ make test-uart
 ## Hardware Configuration (UART Adapter)
 
 ### Console
-- **SD1** - Test output at 115200 baud
+- Frontend-specific `TEST_OUTPUT_SD` at 115200 baud
 
 ### Endpoints
-- **UARTD2** - Endpoint A (Primary)
-- **FUARTD1** - Endpoint B (Secondary)  
+- Frontend-specific `TEST_ENDPOINT_A` - Endpoint A (Primary)
+- Frontend-specific `TEST_ENDPOINT_B` - Endpoint B (Secondary)
 - Both at 115200 baud, 8N1
 
 **Physical Connections Required:**
@@ -40,7 +42,7 @@ UARTD2_RX  <──>  FUARTD1_TX
 
 ## Board Configuration
 
-Edit `board_config/board_sama5d2x.h` to change UART assignments:
+Edit the frontend-specific `board_config/board_<frontend>.h` to change UART assignments:
 ```c
 #define TEST_OUTPUT_SD    SD1      // Console
 #define TEST_ENDPOINT_A   UARTD2   // Primary
@@ -55,14 +57,13 @@ Both adapters show adapter name in banner:
   ioHdlc Test Suite - ChibiOS/ARM
 ════════════════════════════════════════════════════════
   Adapter: Mock Stream (memory-based)
-  # or: UART Hardware (UARTD2 + FUARTD1)
+  # or: UART Hardware
 ════════════════════════════════════════════════════════
 ```
 
 ## Adding New Boards
 
-1. Create `board_config/board_<name>.h`
-2. Define TEST_OUTPUT_SD and TEST_ENDPOINT_A/B  
-3. Add conditional include in `board_config.h`
-4. Add `-DBOARD_<NAME>` to Makefile
-
+1. Create a dedicated frontend directory under `tests/chibios/`
+2. Add `board_config/board_<name>.h` in that frontend
+3. Define `TEST_OUTPUT_SD` and `TEST_ENDPOINT_A/B`
+4. Add the frontend Makefile

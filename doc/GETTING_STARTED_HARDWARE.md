@@ -100,7 +100,7 @@ other peripheral's receiver.
 ### Building for UART
 
 ```bash
-cd tests/chibios
+cd tests/chibios/stm32f411re
 make clean
 make shell USE_UART_ADAPTER=1
 ```
@@ -174,7 +174,7 @@ Both are needed. Without `IOHDLC_SPI_USE_DR` the code compiles, but the
 master cannot detect when the slave has data -- the protocol will stall.
 
 ```bash
-cd tests/chibios
+cd tests/chibios/stm32f411re
 make clean
 make shell USE_SPI_ADAPTER=1 CFLAGS_EXTRA="-DIOHDLC_SPI_USE_DR"
 ```
@@ -315,7 +315,7 @@ transfers.
 To run protocol tests without any wiring, build with the mock adapter:
 
 ```bash
-cd tests/chibios
+cd tests/chibios/stm32f411re
 make clean
 make shell
 ```
