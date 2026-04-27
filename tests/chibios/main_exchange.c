@@ -31,6 +31,9 @@
 #ifdef USE_UART_ADAPTER
   extern const test_adapter_t uart_adapter;
   #define TEST_ADAPTER (&uart_adapter)
+#elif defined(USE_SPI_ADAPTER)
+  extern const test_adapter_t spi_adapter;
+  #define TEST_ADAPTER (&spi_adapter)
 #else
   extern const test_adapter_t mock_adapter;
   #define TEST_ADAPTER (&mock_adapter)
@@ -81,7 +84,7 @@ static THD_FUNCTION(ExchangeTestRunner, arg) {
   /* Wait for serial to be ready */
   chThdSleepMilliseconds(100);
   
-  /* Run the exchange test with configured adapter (UART or mock) */
+  /* Run the exchange test with the configured adapter. */
   test_exchange_main(TEST_ADAPTER, 0, NULL);
   
   /* Test completed - loop forever */

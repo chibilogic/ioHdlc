@@ -64,26 +64,16 @@
 #define TEST_SPI_CS_PAD_B_HW    12U
 
 #if defined(TEST_SPI_USE_CS)
-/* Hardware NSS: master drives PA4, slave listens on PB12 */
-#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_2 | /*SPI_CR1_BR_1 |*/ SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
-#define TEST_SPI_CFG_B_CR1      0
 #define TEST_SPI_CS_PORT_A      TEST_SPI_CS_PORT_A_HW
 #define TEST_SPI_CS_PAD_A       TEST_SPI_CS_PAD_A_HW
 #define TEST_SPI_CS_PORT_B      TEST_SPI_CS_PORT_B_HW
 #define TEST_SPI_CS_PAD_B       TEST_SPI_CS_PAD_B_HW
 #else
-/* Software NSS: SSM=1 SSI=1 on master (no MODF), SSM=1 SSI=0 on slave (always selected) */
-#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_2 | SPI_CR1_BR_1 | SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
-#define TEST_SPI_CFG_B_CR1      (SPI_CR1_SSM)
 #define TEST_SPI_CS_PORT_A      NULL
 #define TEST_SPI_CS_PAD_A       0U
 #define TEST_SPI_CS_PORT_B      NULL
 #define TEST_SPI_CS_PAD_B       0U
 #endif
-
-/* CR2: default 8-bit, DMA managed by ChibiOS */
-#define TEST_SPI_CFG_A_CR2      0
-#define TEST_SPI_CFG_B_CR2      0
 
 /*
  * DATA_READY signal for SPI master/slave synchronization.

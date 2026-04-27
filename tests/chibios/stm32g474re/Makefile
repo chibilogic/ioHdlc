@@ -13,6 +13,7 @@ OS_CHIBIOS_DIR := $(ROOT_DIR)/os/chibios
 COMMON_DIR := $(TESTS_CHIBIOS_DIR)/../common
 COMMON_SCENARIOS_DIR := $(COMMON_DIR)/scenarios
 CONFDIR := $(TEST_CHIBIOS_FRONTEND_DIR)/conf
+FRONTEND_ADAPTERS_DIR := $(TEST_CHIBIOS_FRONTEND_DIR)/adapters
 CHIBIOS ?= $(abspath $(ROOT_DIR)/../ChibiOS)
 
 TARGET_LABEL = G474RE
@@ -143,6 +144,9 @@ COMMON_TEST_SRCS = \
 	$(COMMON_DIR)/test_helpers.c \
 	$(COMMON_DIR)/test_arenas.c
 
+FRONTEND_SRCS = \
+	$(FRONTEND_ADAPTERS_DIR)/ioHdlcstream_uart_platform.c
+
 TEST_ADAPTER_SRCS =
 
 ifeq ($(SHELL_TARGET),1)
@@ -168,6 +172,7 @@ CSRC = $(ALLCSRC) \
        $(IOHDLC_CORE_SRCS) \
        $(CHIBIOS_CONFIG_SRCS) \
        $(COMMON_TEST_SRCS) \
+       $(FRONTEND_SRCS) \
        $(TEST_ADAPTER_SRCS) \
        $(COMMON_TEST_SCENARIOS) \
        $(TEST_MAIN_SRC)
@@ -187,6 +192,7 @@ INCDIR = $(CONFDIR) \
          $(COMMON_DIR)/mocks \
          $(COMMON_DIR)/adapters \
          $(TESTS_CHIBIOS_DIR) \
+         $(FRONTEND_ADAPTERS_DIR) \
          $(TESTS_CHIBIOS_DIR)/adapters \
          $(ALLINC)
 
@@ -211,10 +217,10 @@ ifeq ($(SHELL_TARGET),1)
 endif
 
 ifdef USE_UART_ADAPTER
-  TEST_ADAPTER_SRCS = $(TESTS_CHIBIOS_DIR)/adapters/adapter_uart.c
+  TEST_ADAPTER_SRCS = $(FRONTEND_ADAPTERS_DIR)/adapter_uart.c
   UDEFS += -DUSE_UART_ADAPTER -DIOHDLC_ENABLE_STATISTICS
 else ifdef USE_SPI_ADAPTER
-  TEST_ADAPTER_SRCS = $(TESTS_CHIBIOS_DIR)/adapters/adapter_spi.c
+  TEST_ADAPTER_SRCS = $(FRONTEND_ADAPTERS_DIR)/adapter_spi.c
   UDEFS += -DUSE_SPI_ADAPTER -DIOHDLC_SPI_USE_DR -DIOHDLC_ENABLE_STATISTICS
 else
   TEST_ADAPTER_SRCS = $(COMMON_DIR)/adapters/adapter_mock.c \

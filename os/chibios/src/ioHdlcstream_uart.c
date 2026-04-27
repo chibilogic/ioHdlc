@@ -23,6 +23,7 @@
  */
 
 #include "ioHdlcstream_uart.h"
+#include "ioHdlcstream_uart_platform.h"
 #include "ioHdlcll.h"
 #include "ioHdlcosal.h"
 #include <errno.h>
@@ -109,12 +110,7 @@ static void chb_start(void *vctx,
     ctx->cfgp->rxend_cb  = chb_rxend_cb;
     ctx->cfgp->rxerr_cb  = chb_rxerr_cb;
     ctx->cfgp->timeout_cb = chb_timeout_cb;
-#ifdef USART_CR1_IDLEIE
-    ctx->cfgp->cr1 = USART_CR1_IDLEIE;
-#endif
-#ifdef USART_CR1_FIFOEN
-    //ctx->cfgp->cr1 |= USART_CR1_FIFOEN;
-#endif
+    ioHdlcStreamUartPlatformPrepareConfig(ctx->uartp, ctx->cfgp);
   }
   uartStart(ctx->uartp, ctx->cfgp);
 }
@@ -178,8 +174,10 @@ static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
 
 static void chb_rx_cancel(void *vctx) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
+
   chDbgAssert(ctx != NULL, "uart rx_cancel: null ctx");
   uartStopReceiveI(ctx->uartp);
+  ioHdlcStreamUartPlatformRxCancelCleanup(ctx->uartp);
 }
 
 static const ioHdlcStreamPortOps chibios_ops = {
