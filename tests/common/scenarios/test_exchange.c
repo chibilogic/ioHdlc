@@ -39,6 +39,7 @@
 #endif
 
 static iohdlc_station_t *st_pri, *st_sec;
+static iohdlc_station_peer_t *s_pri_peer, *s_sec_peer;
 /*===========================================================================*/
 /* Configuration                                                             */
 /*===========================================================================*/
@@ -50,7 +51,10 @@ static iohdlc_station_t *st_pri, *st_sec;
 #define EXCHANGE_ARENA_SIZE 32768
 #endif
 
-static volatile bool test_running_global = true;
+static volatile bool test_failed_global = false;
+static volatile bool s_exchange_error_reported = false;
+static volatile uint32_t s_exchange_active_workers = 0U;
+static iohdlc_mutex_t s_exchange_state_mutex;
 static uint8_t s_pri_writer_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
 static uint8_t s_sec_writer_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
 static uint8_t s_pri_reader_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
@@ -71,6 +75,24 @@ typedef struct {
   uint32_t seq;
   bool enabled;  /* Whether this thread should be active */
 } thread_context_t;
+
+static void s_exchange_abort_peer(iohdlc_station_peer_t *peer) {
+  if (peer == NULL) {
+    return;
+  }
+
+  iohdlc_mutex_lock(&peer->state_mutex);
+  if ((peer->ss_state & IOHDLC_SS_ST_CONN) != 0U &&
+      peer->stationp->connected_count > 0U) {
+    peer->stationp->connected_count--;
+  }
+  peer->ss_state &= (uint8_t)~(IOHDLC_SS_ST_CONN |
+                               IOHDLC_SS_TERM_ORDERLY);
+  peer->ss_state |= IOHDLC_SS_TERM_ABORTED;
+  iohdlc_condvar_broadcast(&peer->tx_cv);
+  iohdlc_condvar_broadcast(&peer->rx_cv);
+  iohdlc_mutex_unlock(&peer->state_mutex);
+}
 
 static uint32_t s_exchange_io_timeout_ms(const iohdlc_station_t *station,
                                          const iohdlc_station_peer_t *peer) {
@@ -142,8 +164,24 @@ static void *writer_thread(void *arg) {
         iohdlc_mutex_unlock(ctx->stats_mutex);
         packets_sent++;
       } else {
-        test_dump_station_state(st_pri, "Pri At writer error");
-        test_dump_station_state(st_sec, "Sec At writer error");
+        bool dump_once = false;
+
+        iohdlc_mutex_lock(&s_exchange_state_mutex);
+        test_failed_global = true;
+        test_request_stop();
+        if (!s_exchange_error_reported) {
+          s_exchange_error_reported = true;
+          dump_once = true;
+        }
+        iohdlc_mutex_unlock(&s_exchange_state_mutex);
+
+        s_exchange_abort_peer(s_pri_peer);
+        s_exchange_abort_peer(s_sec_peer);
+
+        if (dump_once) {
+          test_dump_station_state(st_pri, "Pri At writer error");
+          test_dump_station_state(st_sec, "Sec At writer error");
+        }
 
         if (iohdlc_errno == ETIMEDOUT)
           test_printf("Writer %u Timeout!\r\n", ctx->station->addr);
@@ -161,7 +199,11 @@ static void *writer_thread(void *arg) {
     }
   }
   test_printf("Writer %u Data written (iters %d)!\r\n", ctx->station->addr, iterations);
-  test_running_global = false;
+  iohdlc_mutex_lock(&s_exchange_state_mutex);
+  if (s_exchange_active_workers > 0U) {
+    s_exchange_active_workers--;
+  }
+  iohdlc_mutex_unlock(&s_exchange_state_mutex);
   return NULL;
 }
 
@@ -197,8 +239,24 @@ static void *reader_thread(void *arg) {
       test_printf("Reader %u zero read!\r\n", ctx->station->addr);
       test_running = false;  /* No data received, assume test end */
     } else {
-      test_dump_station_state(ctx->station, "Pri At reader error");
-      test_dump_station_state(st_sec, "Sec At writer error");
+      bool dump_once = false;
+
+      iohdlc_mutex_lock(&s_exchange_state_mutex);
+      test_failed_global = true;
+      test_request_stop();
+      if (!s_exchange_error_reported) {
+        s_exchange_error_reported = true;
+        dump_once = true;
+      }
+      iohdlc_mutex_unlock(&s_exchange_state_mutex);
+
+      s_exchange_abort_peer(s_pri_peer);
+      s_exchange_abort_peer(s_sec_peer);
+
+      if (dump_once) {
+        test_dump_station_state(st_pri, "Pri At reader error");
+        test_dump_station_state(st_sec, "Sec At reader error");
+      }
 
       test_printf("Reader %u Error %d!\r\n", ctx->station->addr, iohdlc_errno);
       test_running = false;
@@ -212,7 +270,11 @@ static void *reader_thread(void *arg) {
     }
   }
 
-  test_running_global = false;
+  iohdlc_mutex_lock(&s_exchange_state_mutex);
+  if (s_exchange_active_workers > 0U) {
+    s_exchange_active_workers--;
+  }
+  iohdlc_mutex_unlock(&s_exchange_state_mutex);
     
   return NULL;
 }
@@ -248,9 +310,15 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   
   st_pri = &station_primary;
   st_sec = &station_secondary;
+  s_pri_peer = NULL;
+  s_sec_peer = NULL;
 
   /* Reset global state for multiple runs */
-  test_running_global = true;
+  test_failed_global = false;
+  s_exchange_error_reported = false;
+  test_stop_requested = false;
+  iohdlc_mutex_init(&s_exchange_state_mutex);
+  s_exchange_active_workers = 0U;
 
   memset(&config, 0, sizeof config);
   if (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY)
@@ -413,6 +481,9 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       return 1;
     }
   }
+
+  s_pri_peer = &peer_at_primary;
+  s_sec_peer = &peer_at_secondary;
   
   /* Start runners */
   test_printf("Starting HDLC protocol runners...\r\n");
@@ -488,6 +559,12 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   ctx_sec_reader.seq = 0;
   ctx_sec_reader.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
                             config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
+
+  s_exchange_active_workers =
+      (ctx_pri_writer.enabled ? 1U : 0U) +
+      (ctx_pri_reader.enabled ? 1U : 0U) +
+      (ctx_sec_writer.enabled ? 1U : 0U) +
+      (ctx_sec_reader.enabled ? 1U : 0U);
   
   test_printf("========================================\r\n");
   test_printf("Starting data exchange...\r\n");
@@ -501,13 +578,27 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   thread_sec_reader = iohdlc_thread_create("sec_reader", 0, 0, reader_thread, &ctx_sec_reader);
   
   /* Monitor progress */
-  while (test_running_global && !test_should_stop()) {
+  while (!test_should_stop()) {
+    uint32_t active_workers;
+
+    iohdlc_mutex_lock(&s_exchange_state_mutex);
+    active_workers = s_exchange_active_workers;
+    iohdlc_mutex_unlock(&s_exchange_state_mutex);
+
+    if (active_workers == 0U) {
+      break;
+    }
+
     ioHdlc_sleep_ms(config.progress_interval_ms);
+    if (test_should_stop()) {
+      break;
+    }
     elapsed_time = (iohdlc_time_now_ms() - start_time) / 1000;
     
     if (config.duration_type == TEST_BY_TIME) {
       if (elapsed_time >= config.duration_value) {
-        test_running_global = false;
+        test_request_stop();
+        break;
       }
       test_printf("Elapsed: %u/%u seconds | PRI: %u sent, %u rcv | SEC: %u sent, %u rcv\r\n",
              elapsed_time, config.duration_value,
@@ -546,6 +637,11 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   elapsed_time = (iohdlc_time_now_ms() - start_time) / 1000;
   stats_primary.end_time_ms = iohdlc_time_now_ms();
   stats_secondary.end_time_ms = iohdlc_time_now_ms();
+
+  if (test_failed_global) {
+    s_exchange_abort_peer(&peer_at_primary);
+    s_exchange_abort_peer(&peer_at_secondary);
+  }
   
   /* Wait for threads */
   test_printf("\r\nStopping threads...\r\n");
@@ -554,7 +650,11 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   iohdlc_thread_join(thread_sec_writer);
   iohdlc_thread_join(thread_sec_reader);
   
-  ioHdlcStationLinkDown(&station_primary, station_primary.c_peer->addr);
+  if (!test_failed_global &&
+      station_primary.c_peer != NULL &&
+      !IOHDLC_PEER_DISC(&peer_at_primary)) {
+    ioHdlcStationLinkDown(&station_primary, station_primary.c_peer->addr);
+  }
 
   /* Print results */
   test_printf("\r\n");

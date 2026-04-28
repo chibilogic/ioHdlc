@@ -145,7 +145,8 @@ COMMON_TEST_SRCS = \
 	$(COMMON_DIR)/test_arenas.c
 
 FRONTEND_SRCS = \
-	$(FRONTEND_ADAPTERS_DIR)/ioHdlcstream_uart_platform.c
+	$(FRONTEND_ADAPTERS_DIR)/ioHdlcstream_uart_platform.c \
+	$(FRONTEND_ADAPTERS_DIR)/ioHdlcstream_spi_platform.c
 
 TEST_ADAPTER_SRCS =
 

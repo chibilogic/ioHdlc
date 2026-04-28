@@ -25,6 +25,7 @@
  */
 
 #include "ioHdlcstream_spi.h"
+#include "ioHdlcstream_spi_platform.h"
 #include "ioHdlcll.h"
 #include <errno.h>
 
@@ -59,7 +60,9 @@ static void chb_spi_data_cb(SPIDriver *spip) {
     chDbgAssert(ctx->cbs && ctx->cbs->on_tx_done,
                 "spi end_cb: on_tx_done not set");
 
-    spiUnselectI(spip);
+    if (ctx->is_master) {
+      spiUnselectI(spip);
+    }
 
     /* Notify the swdriver. on_tx_done() may synchronously submit the next
      * frame selected by the driver, setting tx_active = true again. */
@@ -107,9 +110,16 @@ static void chb_spi_data_cb(SPIDriver *spip) {
     ctx->rx_active = false;
     ctx->rx_ptr    = NULL;
     ctx->rx_n      = 0;
+    if (!ctx->is_master) {
+      ctx->slave_tx_needs_prepare = true;
+    }
 
     chDbgAssert(ctx->cbs && ctx->cbs->on_rx,
                 "spi data_cb: on_rx not set");
+
+    if (ctx->is_master) {
+      spiUnselectI(spip);
+    }
 
     ctx->cbs->on_rx(ctx->cbs->cb_ctx, 0);
   }
@@ -130,6 +140,11 @@ static void chb_spi_error_cb(SPIDriver *spip) {
   ctx->rx_active = false;
   ctx->rx_ptr    = NULL;
   ctx->rx_n      = 0;
+  ctx->slave_tx_needs_prepare = false;
+
+  if (ctx->is_master) {
+    spiUnselectI(ctx->spip);
+  }
 
   if (ctx->cbs && ctx->cbs->on_rx_error) {
     ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_OVERRUN);
@@ -166,6 +181,7 @@ static void chb_spi_start(void *vctx,
   ctx->rx_ptr    = NULL;
   ctx->rx_n      = 0;
   ctx->rx_active = false;
+  ctx->slave_tx_needs_prepare = false;
 
   /* Install callbacks, slave flag, and bind context pointer. */
   ctx->spip->ip = ctx;
@@ -174,6 +190,8 @@ static void chb_spi_start(void *vctx,
     ctx->cfgp->error_cb = chb_spi_error_cb;
     ctx->cfgp->slave    = !ctx->is_master;
   }
+  if (ctx->is_master)
+    spiUnselect(ctx->spip);
   spiStart(ctx->spip, ctx->cfgp);
 }
 
@@ -183,9 +201,12 @@ static void chb_spi_stop(void *vctx) {
   /* Do not submit new transactions before stopping the SPI. */
   ctx->tx_active = false;
   ctx->rx_active = false;
+  ctx->slave_tx_needs_prepare = false;
 
   /* Stop any pending transactions. */
   spiStopTransfer(ctx->spip, NULL);
+  if (ctx->is_master)
+    spiUnselect(ctx->spip);
 
   /* Stop the SPI. */
   spiStop(ctx->spip);
@@ -223,11 +244,15 @@ static int32_t chb_spi_tx_submit_frame(void *vctx, iohdlc_frame_t *fp) {
 static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
                                void *cookie) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
+  bool needs_slave_tx_prepare;
 
   chDbgAssert(ctx != NULL, "spi tx_submit: null ctx");
   chDbgAssert(ptr != NULL, "spi tx_submit: null ptr");
   chDbgAssert(len > 0U, "spi tx_submit: zero length");
   chDbgAssert(!ctx->tx_active, "spi tx_submit: tx already active");
+
+  needs_slave_tx_prepare = !ctx->is_master &&
+                           (ctx->rx_active || ctx->slave_tx_needs_prepare);
 
   if (ctx->rx_active) {
     ctx->rx_active = false;
@@ -244,6 +269,10 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
 
   ctx->tx_framep = cookie;
   ctx->tx_active = true;
+  if (needs_slave_tx_prepare) {
+    ioHdlcStreamSpiPlatformPrepareSlaveTx(ctx);
+    ctx->slave_tx_needs_prepare = false;
+  }
   if (ctx->is_master) spiSelectI(ctx->spip);
   spiStartSendI(ctx->spip, len, ptr);
 #if defined(IOHDLC_SPI_USE_DR)
@@ -385,6 +414,7 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort       *port,
   obj->rx_ptr    = NULL;
   obj->rx_n      = 0;
   obj->rx_active = !is_master;
+  obj->slave_tx_needs_prepare = false;
 
   port->ctx = obj;
   port->ops = &chibios_spi_ops;

@@ -182,6 +182,10 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         return false;
       }
     }
+    else if (strcmp(arg, "-p") == 0) {
+      test_printf("Error: Missing value for -p\r\n");
+      return false;
+    }
     /* -w N (watermark delay) */
     else if (strcmp(arg, "-w") == 0 && i + 1 < argc) {
       int delay = atoi(argv[++i]);
@@ -191,6 +195,10 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         test_printf("Error: Invalid watermark delay\r\n");
         return false;
       }
+    }
+    else if (strcmp(arg, "-w") == 0) {
+      test_printf("Error: Missing value for -w\r\n");
+      return false;
     }
     /* --error-rate=N */
     else if (arg_starts_with(arg, "--error-rate=")) {
@@ -309,6 +317,10 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     /* --help */
     else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
       print_usage();
+      return false;
+    }
+    else {
+      test_printf("Error: Unknown option '%s'\r\n", arg);
       return false;
     }
   }

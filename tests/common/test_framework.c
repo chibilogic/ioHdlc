@@ -289,6 +289,17 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
   /* Current peer information */
   iohdlc_station_peer_t *peer = station->c_peer;
   if (peer != NULL) {
+    uint32_t trans_count = 0;
+    uint32_t retrans_count = 0;
+    uint32_t recept_count = 0;
+    uint32_t queue_guard = station->frame_pool.total + 1U;
+    bool trans_loop = false;
+    bool retrans_loop = false;
+    bool recept_loop = false;
+    iohdlc_frame_q_t *fqp;
+
+    iohdlc_mutex_lock(&peer->state_mutex);
+
     test_printf("\nCurrent Peer (0x%02X):\n", peer->addr);
     test_printf("  State:          0x%08X", peer->ss_state);
     if (peer->ss_state & IOHDLC_SS_ST_CONN) test_printf(" CONNECTED");
@@ -309,24 +320,34 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     test_printf("  V(S) highest:   %u\n", peer->vs_highest);
     test_printf("  N(R):           %u (last acked)\n", peer->nr);
     
-    /* Count frames in queues by traversing */
-    uint32_t trans_count = 0, retrans_count = 0, recept_count = 0;
-    iohdlc_frame_q_t *fqp;
-    
-    for (fqp = peer->i_trans_q.next; fqp != &peer->i_trans_q; fqp = fqp->next) {
+    for (fqp = peer->i_trans_q.next;
+         fqp != &peer->i_trans_q && trans_count < queue_guard;
+         fqp = fqp->next) {
       trans_count++;
     }
-    for (fqp = peer->i_retrans_q.next; fqp != &peer->i_retrans_q; fqp = fqp->next) {
+    trans_loop = (fqp != &peer->i_trans_q);
+
+    for (fqp = peer->i_retrans_q.next;
+         fqp != &peer->i_retrans_q && retrans_count < queue_guard;
+         fqp = fqp->next) {
       retrans_count++;
     }
-    for (fqp = peer->i_recept_q.next; fqp != &peer->i_recept_q; fqp = fqp->next) {
+    retrans_loop = (fqp != &peer->i_retrans_q);
+
+    for (fqp = peer->i_recept_q.next;
+         fqp != &peer->i_recept_q && recept_count < queue_guard;
+         fqp = fqp->next) {
       recept_count++;
     }
+    recept_loop = (fqp != &peer->i_recept_q);
     
     test_printf("\nFrame Queues:\n");
-    test_printf("  I trans queue:  %u frames\n", trans_count);
-    test_printf("  I retrans queue:%u frames\n", retrans_count);
-    test_printf("  I recept queue: %u frames\n", recept_count);
+    test_printf("  I trans queue:  %u frames%s\n", trans_count,
+           trans_loop ? " (loop/corruption suspected)" : "");
+    test_printf("  I retrans queue:%u frames%s\n", retrans_count,
+           retrans_loop ? " (loop/corruption suspected)" : "");
+    test_printf("  I recept queue: %u frames%s\n", recept_count,
+           recept_loop ? " (loop/corruption suspected)" : "");
     test_printf("  Pending count:  %u (window limit: %u)\n", 
            peer->i_pending_count, peer->ks * 2);
     
@@ -349,6 +370,8 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     test_printf("  T3    timer:  %s%s\n",
            iohdlc_vt_is_armed(&peer->t3_tmr) ? "ACTIVE" : "stopped",
            peer->t3_tmr.expired ? " (EXPIRED)" : "");
+
+    iohdlc_mutex_unlock(&peer->state_mutex);
   } else {
     test_printf("\nNo current peer\n");
   }

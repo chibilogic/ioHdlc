@@ -348,6 +348,7 @@
 #define STM32_SPI_SPI3_IRQ_PRIORITY         10
 #define STM32_SPI_SPI4_IRQ_PRIORITY         10
 #define STM32_SPI_DMA_ERROR_HOOK(spip)      osalSysHalt("DMA failure")
+#define STM32_SPI_FILLER_PATTERN            0xA5B4C3E2U
 
 /*
  * ST driver system settings.

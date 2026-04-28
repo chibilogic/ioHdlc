@@ -37,7 +37,7 @@
 
 #if defined(TEST_SPI_USE_CS)
 /* Hardware NSS: master drives PA4 as GPIO select, slave listens on PB12 */
-#define TEST_SPI_ADAPTER_CFG_A_CR1  (SPI_CR1_BR_2 | SPI_CR1_BR_1 | SPI_CR1_BR_0)
+#define TEST_SPI_ADAPTER_CFG_A_CR1  (SPI_CR1_BR_2 /*| SPI_CR1_BR_1 | SPI_CR1_BR_0*/)
 #define TEST_SPI_ADAPTER_CFG_B_CR1  0
 #else
 /* Software NSS: SSM=1 SSI=1 on master, SSM=1 SSI=0 on slave. */
