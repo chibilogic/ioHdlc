@@ -5,7 +5,7 @@ Standalone binary with compile-time configuration. For full tool documentation (
 ## Building
 
 ```bash
-cd tests/chibios
+cd tests/chibios/stm32g474re
 
 # Default (mock adapter)
 make exchange

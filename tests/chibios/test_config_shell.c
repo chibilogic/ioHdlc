@@ -67,7 +67,7 @@ static void print_usage(void) {
               (unsigned)IOHDLC_POLL_RETRY_MAX_DEFAULT);
   test_printf("  --mode=MODE         Mode: nrm|abm (default: nrm)\r\n");
   test_printf("  --twa               Use Two-Way Alternate\r\n");
-  test_printf("  --tws               Use Two-Way Simultaneous (default)\r\n");
+  test_printf("  --tws               Use Two-Way Simultaneous\r\n");
   test_printf("  --time=N            Run for N seconds (vs --count)\r\n");
   test_printf("  --watermark-delay=N Reader delay every 256 packets in ms (default: 0)\r\n");
   test_printf("  --krs=N             Window size (ks=kr=N, >=1; default: modmask)\r\n");
@@ -182,6 +182,10 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         return false;
       }
     }
+    else if (strcmp(arg, "-p") == 0) {
+      test_printf("Error: Missing value for -p\r\n");
+      return false;
+    }
     /* -w N (watermark delay) */
     else if (strcmp(arg, "-w") == 0 && i + 1 < argc) {
       int delay = atoi(argv[++i]);
@@ -191,6 +195,10 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         test_printf("Error: Invalid watermark delay\r\n");
         return false;
       }
+    }
+    else if (strcmp(arg, "-w") == 0) {
+      test_printf("Error: Missing value for -w\r\n");
+      return false;
     }
     /* --error-rate=N */
     else if (arg_starts_with(arg, "--error-rate=")) {
@@ -309,6 +317,10 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     /* --help */
     else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
       print_usage();
+      return false;
+    }
+    else {
+      test_printf("Error: Unknown option '%s'\r\n", arg);
       return false;
     }
   }

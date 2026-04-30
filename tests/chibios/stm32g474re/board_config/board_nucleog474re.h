@@ -13,26 +13,26 @@
  *
  * See the LICENSE file for details.
  */
-#ifndef BOARD_NUCLEOF411_H
-#define BOARD_NUCLEOF411_H
+#ifndef BOARD_NUCLEOG474_H
+#define BOARD_NUCLEOG474_H
 /*
  * Test console output
- * Uses Serial Driver SD1 for test results and debug messages
+ * Uses the board VCP on LPUART1 (PA2/PA3).
  */
-#define TEST_OUTPUT_SD    SD2
+#define TEST_OUTPUT_SD    LPSD1
 /*
  * Test endpoints for HDLC protocol
- * UARTD1: UART1 - Endpoint A (Primary station)
- * UARTD6: UART6 - Endpoint B (Secondary station)
+ * UARTD1: USART1 - Endpoint A (Primary station)
+ * UARTD3: USART3 - Endpoint B (Secondary station)
  *
  * Physical connections required:
- *   UARTD1_TX (PA9,  USART1_TX)  <-->  UARTD6_RX (PC7,  USART6_RX)
- *   UARTD1_RX (PA10, USART1_RX)  <-->  UARTD6_TX (PC6,  USART6_TX)
+ *   UARTD1_TX (PA9,  USART1_TX)  <-->  UARTD3_RX (PC11, USART3_RX)
+ *   UARTD1_RX (PA10, USART1_RX)  <-->  UARTD3_TX (PC10, USART3_TX)
  *
- * Console (SD2/USART2): PA2 = USART2_TX (ARD_D1), PA3 = USART2_RX (ARD_D0)
+ * Console VCP: PA2 = LPUART1_TX, PA3 = LPUART1_RX
  */
 #define TEST_ENDPOINT_A   UARTD1
-#define TEST_ENDPOINT_B   UARTD6
+#define TEST_ENDPOINT_B   UARTD3
 
 /*
  * Test endpoints for SPI
@@ -64,26 +64,16 @@
 #define TEST_SPI_CS_PAD_B_HW    12U
 
 #if defined(TEST_SPI_USE_CS)
-/* Hardware NSS: master drives PA4, slave listens on PB12 */
-#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_2 | /*SPI_CR1_BR_1 |*/ SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
-#define TEST_SPI_CFG_B_CR1      0
 #define TEST_SPI_CS_PORT_A      TEST_SPI_CS_PORT_A_HW
 #define TEST_SPI_CS_PAD_A       TEST_SPI_CS_PAD_A_HW
 #define TEST_SPI_CS_PORT_B      TEST_SPI_CS_PORT_B_HW
 #define TEST_SPI_CS_PAD_B       TEST_SPI_CS_PAD_B_HW
 #else
-/* Software NSS: SSM=1 SSI=1 on master (no MODF), SSM=1 SSI=0 on slave (always selected) */
-#define TEST_SPI_CFG_A_CR1      (SPI_CR1_BR_2 | SPI_CR1_BR_1 | SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
-#define TEST_SPI_CFG_B_CR1      (SPI_CR1_SSM)
 #define TEST_SPI_CS_PORT_A      NULL
 #define TEST_SPI_CS_PAD_A       0U
 #define TEST_SPI_CS_PORT_B      NULL
 #define TEST_SPI_CS_PAD_B       0U
 #endif
-
-/* CR2: default 8-bit, DMA managed by ChibiOS */
-#define TEST_SPI_CFG_A_CR2      0
-#define TEST_SPI_CFG_B_CR2      0
 
 /*
  * DATA_READY signal for SPI master/slave synchronization.
@@ -97,4 +87,4 @@
 #define TEST_SPI_DR_LINE_A    PAL_LINE(GPIOA, 8U)   /* master: DR input  */
 #define TEST_SPI_DR_LINE_B    PAL_LINE(GPIOB, 10U)  /* slave:  DR output */
 
-#endif /* BOARD_NUCLEOF411_H */
+#endif /* BOARD_NUCLEOG474_H */

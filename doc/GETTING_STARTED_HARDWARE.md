@@ -1,13 +1,13 @@
 # Getting Started with Hardware
 
-This guide walks through setting up ioHdlc on an STM32 Nucleo-F411RE board,
+This guide walks through setting up ioHdlc on an STM32 NUCLEO-G474RE board,
 from wiring to running a first HDLC exchange over real UART or SPI hardware.
 
 ## What You Need
 
-- **STM32 Nucleo-F411RE** board (any revision)
+- **STM32 NUCLEO-G474RE** board
 - **2-5 female-female jumper wires** (2 for UART, 5 for SPI)
-- **USB micro-B cable** (for ST-Link programming and console)
+- **USB cable** for ST-Link power, programming, and console
 - **Serial terminal**: `screen`, `minicom`, or PuTTY
 
 ## Build Environment
@@ -49,23 +49,13 @@ Or override the path on the command line:
 make shell CHIBIOS=/path/to/ChibiOS
 ```
 
-### OpenOCD (optional)
-
-Needed for flashing via command line. Drag-and-drop flashing via the
-Nucleo's USB mass storage device does not require OpenOCD.
-
-```bash
-sudo apt install openocd
-```
-
 ## Console Output
 
-The test console uses **USART2** (PA2/PA3), which is routed through the
-ST-Link virtual COM port on the Nucleo board. **No external wiring is needed
-for the console** -- just connect the USB cable.
+The test console uses **LPUART1** (`PA2` / `PA3`), routed through the
+ST-Link virtual COM port. No external wiring is needed for the console.
 
-The console appears as `/dev/ttyACM0` (Linux) or `COMx` (Windows).
-Settings: **115200 baud, 8N1**.
+The console typically appears as `/dev/ttyACM0` (Linux) or `COMx`
+(Windows). Settings: **115200 baud, 8N1**.
 
 ```bash
 screen /dev/ttyACM0 115200
@@ -73,129 +63,122 @@ screen /dev/ttyACM0 115200
 
 ## Board Pinout Reference
 
-The following diagram shows the Nucleo-F411RE connector layout. All test pins
-are on **CN10** (right-side Morpho connector), except the SPI master CS (PA4)
-which is on **CN8**.
+The following figure shows the `NUCLEO-G474RE` connector layout with the pins
+used by the `stm32g474re` frontend highlighted.
 
-![Nucleo-F411RE pinout](resources/nucleo_f411re_pinout.png)
+![NUCLEO-G474RE pinout](resources/nucleo_g474re_pinout.jpg)
 
 ## UART Loopback Wiring
 
-The UART test uses two UART peripherals on the same board, cross-connected
-to form a loopback: USART1 (Endpoint A, primary) talks to USART6 (Endpoint B,
-secondary). Both stations run on the same MCU.
+The UART test uses two UART peripherals on the same MCU, cross-connected
+for loopback:
 
-**2 wires, both on the CN10 Morpho connector (right side of the board):**
+- **Endpoint A / Primary**: `USART1`
+- **Endpoint B / Secondary**: `USART3`
+
+**2 wires:**
 
 ![UART loopback wiring](resources/wiring_uart.png)
 
 | Wire | From | To |
 |------|------|----|
-| 1 | PA9 — USART1_TX (CN10-21 / D8) | PC7 — USART6_RX (CN10-19 / D9) |
-| 2 | PC6 — USART6_TX (CN10-4) | PA10 — USART1_RX (CN10-33 / D2) |
+| 1 | `PA9` — `USART1_TX` | `PC11` — `USART3_RX` |
+| 2 | `PC10` — `USART3_TX` | `PA10` — `USART1_RX` |
 
-The cross-connection (TX-to-RX) is essential: each transmitter connects to the
-other peripheral's receiver.
+The cross-connection is essential: each transmitter connects to the other
+peripheral's receiver.
 
 ### Building for UART
 
 ```bash
-cd tests/chibios
+cd tests/chibios/stm32g474re
 make clean
 make shell USE_UART_ADAPTER=1
 ```
 
 This builds `build/iohdlc_shell.elf` with the UART hardware adapter at
-1.2 Mbaud on both endpoints.
+**2.6 Mbaud** on both endpoints.
 
 Other targets work the same way:
 
 ```bash
-make tests USE_UART_ADAPTER=1       # automated test suite
-make exchange USE_UART_ADAPTER=1    # stress test (compile-time config)
+make tests USE_UART_ADAPTER=1
+make exchange USE_UART_ADAPTER=1
 ```
+
+During a sustained UART stress test, you can also unplug and reconnect one of
+the two UART loopback wires to observe the protocol recovery behavior in
+practice. If the connection is restored within the protocol recovery window,
+the exchange resumes regularly. With the default `exchange` parameters, this
+window is about **26.6 s**. This experiment is especially convenient on UART
+because the loopback uses only two wires; the SPI setup is more articulated
+and is less practical for this kind of manual disruption test.
 
 ## SPI Loopback Wiring
 
-The SPI test uses SPI1 (master, Endpoint A) and SPI2 (slave, Endpoint B)
-on the same board, cross-connected for loopback.
+The SPI test uses `SPI1` (master, Endpoint A) and `SPI2` (slave, Endpoint B)
+on the same MCU, cross-connected for loopback.
 
-**5 wires** -- 3 SPI data signals (SCK, MOSI, MISO), 1 chip select (CS),
-and 1 DATA_READY (DR):
+This frontend uses:
+
+- hardware `CS/NSS`
+- `DATA_READY` (`DR`) for slave-to-master notification
+
+So the default loopback requires **5 wires**:
 
 ![SPI loopback wiring](resources/wiring_spi.png)
 
 | Wire | From | To |
 |------|------|----|
-| 1 | PB3 — SPI1_SCK (CN10-31 / D3) | PB13 — SPI2_SCK (CN10-30) |
-| 2 | PB5 — SPI1_MOSI (CN10-29 / D4) | PB15 — SPI2_MOSI (CN10-26) |
-| 3 | PB14 — SPI2_MISO (CN10-28) | PB4 — SPI1_MISO (CN10-27 / D5) |
-| 4 | PA4 — SPI1_NSS (CN8-3 / A2) | PB12 — SPI2_NSS (CN10-16) |
-| 5 | PB10 — DR output (CN10-25 / D6) | PA8 — DR input (CN10-23 / D7) |
-
-All SPI2 pins and the DATA_READY signals are on **CN10**. The master CS pin
-(PA4) is on **CN8** (Arduino A2 header); all other wires are on the same
-connector.
+| 1 | `PB3` — `SPI1_SCK` | `PB13` — `SPI2_SCK` |
+| 2 | `PB5` — `SPI1_MOSI` | `PB15` — `SPI2_MOSI` |
+| 3 | `PB14` — `SPI2_MISO` | `PB4` — `SPI1_MISO` |
+| 4 | `PA4` — `SPI1_NSS` | `PB12` — `SPI2_NSS` |
+| 5 | `PB10` — `DR output` | `PA8` — `DR input` |
 
 ### Why DATA_READY Is Required
 
-SPI is a master-driven bus: the master generates the clock for every
-transfer. This means the master has no way to know when the slave has a
-frame ready to send -- regardless of whether the SPI peripheral has a
-hardware FIFO or not.
+SPI is a master-driven bus: the master generates the clock for every transfer.
+Even with DMA, the master has no way to know when the slave has queued a frame
+to send unless an out-of-band signal is provided.
 
-Without an out-of-band signal, the only alternative is continuous receive
-polling with single-byte transactions. On the STM32F411's SPI peripheral,
-which lacks a hardware FIFO, the per-transaction overhead makes this
-approach impractical even at moderate data rates.
+The **DATA_READY (`DR`)** line solves this:
 
-The **DATA_READY (DR)** line solves this. The slave asserts DR (active high)
-when it has queued a frame for transmission. The master monitors DR via a
-GPIO interrupt (PAL event callback) and initiates a DMA receive transfer
-only when data is actually available.
+- the slave asserts `DR` high when a frame is ready to transmit
+- the master monitors `DR` via a GPIO interrupt
+- the master starts the receive DMA transfer only when real data is pending
 
-Even on MCUs with more capable SPI peripherals, DR remains beneficial: it
-eliminates polling overhead entirely and allows the master to use efficient
-DMA transfers sized to the actual frame length.
-
-@note The `IOHDLC_SPI_USE_DR` compile flag controls whether DR support is
-included in the build.
+On the `G474RE`, the SPI peripheral's FIFO helps absorb short receive rearm
+latencies, but it does not remove the need for `DR`: the master still needs a
+deterministic indication that a slave frame is ready.
 
 ### Building for SPI
 
-The SPI adapter requires **two build options**:
-
-| Option | Purpose |
-|--------|---------|
-| `USE_SPI_ADAPTER=1` | Selects `adapter_spi.c` and the SPI stream port backend |
-| `CFLAGS_EXTRA="-DIOHDLC_SPI_USE_DR"` | Enables DATA_READY line handling in the SPI stream driver and the test adapter |
-
-Both are needed. Without `IOHDLC_SPI_USE_DR` the code compiles, but the
-master cannot detect when the slave has data -- the protocol will stall.
-
 ```bash
-cd tests/chibios
+cd tests/chibios/stm32g474re
 make clean
-make shell USE_SPI_ADAPTER=1 CFLAGS_EXTRA="-DIOHDLC_SPI_USE_DR"
+make shell USE_SPI_ADAPTER=1
 ```
+
+For this frontend, `USE_SPI_ADAPTER=1` already enables `IOHDLC_SPI_USE_DR`.
+No extra `CFLAGS_EXTRA` flag is required.
 
 Other targets:
 
 ```bash
-make tests USE_SPI_ADAPTER=1 CFLAGS_EXTRA="-DIOHDLC_SPI_USE_DR"
-make exchange USE_SPI_ADAPTER=1 CFLAGS_EXTRA="-DIOHDLC_SPI_USE_DR"
+make tests USE_SPI_ADAPTER=1
+make exchange USE_SPI_ADAPTER=1
 ```
 
 ### SPI Operates in TWA Mode
 
 The SPI adapter sets the `ADAPTER_CONSTRAINT_TWA_ONLY` flag. The exchange
-tool detects this and selects TWA mode automatically -- there is no need
-to pass `--twa` explicitly. If you explicitly pass `--tws`, the tool will
-print an error and exit.
+tool detects this and selects `TWA` mode automatically. If you explicitly
+request `TWS`, the tool prints an error and exits.
 
 ## Flashing
 
-### Drag-and-drop (simplest)
+### Drag-and-drop
 
 Copy the `.bin` file to the `NUCLEO` USB mass storage device that appears
 when the board is connected:
@@ -206,21 +189,11 @@ cp build/iohdlc_shell.bin /media/$USER/NUCLEO/
 
 The board resets and runs the firmware automatically.
 
-### OpenOCD
+### Other flashing workflows
 
-```bash
-openocd -f board/st_nucleo_f4.cfg \
-  -c "program build/iohdlc_shell.elf verify reset exit"
-```
-
-### GDB
-
-```bash
-arm-none-eabi-gdb build/iohdlc_shell.elf
-(gdb) target extended-remote :3333
-(gdb) load
-(gdb) continue
-```
+If you prefer OpenOCD, GDB, or another debugger-driven workflow, use the
+standard STM32G474RE setup already established in your environment. The
+generated ELF/BIN artifacts are in `tests/chibios/stm32g474re/build/`.
 
 ## Running Your First Test
 
@@ -243,7 +216,7 @@ Expected output:
 Initializing HDLC stations...
 ========================================
 
-Using adapter: UART Hardware (UARTD1 + UARTD6)
+Using adapter: UART Hardware
 
 ========================================
 Starting HDLC protocol runners...
@@ -269,8 +242,8 @@ TEST COMPLETED
 iohdlc> exchange --count=10 --size=64
 ```
 
-The output is the same, but the adapter reports `SPI Hardware (SPI1 + SPI2)`.
-TWA mode is selected automatically by the adapter constraint.
+The output is analogous, but the adapter reports `SPI Hardware`. `TWA` mode
+is selected automatically by the adapter constraint.
 
 ### Stress test
 
@@ -284,62 +257,56 @@ See [Exchange Test Tool](TEST_EXCHANGE.md) for all available options.
 
 ## Performance
 
-Even on the Nucleo-F411RE -- a low-cost Cortex-M4 board with basic
-peripherals -- ioHdlc achieves substantial net payload throughput:
+The current `stm32g474re` hardware frontends are configured as follows:
 
-| Transport | Mode | Net payload throughput |
-|-----------|------|------------------------|
-| UART (1.2 Mbaud) | Full-duplex (TWS) | >1 Mb/s bidirectional |
-| SPI | Half-duplex (TWA) | >1.3 Mb/s unidirectional |
+- **UART**: `2.6 Mbaud` on both endpoints
+- **SPI**: `SCK = 170 MHz / 32 = 5.3125 MHz`
 
-These figures are measured with the `exchange` tool using maximum-size
-frames (120 bytes) and sustained traffic, and refer to **application payload bytes** delivered end-to-end, net of
-HDLC framing overhead. Both stations run on the **same MCU**, which introduces
-shared-bus contention not present in a real deployment; actual throughput
-on separate devices is expected to be higher.
+On the `NUCLEO-G474RE`, the UART backend has been validated at `2.6 Mbaud`
+and reaches about **1.9 Mb/s** of net payload throughput in sustained
+`ABM/TWS` traffic.
 
-The UART rate is limited by the baud rate. The SPI rate is limited by the
-DMA round-trip and the F411's basic SPI peripheral, which lacks a hardware
-FIFO and other DMA-friendly features found on higher-end STM32 families --
-significantly better throughput (×10) is expected on MCUs with more
-capable SPI peripherals. Both transports use DMA for zero-copy frame
-transfers.
+On the `NUCLEO-G474RE`, the SPI backend has been validated at `5.3125 MHz`
+and reaches about **4.6 Mb/s** of net payload throughput in sustained `TWA`
+traffic.
 
-> **Note (SPI):** The >1.3 Mb/s figure requires the DATA_READY signal
-> (`IOHDLC_SPI_USE_DR`) and a patch to the F411 low-level SPI driver
-> that eliminates the SPI peripheral reset between transfers. Without the
-> patch, throughput is lower.
+These figures refer to **application payload bytes** delivered end-to-end,
+not raw wire bitrate. HDLC framing, DMA turnarounds, and `DR` handshakes are
+not counted as payload.
+
+Both endpoints run on the **same MCU**, so the measurements include resource
+sharing effects that do not exist in a two-device deployment.
 
 ## Mock Adapter (No Hardware)
 
 To run protocol tests without any wiring, build with the mock adapter:
 
 ```bash
-cd tests/chibios
+cd tests/chibios/stm32g474re
 make clean
 make shell
 ```
 
-The mock adapter uses in-memory loopback -- useful for validating the
+The mock adapter uses in-memory loopback and is useful for validating the
 firmware build and ChibiOS integration without hardware connections.
 
 ## Troubleshooting
 
 **No serial output after flashing:**
-- Verify the USB cable is connected to the ST-Link micro-USB port (not the
-  Nucleo user USB if present)
-- Check the serial port name (`ls /dev/ttyACM*`) and baud rate (115200)
-- Press the black RESET button on the board
+- Verify the USB cable is connected to the ST-Link USB connector
+- Check the serial port name (`ls /dev/ttyACM*`) and baud rate (`115200`)
+- Press the board RESET button
 
-**"Connection not established" error:**
-- Verify the TX-to-RX cross-wiring (most common mistake: TX connected to TX)
-- Check that jumper wires are firmly seated in the Morpho headers
+**UART: connection not established**
+- Verify the TX-to-RX cross-wiring (`PA9 -> PC11`, `PC10 -> PA10`)
+- Check that the jumper wires are firmly seated
 
-**SPI: protocol stalls or no data received:**
-- Verify the DATA_READY wire (PB10 → PA8) is connected
-- Verify the build includes `CFLAGS_EXTRA="-DIOHDLC_SPI_USE_DR"`
-- Check that CS wire (PA4 → PB12) is connected
+**SPI: protocol stalls or no data received**
+- Verify all five SPI wires are connected
+- Check the `DR` wire: `PB10 -> PA8`
+- Check the `CS/NSS` wire: `PA4 -> PB12`
+- Build with `USE_SPI_ADAPTER=1`
 
-**SPI: "adapter requires TWA mode" error:**
-- Do not pass `--tws` when using the SPI adapter; TWA is the only supported
-  mode on half-duplex SPI transports
+**SPI: "adapter requires TWA mode" error**
+- Do not pass `--tws` when using the SPI adapter
+- `TWA` is the only supported mode on this half-duplex SPI transport

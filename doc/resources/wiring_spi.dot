@@ -4,15 +4,15 @@ digraph spi_loopback {
   node [shape=record, fontname="Helvetica", fontsize=11];
   edge [fontname="Helvetica", fontsize=10, penwidth=1.5];
 
-  label="SPI Loopback Wiring — Nucleo-F411RE";
+  label="SPI Loopback Wiring — NUCLEO-G474RE";
   labelloc=t;
   fontname="Helvetica";
   fontsize=13;
 
-  spi1 [label="<sck> PB3  — SPI1_SCK\n(CN10-31 / D3) | <mosi> PB5  — SPI1_MOSI\n(CN10-29 / D4) | <miso> PB4  — SPI1_MISO\n(CN10-27 / D5) | <cs> PA4  — SPI1_NSS\n(CN8-3 / A2) | <dr> PA8  — DR input\n(CN10-23 / D7)"
+  spi1 [label="<sck> PB3  — SPI1_SCK | <mosi> PB5  — SPI1_MOSI | <miso> PB4  — SPI1_MISO | <cs> PA4  — SPI1_NSS | <dr> PA8  — DR input"
         xlabel="Endpoint A\n(Master / SPI1)"];
 
-  spi2 [label="<sck> PB13 — SPI2_SCK\n(CN10-30) | <mosi> PB15 — SPI2_MOSI\n(CN10-26) | <miso> PB14 — SPI2_MISO\n(CN10-28) | <cs> PB12 — SPI2_NSS\n(CN10-16) | <dr> PB10 — DR output\n(CN10-25 / D6)"
+  spi2 [label="<sck> PB13 — SPI2_SCK | <mosi> PB15 — SPI2_MOSI | <miso> PB14 — SPI2_MISO | <cs> PB12 — SPI2_NSS | <dr> PB10 — DR output"
         xlabel="Endpoint B\n(Slave / SPI2)"];
 
   spi1:sck  -> spi2:sck  [color="#9C27B0", label="SCK"];

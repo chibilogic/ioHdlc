@@ -78,7 +78,7 @@ static const SerialConfig sdcfg = {
 static void cmd_exchange(BaseSequentialStream *chp, int argc, char *argv[]) {
   (void)chp;
   
-  /* Pass adapter (UART or mock) and arguments to test_exchange_main */
+  /* Pass the configured adapter and arguments to test_exchange_main. */
   test_exchange_main(TEST_ADAPTER, argc, argv);
 }
 

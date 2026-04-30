@@ -101,7 +101,7 @@ static THD_FUNCTION(TestRunner, arg) {
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 
            "════════════════════════════════════════════════════════\r\n");
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, "\r\n");
-  /* Initialize test adapter (mock or UART) */
+  /* Initialize the configured test adapter. */
   TEST_ADAPTER->init();
   /* Run Frame Pool Tests */
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD, 

@@ -29,10 +29,13 @@ In HDLC, it is permitted for the closing flag of a frame to also serve as the op
 
 #### Address Field (8 bits)
 
-- **Format**: `AAAAAAAP` (7-bit address + 1-bit P/F)
-- **Address**: Bits 7-1 (0-127)
-- **Extension Bit**: Bit 0 (always 1 in 8-bit addressing)
-- **Example**: Address 0x03 → `00000011`
+- **Format**: `AAAAAAAA`
+- **Address Space**: All 256 values are available
+- **Reserved Values**:
+  - `0x00`: no-station address
+  - `0xFF`: all-stations address
+- **Individual Station Addresses**: `0x01` to `0xFE`
+- **Example**: Address `0x02` → `00000010`
 
 #### Control Field
 
@@ -676,20 +679,22 @@ Clear state, enter NDM
 
 ### Address Field
 
-**8-bit Address:**
-- Bits 7-1: Address (0-127)
-- Bit 0: Extension (always 1)
+**Single-octet addressing (used by ioHdlc):**
+- All 256 combinations are available
+- `0x00`: no-station address
+- `0xFF`: all-stations address
+- `0x01` to `0xFE`: individual station addresses
 
-**Extended Addressing (optional):**
-- Multiple address bytes
-- Extension bit = 0: more bytes follow
-- Extension bit = 1: last byte
+**Extended addressing:**
+- Defined by the HDLC standard
+- Not used by ioHdlc
 
 **Examples:**
 ```
-Single byte:  0x03 = 00000011 (address 1)
-Single byte:  0x05 = 00000101 (address 2)
-Two bytes:    0x02 0x03 (extended address)
+Single byte:  0x01 = 00000001 (station 1)
+Single byte:  0x02 = 00000010 (station 2)
+Single byte:  0x00 = 00000000 (no-station)
+Single byte:  0xFF = 11111111 (all-stations)
 ```
 
 ### Broadcast Address

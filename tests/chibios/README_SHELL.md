@@ -7,7 +7,7 @@ For full tool documentation (all options, statistics, threading, examples), see 
 ## Building
 
 ```bash
-cd tests/chibios
+cd tests/chibios/stm32g474re
 
 # Default (mock adapter)
 make shell
@@ -74,7 +74,7 @@ Green LED (PA5) blinks at 1 Hz (100ms ON, 900ms OFF) to indicate the system is r
 
 ## Shell Configuration
 
-Edit `conf/shellconf.h` to adjust:
+Edit the frontend-specific `conf/shellconf.h` to adjust:
 
 - `SHELL_MAX_LINE_LENGTH` -- command line buffer
 - `SHELL_MAX_ARGUMENTS` -- max argument count

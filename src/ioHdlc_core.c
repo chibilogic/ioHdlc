@@ -1474,7 +1474,10 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
   const bool window_full = outstanding >= p->ks;
   const bool no_i_frame = ioHdlc_frameq_isempty(&p->i_trans_q) || window_full;
   bool set_pf = is_command ?
-    (IOHDLC_USE_TWA(s) ? IOHDLC_F_ISRCVED(s) && no_i_frame : IOHDLC_F_ISRCVED(s)) :
+    (IOHDLC_USE_TWA(s) ?
+      (IOHDLC_F_ISRCVED(s) &&
+       (no_i_frame || (IOHDLC_PEER_BUSY(p) && IOHDLC_NEED_P(p)))) :
+      IOHDLC_F_ISRCVED(s)) :
     (IOHDLC_P_ISRCVED(s) && (no_i_frame || IOHDLC_PEER_BUSY(p)));
 
   iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);

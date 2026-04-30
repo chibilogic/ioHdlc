@@ -23,10 +23,6 @@
  *          Board-specific endpoint defines are in board_config.h:
  *            TEST_SPI_ENDPOINT_A   - SPIDriver for primary station (master)
  *            TEST_SPI_ENDPOINT_B   - SPIDriver for secondary station (slave)
- *            TEST_SPI_CFG_A_CR1    - SPI_CR1 value for endpoint A
- *            TEST_SPI_CFG_B_CR1    - SPI_CR1 value for endpoint B
- *            TEST_SPI_CFG_A_CR2    - SPI_CR2 value for endpoint A
- *            TEST_SPI_CFG_B_CR2    - SPI_CR2 value for endpoint B
  *            TEST_SPI_CS_PORT_A    - CS GPIO port for endpoint A
  *            TEST_SPI_CS_PAD_A     - CS GPIO pad for endpoint A
  *            TEST_SPI_CS_PORT_B    - CS GPIO port for endpoint B
@@ -39,11 +35,24 @@
 #include "board_config.h"
 #include "ioHdlcstream_spi.h"
 
+#if defined(TEST_SPI_USE_CS)
+/* Hardware NSS: master drives PA4, slave listens on PB12. */
+#define TEST_SPI_ADAPTER_CFG_A_CR1  (SPI_CR1_BR_2 | SPI_CR1_BR_1 | SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
+#define TEST_SPI_ADAPTER_CFG_B_CR1  0U
+#else
+/* Software NSS: SSM=1 SSI=1 on master, SSM=1 SSI=0 on slave. */
+#define TEST_SPI_ADAPTER_CFG_A_CR1  (SPI_CR1_BR_2 | SPI_CR1_BR_1 | SPI_CR1_BR_0 | SPI_CR1_SSM | SPI_CR1_SSI)
+#define TEST_SPI_ADAPTER_CFG_B_CR1  SPI_CR1_SSM
+#endif
+
+#define TEST_SPI_ADAPTER_CFG_A_CR2  0U
+#define TEST_SPI_ADAPTER_CFG_B_CR2  0U
+
 /*===========================================================================*/
 /* Local variables                                                           */
 /*===========================================================================*/
 
-/* SPI configurations for both endpoints */
+/* SPI configurations for both endpoints. */
 static SPIConfig spi_cfg_a = {
   .circular = false,
   .slave    = false,    /* master */
@@ -51,8 +60,8 @@ static SPIConfig spi_cfg_a = {
   .error_cb = NULL,     /* overwritten by adapter at start */
   .ssport   = TEST_SPI_CS_PORT_A,
   .sspad    = TEST_SPI_CS_PAD_A,
-  .cr1      = TEST_SPI_CFG_A_CR1,
-  .cr2      = TEST_SPI_CFG_A_CR2,
+  .cr1      = TEST_SPI_ADAPTER_CFG_A_CR1,
+  .cr2      = TEST_SPI_ADAPTER_CFG_A_CR2,
 };
 
 static SPIConfig spi_cfg_b = {
@@ -62,15 +71,15 @@ static SPIConfig spi_cfg_b = {
   .error_cb = NULL,     /* overwritten by adapter at start */
   .ssport   = TEST_SPI_CS_PORT_B,
   .sspad    = TEST_SPI_CS_PAD_B,
-  .cr1      = TEST_SPI_CFG_B_CR1,
-  .cr2      = TEST_SPI_CFG_B_CR2,
+  .cr1      = TEST_SPI_ADAPTER_CFG_B_CR1,
+  .cr2      = TEST_SPI_ADAPTER_CFG_B_CR2,
 };
 
-/* ioHdlcStream SPI context objects */
+/* ioHdlcStream SPI context objects. */
 static ioHdlcStreamChibiosSpi spi_endpoint_a_obj;
 static ioHdlcStreamChibiosSpi spi_endpoint_b_obj;
 
-/* Port structures */
+/* Port structures. */
 static ioHdlcStreamPort port_a;
 static ioHdlcStreamPort port_b;
 

@@ -58,6 +58,7 @@ typedef struct ioHdlcStreamChibiosSpi {
   uint8_t                      *rx_ptr;     /**< Buffer armed by rx_submit      */
   size_t                        rx_n;       /**< Length of armed RX buffer      */
   bool                          rx_active;  /**< DMA RX in progress             */
+  bool                          slave_tx_needs_prepare; /**< RX->TX boundary flag */
 
   /* DATA_READY GPIO line (optional, see IOHDLC_SPI_USE_DR).                    */
   /* Master: input monitored via PAL event; slave: output asserted on TX send.  */

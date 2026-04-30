@@ -4,17 +4,17 @@ digraph uart_loopback {
   node [shape=record, fontname="Helvetica", fontsize=11];
   edge [fontname="Helvetica", fontsize=10, penwidth=1.5];
 
-  label="UART Loopback Wiring — Nucleo-F411RE (CN10)";
+  label="UART Loopback Wiring — NUCLEO-G474RE";
   labelloc=t;
   fontname="Helvetica";
   fontsize=13;
 
-  usart1 [label="<tx> PA9  — USART1_TX\n(CN10-21 / D8) | <rx> PA10 — USART1_RX\n(CN10-33 / D2)"
+  usart1 [label="<tx> PA9  — USART1_TX | <rx> PA10 — USART1_RX"
           xlabel="Endpoint A\n(Primary)"];
 
-  usart6 [label="<rx> PC7  — USART6_RX\n(CN10-19 / D9) | <tx> PC6  — USART6_TX\n(CN10-4)"
+  usart3 [label="<rx> PC11 — USART3_RX | <tx> PC10 — USART3_TX"
           xlabel="Endpoint B\n(Secondary)"];
 
-  usart1:tx -> usart6:rx [color="#2196F3", label="TX → RX"];
-  usart6:tx -> usart1:rx [color="#F44336", label="TX → RX"];
+  usart1:tx -> usart3:rx [color="#2196F3", label="TX → RX"];
+  usart3:tx -> usart1:rx [color="#F44336", label="TX → RX"];
 }

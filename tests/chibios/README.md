@@ -16,7 +16,7 @@ Complete test suite with ChibiOS RTOS.
 ### Compilation
 
 ```bash
-cd tests/chibios
+cd tests/chibios/stm32g474re
 make
 ```
 
@@ -26,9 +26,14 @@ Output:
 - `build/iohdlc_tests.hex` - Hex format
 - `build/iohdlc_tests.map` - Memory map
 
+Each board frontend is a standalone ChibiOS project:
+- `tests/chibios/stm32g474re`
+- `tests/chibios/stm32f411re`
+
 ### Build Information
 
 ```bash
+cd tests/chibios/stm32g474re
 make info
 ```
 
@@ -37,6 +42,7 @@ Shows configuration, toolchain, included sources.
 ### Cleanup
 
 ```bash
+cd tests/chibios/stm32g474re
 make clean        # Cleans objects and binaries
 make clean-all    # Cleans everything including ChibiOS files
 ```
@@ -131,7 +137,7 @@ Tests in `common/scenarios/` are **100% portable**:
 
 **Link errors with ChibiOS symbols**
 - Verify all .mk files are included
-- Check `conf/chconf.h` and `conf/halconf.h`
+- Check the frontend-specific `conf/chconf.h` and `conf/halconf.h`
 
 **Tests compile but don't run**
 - Normal! They are for ARM, not x86

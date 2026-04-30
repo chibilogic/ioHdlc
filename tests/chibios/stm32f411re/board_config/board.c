@@ -15,8 +15,8 @@
 */
 
 /*
- * This file has been automatically generated using ChibiStudio board
- * generator plugin. Do not edit manually.
+ * Local board package for the ioHdlc F411 frontend.
+ * Derived from the upstream ChibiOS board definition and maintained here.
  */
 
 #include "hal.h"
@@ -263,17 +263,4 @@ bool mmc_lld_is_write_protected(MMCDriver *mmcp) {
  */
 void boardInit(void) {
 
-  /*
-   * UART pins are configured via board.h definitions and applied in __early_init():
-   *
-   * USART1 (AF7):
-   *   - PA9:  TX
-   *   - PA10: RX
-   *
-   * USART6 (AF8):
-   *   - PC6: TX
-   *   - PC7: RX
-   *
-   * The pins are already set to alternate function mode with proper AF selection.
-   */
 }
