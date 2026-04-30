@@ -67,7 +67,7 @@ static void print_usage(void) {
               (unsigned)IOHDLC_POLL_RETRY_MAX_DEFAULT);
   test_printf("  --mode=MODE         Mode: nrm|abm (default: nrm)\r\n");
   test_printf("  --twa               Use Two-Way Alternate\r\n");
-  test_printf("  --tws               Use Two-Way Simultaneous (default)\r\n");
+  test_printf("  --tws               Use Two-Way Simultaneous\r\n");
   test_printf("  --time=N            Run for N seconds (vs --count)\r\n");
   test_printf("  --watermark-delay=N Reader delay every 256 packets in ms (default: 0)\r\n");
   test_printf("  --krs=N             Window size (ks=kr=N, >=1; default: modmask)\r\n");

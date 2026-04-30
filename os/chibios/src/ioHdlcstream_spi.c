@@ -30,15 +30,6 @@
 #include <errno.h>
 
 /*===========================================================================*/
-/* Forward declarations.                                                     */
-/*===========================================================================*/
-
-static void chb_spi_data_cb(SPIDriver *spip);
-static void chb_spi_error_cb(SPIDriver *spip);
-static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
-                              void *cookie);
-
-/*===========================================================================*/
 /* Local callback implementations.                                           */
 /*===========================================================================*/
 
@@ -214,27 +205,6 @@ static void chb_spi_stop(void *vctx) {
   ctx->rx_n      = 0;
 }
 
-static int32_t chb_spi_tx_submit_frame(void *vctx, iohdlc_frame_t *fp) {
-  ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
-  const uint8_t *ptr = fp->frame;
-  size_t len = (size_t)fp->elen + ioHdlc_txs_get_trailer_len(&fp->tx_snapshot);
-
-  chDbgAssert(ctx != NULL, "spi tx_submit_frame: null ctx");
-  chDbgAssert(fp != NULL, "spi tx_submit_frame: null frame");
-  chDbgAssert(ctx->cbs != NULL, "spi tx_submit_frame: callbacks not set");
-
-  if (ctx->tx_active)
-    return EAGAIN;
-
-  if (fp->openingflag == IOHDLC_FLAG) {
-    ptr = &fp->openingflag;
-    len += 1U;
-  }
-
-  /* SPI consumes a contiguous wire image prepared by the swdriver. */
-  return chb_spi_tx_submit(vctx, ptr, len, fp) ? 0 : EIO;
-}
-
 /**
  * @brief   Submit a TX buffer.
  * @details If an RX is in progress it is aborted first (TX preempts RX).
@@ -273,15 +243,37 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
     ioHdlcStreamSpiPlatformPrepareSlaveTx(ctx);
     ctx->slave_tx_needs_prepare = false;
   }
-  if (ctx->is_master) spiSelectI(ctx->spip);
-  spiStartSendI(ctx->spip, len, ptr);
+  if (ctx->is_master)
+    spiSelectI(ctx->spip);
 #if defined(IOHDLC_SPI_USE_DR)
-  /* Slave: assert DATA_READY to signal the master that TX data is ready. */
-  if (!ctx->is_master) {
+  else
+    /* Slave: assert DATA_READY to signal the master that TX data is ready. */
     palSetLine(ctx->dr_line);
-  }
 #endif
+  spiStartSendI(ctx->spip, len, ptr);
+
   return true;
+}
+
+static int32_t chb_spi_tx_submit_frame(void *vctx, iohdlc_frame_t *fp) {
+  ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
+  const uint8_t *ptr = fp->frame;
+  size_t len = (size_t)fp->elen + ioHdlc_txs_get_trailer_len(&fp->tx_snapshot);
+
+  chDbgAssert(ctx != NULL, "spi tx_submit_frame: null ctx");
+  chDbgAssert(fp != NULL, "spi tx_submit_frame: null frame");
+  chDbgAssert(ctx->cbs != NULL, "spi tx_submit_frame: callbacks not set");
+
+  if (ctx->tx_active)
+    return EAGAIN;
+
+  if (fp->openingflag == IOHDLC_FLAG) {
+    ptr = &fp->openingflag;
+    len += 1U;
+  }
+
+  /* SPI consumes a contiguous wire image prepared by the swdriver. */
+  return chb_spi_tx_submit(vctx, ptr, len, fp) ? 0 : EIO;
 }
 
 static bool chb_spi_tx_busy(void *vctx) {

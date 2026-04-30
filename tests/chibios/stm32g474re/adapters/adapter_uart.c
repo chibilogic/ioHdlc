@@ -39,7 +39,7 @@ static UARTConfig uart_cfg_a = {
   .rxchar_cb = NULL,
   .rxerr_cb = NULL,
   .timeout_cb = NULL,
-  .speed = 3000000,
+  .speed = 2600000,
 };
 
 static UARTConfig uart_cfg_b = {
@@ -49,7 +49,7 @@ static UARTConfig uart_cfg_b = {
   .rxchar_cb = NULL,
   .rxerr_cb = NULL,
   .timeout_cb = NULL,
-  .speed = 3000000,
+  .speed = 2600000,
 };
 
 /* ioHdlcStream UART context objects. */

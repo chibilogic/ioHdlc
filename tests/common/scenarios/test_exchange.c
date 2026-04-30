@@ -307,6 +307,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   int32_t result;
   uint32_t start_time, elapsed_time;
   ioHdlcStreamPort port_primary, port_secondary;
+  bool twa_explicit = false;
+  bool tws_explicit = false;
   
   st_pri = &station_primary;
   st_sec = &station_secondary;
@@ -320,9 +322,16 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   iohdlc_mutex_init(&s_exchange_state_mutex);
   s_exchange_active_workers = 0U;
 
+  for (int i = 0; i < argc; i++) {
+    if (strcmp(argv[i], "--twa") == 0) {
+      twa_explicit = true;
+    }
+    else if (strcmp(argv[i], "--tws") == 0) {
+      tws_explicit = true;
+    }
+  }
+
   memset(&config, 0, sizeof config);
-  if (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY)
-    config.use_twa = true;
   if (adapter->constraints & ADAPTER_CONSTRAINT_NRM_ONLY)
     config.mode = IOHDLC_OM_NRM;
 
@@ -335,6 +344,11 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     test_printf("Error: Unsupported modulo %u (expected 8 or 128)\r\n",
                 config.modulo);
     return 1;
+  }
+
+  if ((adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY) != 0U &&
+      !twa_explicit && !tws_explicit) {
+    config.use_twa = true;
   }
 
   /* Enforce adapter hardware constraints */

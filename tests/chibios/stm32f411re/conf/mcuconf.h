@@ -212,6 +212,7 @@
 #define STM32_SPI_SPI2_IRQ_PRIORITY         5
 #define STM32_SPI_SPI3_IRQ_PRIORITY         10
 #define STM32_SPI_DMA_ERROR_HOOK(spip)      osalSysHalt("DMA failure")
+#undef STM32_SPI_SLAVE_GRACEFUL_STOP
 #define STM32_SPI_FILLER_PATTERN            0x00000000
 
 /*
