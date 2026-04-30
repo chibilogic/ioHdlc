@@ -167,7 +167,6 @@ cd tests/chibios/stm32g474re
 make clean
 make
 
-# Or use tests/chibios/stm32f411re for the F411 frontend.
 # Flash to target
 # (See tests/chibios/README.md for platform-specific instructions)
 ```

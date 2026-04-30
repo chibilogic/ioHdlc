@@ -168,7 +168,7 @@ ioHdlcStationDeinit(&station);
 
 See the [Testing Guide](doc/TESTING.md) for full details and the
 [Hardware Getting Started](doc/GETTING_STARTED_HARDWARE.md) guide for running
-on a Nucleo-F411RE board. Linux test suite quick start:
+on a NUCLEO-G474RE board. Linux test suite quick start:
 
 ```bash
 make -C tests/linux test        # build and run all automated tests
