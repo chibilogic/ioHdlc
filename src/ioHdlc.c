@@ -192,7 +192,7 @@ static bool s_log2mod_supported(const uint8_t *supported_log2mods, uint8_t log2m
  *          - Sets operational mode and flags
  *          - Initializes peer list and event sources
  *          - Configures optional functions (REJ, FFF, STB)
- *          - Sets TX/RX handlers based on mode
+ *          - Leaves connected-mode RX dispatch unset until link-up
  *
  * @param[in] ioHdlcsp      Station descriptor to initialize
  * @param[in] ioHdlcsconfp  Configuration parameters
@@ -305,14 +305,8 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->runner_started = false;
   ioHdlcsp->runner_context = NULL;
 
-  /* Set TX/RX handlers based on mode */
-  if (mode == IOHDLC_OM_NDM) {
-    ioHdlcsp->tx_fn = ioHdlcNrmTx;
-    ioHdlcsp->rx_fn = ioHdlcNrmRx;
-  } else {
-    ioHdlcsp->tx_fn = ioHdlcAbmTx;
-    ioHdlcsp->rx_fn = ioHdlcAbmRx;
-  }
+  /* Station init starts only from disconnected modes (NDM/ADM). */
+  ioHdlcsp->rx_fn = NULL;
 
   /* Configure optional functions */
   if (ioHdlcsconfp->optfuncs != NULL) {
@@ -607,6 +601,11 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
  * @note iohdlc_errno field contains detailed error code on failure.
  */
 int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t kr) {
+  if (peer == NULL) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
   if (ks == 0 || ks > peer->stationp->framing.modmask ||
       kr == 0 || kr > peer->stationp->framing.modmask) {
     iohdlc_errno = EINVAL;
@@ -615,6 +614,64 @@ int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t k
   peer->ks = ks;
   peer->kr = kr;
   return 0;
+}
+
+/**
+ * @brief   Submit a UI value for best-effort delivery to a connected peer.
+ * @details Stores a fixed-width UI payload in the peer TX slot and wakes the
+ *          TX runner. The slot is single-entry and last-value-wins.
+ * @param[in] peer   Connected peer descriptor.
+ * @param[in] value  UI payload to transmit.
+ * @return  0 on success, -1 if the peer is invalid or disconnected.
+ */
+int32_t ioHdlcPeerUiSend(iohdlc_station_peer_t *peer, uint32_t value) {
+  iohdlc_station_t *s;
+
+  if (peer == NULL) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  s = peer->stationp;
+  iohdlc_mutex_lock(&peer->state_mutex);
+  if (IOHDLC_PEER_DISC(peer)) {
+    iohdlc_mutex_unlock(&peer->state_mutex);
+    iohdlc_errno = ENOTCONN;
+    return -1;
+  }
+
+  peer->ui_tx_value = value;
+  peer->ui_tx_pending = true;
+  iohdlc_mutex_unlock(&peer->state_mutex);
+
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_UI_ENQ);
+  return 0;
+}
+
+/**
+ * @brief   Consume the last UI value received from a peer.
+ * @details Returns the cached UI payload only if a new value is pending.
+ *          The cache retains the value, while the pending state is consumed.
+ * @param[in] peer    Peer descriptor.
+ * @param[out] value  Storage for the received UI payload.
+ * @return  true if a new UI value was available, false otherwise.
+ */
+bool ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value) {
+  if (peer == NULL || value == NULL) {
+    iohdlc_errno = EINVAL;
+    return false;
+  }
+
+  iohdlc_mutex_lock(&peer->state_mutex);
+  if (!peer->ui_rx_pending) {
+    iohdlc_mutex_unlock(&peer->state_mutex);
+    return false;
+  }
+
+  *value = peer->ui_rx_value;
+  peer->ui_rx_pending = false;
+  iohdlc_mutex_unlock(&peer->state_mutex);
+  return true;
 }
 
 /**
@@ -970,7 +1027,7 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
     
     /* Set address field: commands use peer address, responses use station address.
        In ABM, the final address is overwritten at TX time based on the
-       command/response decision (see ioHdlcNrmTx I-frame loop). */
+       command/response decision (see ioHdlcConnectedTx I-frame loop). */
     IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
     
     /* Set control field: I-frame ID */

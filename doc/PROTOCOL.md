@@ -162,7 +162,7 @@ Bit:  7   6   5   4   3   2   1   0
 
 ### Unnumbered Frames (U-frames)
 
-**Purpose**: Link setup, disconnect, mode setting
+**Purpose**: Link setup, disconnect, mode setting, and optional best-effort side-band exchange
 
 **Common U-frames:**
 
@@ -174,6 +174,23 @@ Bit:  7   6   5   4   3   2   1   0
 | DM              | 0x0F    | F   | Disconnected Mode                |
 | FRMR            | 0x87    | F   | Frame Reject                     |
 | UI              | 0x03    | -   | Unnumbered Information (no ACK)  |
+
+#### UI support in ioHdlc
+
+`ioHdlc` supports `UI` only on **connected peers**. The connectionless use
+admitted by ISO 13239 is not implemented.
+
+The current implementation uses `UI` as a small out-of-band application
+channel with these rules:
+
+- payload is a fixed `uint32_t`
+- transmission is best-effort, with no acknowledgment or retry in the core
+- transmitted UI frames always carry `P/F = 0`
+- a received `P/F` bit on a UI frame is ignored by the core
+- each peer exposes a single TX slot, so pending values are last-value-wins
+- each peer caches the last received value, which can be consumed through
+  `ioHdlcPeerUiGet()`
+- arrival is reported through the `IOHDLC_APP_UI_RECEIVED` application event
 
 **Control Byte Format (SNRM example):**
 ```
@@ -192,7 +209,7 @@ Bit:  7   6   5   4   3   2   1   0
 - Stations may only exchange unnumbered frames for link management
 
 **Allowed Frames:**
-- **Commands**: SNRM, DISC, UI
+- **Commands**: SNRM, DISC
 - **Responses**: DM, UA
 
 **Transitions:**
@@ -242,7 +259,7 @@ Bit:  7   6   5   4   3   2   1   0
 - The station responds independently to received commands
 
 **Allowed Frames:**
-- **Commands**: SABM, DISC, UI
+- **Commands**: SABM, DISC
 - **Responses**: DM, UA
 
 **Transitions:**
@@ -722,7 +739,7 @@ Single byte:  0xFF = 11111111 (all-stations)
 - ✅ UA (Unnumbered Acknowledgment)
 - ✅ DISC (Disconnect)
 - ✅ DM (Disconnected Mode)
-- ✅ UI (Unnumbered Information) - optional
+- ✅ UI (Unnumbered Information) on connected peers
 
 ### Window Sizes
 

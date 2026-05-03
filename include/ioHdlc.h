@@ -392,6 +392,10 @@ struct iohdlc_station_peer {
   volatile uint8_t  ss_state;   /* Supervision state. See definitions. */
   uint8_t  um_cmd;              /* Unnumbered command event payload. */
   uint8_t  um_rsp;              /* Unnumbered response event payload. */
+  bool ui_tx_pending;           /* A UI value is pending for transmission. */
+  bool ui_rx_pending;           /* A new UI value has been received. */
+  uint32_t ui_tx_value;         /* Last UI value requested by the application. */
+  uint32_t ui_rx_value;         /* Last UI value received from the peer. */
   const iohdlc_peer_rx_ops_t *rx_ops; /* RX delivery endpoint for accepted I-frames. */
 
   /* data queues. */
@@ -475,7 +479,6 @@ struct iohdlc_station {
                                    in ABM mode and secondary stations have only one peer. */
   ioHdlcFrameMemPool frame_pool;/* Frame pool auto-initialized from arena. Pool dimensioned to satisfy
                                    the windows size and the reception buffering of all peers. */
-  iohdlc_tx_fn_t tx_fn;         /* Active transmit handler for the current mode. */
   iohdlc_rx_fn_t rx_fn;         /* Active receiver handler for the current mode. */
 
   /* link driver. */
@@ -584,6 +587,8 @@ extern "C" {
 
   int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer, uint32_t addr);
   int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t kr);
+  int32_t ioHdlcPeerUiSend(iohdlc_station_peer_t *peer, uint32_t value);
+  bool ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value);
 
   iohdlc_station_peer_t *ioHdlcAddr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
 

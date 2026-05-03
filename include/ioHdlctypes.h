@@ -61,15 +61,6 @@ typedef struct iohdlc_frame_q iohdlc_frame_q_t;
 typedef uint32_t iohdlc_timeout_t;
 
 /**
- * @brief   Core transmit callback type.
- * @details Implemented by the runner/core boundary to request transmission
- *          opportunities and drive pending outbound work for a station peer.
- */
-typedef uint32_t (*iohdlc_tx_fn_t)(iohdlc_station_t *s,
-                                   iohdlc_station_peer_t *p,
-                                   uint32_t cm_flags);
-
-/**
  * @brief   Core receive callback type.
  * @details Invoked when a validated frame is delivered to higher protocol
  *          logic. Ownership rules for @p fp are defined by the caller that

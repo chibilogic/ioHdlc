@@ -77,13 +77,11 @@ void ioHdlcTxEntry(void *stationp);
 /** @ingroup ioHdlc_core */
 void ioHdlcRxEntry(void *stationp);
 
-/* Mode-specific TX/RX handlers (exposed for ioHdlcStationInit). */
+/* Connected-mode TX and mode-specific RX handlers. */
 /** @ingroup ioHdlc_core */
-uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
+uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
 /** @ingroup ioHdlc_core */
 void ioHdlcNrmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
-/** @ingroup ioHdlc_core */
-uint32_t ioHdlcAbmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p, uint32_t cm_flags);
 /** @ingroup ioHdlc_core */
 void ioHdlcAbmRx(iohdlc_station_t *s, iohdlc_frame_t *fp);
 

@@ -52,6 +52,10 @@ int main(void) {
   mock_adapter.deinit();
 
   mock_adapter.init();
+  RUN_TEST_ADAPTER(test_ui_exchange, &mock_adapter);
+  mock_adapter.deinit();
+
+  mock_adapter.init();
   RUN_TEST_ADAPTER(test_data_exchange_with_fcs_backend, &mock_adapter);
   mock_adapter.deinit();
 

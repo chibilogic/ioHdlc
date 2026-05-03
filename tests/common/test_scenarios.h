@@ -53,6 +53,7 @@ bool test_read_zero_length_returns_zero(void);
 bool test_read_never_connected_returns_enotconn(void);
 bool test_snrm_handshake(const test_adapter_t *adapter);
 bool test_data_exchange(const test_adapter_t *adapter);
+bool test_ui_exchange(const test_adapter_t *adapter);
 bool test_data_exchange_with_fcs_backend(const test_adapter_t *adapter);
 bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter);
 bool test_remote_disc_preserves_buffered_rx(const test_adapter_t *adapter);
