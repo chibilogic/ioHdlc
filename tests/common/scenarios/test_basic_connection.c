@@ -28,6 +28,7 @@
 #include "test_arenas.h"
 #include "ioHdlc.h"
 #include "ioHdlc_core.h"
+#include "ioHdlc_app_events.h"
 #include "ioHdlcqueue.h"
 #include "ioHdlcswdriver.h"
 #include "ioHdlc_runner.h"
@@ -676,6 +677,146 @@ test_cleanup:
   ioHdlcStationDeinit(&station_primary);
   ioHdlcStationDeinit(&station_secondary);
   
+  return test_result;
+}
+
+/**
+ * @brief   Test best-effort UI delivery on an established link.
+ * @details Validates:
+ *          - UI send is rejected while disconnected
+ *          - UI reception raises an application event
+ *          - UI payload can be consumed once via ioHdlcPeerUiGet()
+ *          - UI delivery does not alter V(S), V(R), or N(R)
+ */
+bool test_ui_exchange(const test_adapter_t *adapter) {
+  int test_result = 0;
+  ioHdlcSwDriver driver_primary, driver_secondary;
+  iohdlc_station_t station_primary, station_secondary;
+  iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
+  iohdlc_station_config_t config;
+  iohdlc_event_listener_t listener;
+  bool listener_registered = false;
+  int32_t result;
+  int ret;
+  uint32_t ui_value;
+  uint32_t rx_value = 0U;
+  uint32_t pri_vs, pri_vr, pri_nr;
+  uint32_t sec_vs, sec_vr, sec_nr;
+  eventmask_t evt;
+  eventflags_t flags;
+
+  ioHdlcStreamPort port_primary = adapter->get_port_a();
+  ioHdlcStreamPort port_secondary = adapter->get_port_b();
+
+  ioHdlcSwDriverInit(&driver_primary, NULL);
+  ioHdlcSwDriverInit(&driver_secondary, NULL);
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_ADM;
+  config.flags = IOHDLC_FLG_PRI;
+  config.log2mod = 3;
+  config.addr = PRIMARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.max_info_len = 0;
+  config.pool_watermark = 0;
+  config.fff_type = 1;
+  config.optfuncs = NULL;
+  config.phydriver = &port_primary;
+  config.phydriver_config = NULL;
+  config.reply_timeout_ms = 0;
+
+  memset(&station_primary, 0, sizeof station_primary);
+  result = ioHdlcStationInit(&station_primary, &config);
+  TEST_ASSERT_GOTO(result == 0, "Primary station init failed");
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_NDM;
+  config.flags = 0;
+  config.log2mod = 3;
+  config.addr = SECONDARY_ADDR;
+  config.driver = (ioHdlcDriver *)&driver_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.max_info_len = 0;
+  config.pool_watermark = 0;
+  config.fff_type = 1;
+  config.optfuncs = NULL;
+  config.phydriver = &port_secondary;
+  config.phydriver_config = NULL;
+  config.reply_timeout_ms = 0;
+
+  memset(&station_secondary, 0, sizeof station_secondary);
+  result = ioHdlcStationInit(&station_secondary, &config);
+  TEST_ASSERT_GOTO(result == 0, "Secondary station init failed");
+
+  result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
+  TEST_ASSERT_GOTO(result == 0, "Add peer to primary failed");
+  result = ioHdlcAddPeer(&station_secondary, &peer_at_secondary, PRIMARY_ADDR);
+  TEST_ASSERT_GOTO(result == 0, "Add peer to secondary failed");
+
+  ret = ioHdlcPeerUiSend(&peer_at_primary, 0x11223344U);
+  TEST_ASSERT_GOTO(ret == -1, "UI send should fail while disconnected");
+  TEST_ASSERT_GOTO(iohdlc_errno == ENOTCONN, "Disconnected UI send should report ENOTCONN");
+
+  result = ioHdlcRunnerStart(&station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
+
+  ioHdlc_sleep_ms(50);
+
+  ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
+  TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
+
+  ioHdlc_sleep_ms(100);
+
+  TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
+  TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_secondary), "Secondary peer should be connected");
+  TEST_ASSERT_GOTO(!ioHdlcPeerUiGet(&peer_at_secondary, &rx_value),
+                   "UI cache should be empty before transmission");
+
+  pri_vs = peer_at_primary.vs;
+  pri_vr = peer_at_primary.vr;
+  pri_nr = peer_at_primary.nr;
+  sec_vs = peer_at_secondary.vs;
+  sec_vr = peer_at_secondary.vr;
+  sec_nr = peer_at_secondary.nr;
+
+  iohdlc_evt_register(&station_secondary.app_es, &listener, EVENT_MASK(0),
+                      IOHDLC_APP_UI_RECEIVED);
+  listener_registered = true;
+
+  ui_value = 0xA5B4C3E2U;
+  ret = ioHdlcPeerUiSend(&peer_at_primary, ui_value);
+  TEST_ASSERT_GOTO(ret == 0, "Connected UI send should succeed");
+
+  evt = iohdlc_evt_wait_any_timeout(EVENT_MASK(0), 1000U);
+  TEST_ASSERT_GOTO(evt != 0, "Timed out waiting for UI event");
+  flags = iohdlc_evt_get_and_clear_flags(&listener);
+  TEST_ASSERT_GOTO((flags & IOHDLC_APP_UI_RECEIVED) != 0U,
+                   "UI event flag should be raised");
+
+  TEST_ASSERT_GOTO(ioHdlcPeerUiGet(&peer_at_secondary, &rx_value),
+                   "UI payload should be available");
+  TEST_ASSERT_GOTO(rx_value == ui_value, "UI payload mismatch");
+  TEST_ASSERT_GOTO(!ioHdlcPeerUiGet(&peer_at_secondary, &rx_value),
+                   "UI payload should be consumed after first read");
+
+  TEST_ASSERT_GOTO(peer_at_primary.vs == pri_vs, "UI must not alter primary V(S)");
+  TEST_ASSERT_GOTO(peer_at_primary.vr == pri_vr, "UI must not alter primary V(R)");
+  TEST_ASSERT_GOTO(peer_at_primary.nr == pri_nr, "UI must not alter primary N(R)");
+  TEST_ASSERT_GOTO(peer_at_secondary.vs == sec_vs, "UI must not alter secondary V(S)");
+  TEST_ASSERT_GOTO(peer_at_secondary.vr == sec_vr, "UI must not alter secondary V(R)");
+  TEST_ASSERT_GOTO(peer_at_secondary.nr == sec_nr, "UI must not alter secondary N(R)");
+
+test_cleanup:
+  if (listener_registered)
+    iohdlc_evt_unregister(&station_secondary.app_es, &listener);
+  ioHdlcStationDeinit(&station_primary);
+  ioHdlcStationDeinit(&station_secondary);
+
   return test_result;
 }
 

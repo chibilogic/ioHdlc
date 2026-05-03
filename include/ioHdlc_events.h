@@ -51,6 +51,7 @@
 #define IOHDLC_EVT_TX_IFRM_ENQ  0x1000  /* I-frame enqueued for transmission. */
 #define IOHDLC_EVT_REJ_ACTED    0x2000  /* REJ exception has been actioned. */
 #define IOHDLC_EVT_PF_RECVD     0x4000  /* P/F bit received. */
+#define IOHDLC_EVT_UI_ENQ       0x8000  /* UI value enqueued for transmission. */
 
 #endif /* IOHDLC_EVENTS_H_ */
 

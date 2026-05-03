@@ -72,7 +72,7 @@ static uint32_t stashIFrameSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *f
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
-static void setModeFunctions(iohdlc_station_t *s, uint8_t mode);
+static void applyModeState(iohdlc_station_t *s, uint8_t mode);
 
 static uint32_t extractNSFromCtrl(iohdlc_station_t *s, const uint8_t *ctrl) {
   if (s->framing.modmask == 7) {
@@ -193,6 +193,8 @@ static void resetPeerProtocolState(iohdlc_station_peer_t *p) {
   p->poll_retry_count = 0;
   p->frmr_condition = false;
   p->um_rsp = 0;
+  p->ui_tx_pending = false;
+  p->ui_rx_pending = false;
   resetPeerUm(p);
 }
 
@@ -203,7 +205,7 @@ static void closePeerOrderly(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
 
   if (s->connected_count == 0) {
     s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-    setModeFunctions(s, s->mode);
+    applyModeState(s, s->mode);
   }
 }
 
@@ -214,7 +216,7 @@ static void abortPeerLink(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
 
   if (s->connected_count == 0) {
     s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-    setModeFunctions(s, s->mode);
+    applyModeState(s, s->mode);
   }
 }
 
@@ -352,22 +354,19 @@ static bool isConnectionUCommand(uint8_t u_cmd) {
 }
 
 /**
- * @brief   Bind mode-specific TX/RX handlers on the station object.
+ * @brief   Apply mode-specific runtime state on the station object.
  * @param[in] s      Station descriptor.
- * @param[in] mode   Operating mode to bind.
+ * @param[in] mode   Operating mode to apply.
  */
-static void setModeFunctions(iohdlc_station_t *s, uint8_t mode) {
+static void applyModeState(iohdlc_station_t *s, uint8_t mode) {
   if (mode == IOHDLC_OM_NRM) {
-    s->tx_fn = ioHdlcNrmTx;
     s->rx_fn = ioHdlcNrmRx;
   } else if (mode == IOHDLC_OM_ABM) {
-    s->tx_fn = ioHdlcAbmTx;
     s->rx_fn = ioHdlcAbmRx;
     s->flags |= IOHDLC_FLG_PRI;
     s->pf_state |= IOHDLC_F_RCVED;  /* Combined station: free to poll. */
   } else {
-    /* Disconnected modes (NDM, ADM): reset to NULL */
-    s->tx_fn = NULL;
+    /* Disconnected and unsupported modes: no connected-mode RX handler. */
     s->rx_fn = NULL;
   }
 }
@@ -459,7 +458,8 @@ static iohdlc_station_peer_t *ioHdlcNextPeer(iohdlc_station_t *s,
 /**
  * @brief   Process an unnumbered frame in the context of the current peer.
  * @details Handles both command and response U-frames, including connection
- *          establishment, disconnect handling, and reply-timer completion.
+ *          establishment, disconnect handling, reply-timer completion, and
+ *          best-effort UI delivery.
  * @param[in] s    Station descriptor.
  * @param[in] fp   Received U-frame.
  */
@@ -489,6 +489,37 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       hdlcReleaseFrame(&s->frame_pool, fp);
       return;
     }
+  }
+
+  if (u_cmd == IOHDLC_U_UI) {
+    const size_t hdr_len = s->framing.frame_offset + 2U;
+    const bool frame_long_enough = fp->elen >= hdr_len;
+    const size_t info_len = frame_long_enough ? (fp->elen - hdr_len) : 0U;
+    bool accepted = false;
+
+    if (!frame_long_enough || info_len != sizeof p->ui_rx_value) {
+      IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "discard UI len=%u",
+                      (unsigned)info_len);
+      hdlcReleaseFrame(&s->frame_pool, fp);
+      return;
+    }
+
+    iohdlc_mutex_lock(&p->state_mutex);
+    if (!IOHDLC_PEER_DISC(p)) {
+      memcpy(&p->ui_rx_value, &fp->frame[s->framing.frame_offset + 2U],
+             sizeof p->ui_rx_value);
+      p->ui_rx_pending = true;
+      accepted = true;
+    }
+    iohdlc_mutex_unlock(&p->state_mutex);
+
+    if (accepted) {
+      ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_UI_RECEIVED);
+      IOHDLC_LOG_UFRAME(IOHDLC_LOG_RX, s->addr, addr, IOHDLC_LOG_UI, has_pf);
+    }
+
+    hdlcReleaseFrame(&s->frame_pool, fp);
+    return;
   }
   
   iohdlc_mutex_lock(&p->state_mutex);
@@ -523,7 +554,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       /* Set mode command (SNRM/SARM/SABM).
          Per 6.11.4.1.1: Secondary accepts, changes mode, resets variables. */
       s->mode = om;
-      setModeFunctions(s, om);
+      applyModeState(s, om);
       resetPeerVars(p);
       ioHdlcSetConnected(p);
       p->um_rsp = IOHDLC_U_UA;
@@ -578,7 +609,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
         resetPeerVars(p);
         /* Connection command accepted (SNRM/SARM/SABM).
            Mode was already set by linkup() before sending command. */
-        setModeFunctions(s, s->mode);
+        applyModeState(s, s->mode);
         ioHdlcSetConnected(p);
       }
       
@@ -1333,6 +1364,28 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 }
 
 /**
+ * @brief   Build a U-frame with a fixed information field.
+ * @details U-frames always carry a one-byte control field, so the information
+ *          field begins immediately after FFF + ADDR + CTRL.
+ * @param[in] s           Station descriptor.
+ * @param[in] p           Peer descriptor.
+ * @param[in,out] fp      Frame to build.
+ * @param[in] u_fun       U-frame function code.
+ * @param[in] set_pf      true to set the P/F bit.
+ * @param[in] is_command  true for a command, false for a response.
+ * @param[in] info        Pointer to the information field bytes.
+ * @param[in] info_len    Number of information octets to copy.
+ */
+static void buildUFrameWithInfo(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                                iohdlc_frame_t *fp, uint8_t u_fun, bool set_pf,
+                                bool is_command, const void *info,
+                                size_t info_len) {
+  buildUFrame(s, p, fp, u_fun, set_pf, is_command);
+  memcpy(&fp->frame[s->framing.frame_offset + 2U], info, info_len);
+  fp->elen = (uint16_t)(fp->elen + info_len);
+}
+
+/**
  * @brief   Snapshot the mutable I-frame header into the per-frame snapshot slot.
  * @details Keeps N(S) stable across retransmissions and refreshes only the
  *          per-send fields that may change while the frame remains queued.
@@ -1513,16 +1566,16 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
 }
 
 /**
- * @brief   NRM transmit-side scheduler.
+ * @brief   Connected-mode transmit scheduler shared by NRM and ABM.
  * @details Consumes pending core events, sends connection-management U-frames,
- *          transmits I-frames within the current window and P/F rules, and
- *          emits opportunistic or recovery S-frames when required.
+ *          transmits I-frames within the current window and active mode rules,
+ *          and emits opportunistic or recovery S-frames when required.
  * @param[in] s         Station descriptor.
  * @param[in] p         Peer state for the currently selected peer.
  * @param[in] cm_flags  Pending core event flags to serve.
  * @return  Residual event flags that still require later handling.
  */
-uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                 uint32_t cm_flags) {
 
   cm_flags &= ~(IOHDLC_EVT_LINE_IDLE);
@@ -1555,6 +1608,26 @@ uint32_t ioHdlcNrmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       
       /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
       IOHDLC_SET_NEED_P(s, p);
+    }
+  }
+
+
+  if (p->ui_tx_pending && sendOpportunity(s) && !p->frmr_condition) {
+    const bool is_command = IOHDLC_IS_ABM(s) ?
+        !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
+    const uint32_t ui_value = p->ui_tx_value;
+
+    iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
+    if (fp != NULL) {
+      buildUFrameWithInfo(s, p, fp, IOHDLC_U_UI, false, is_command,
+                          &ui_value, sizeof ui_value);
+      p->ui_tx_pending = false;
+      if (!sendFrame(s, fp))
+        IOHDLC_LOG_WARN(IOHDLC_LOG_TX, s->addr, "UI send failed");
+      else
+        IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr,
+                          is_command ? p->addr : s->addr,
+                          IOHDLC_LOG_UI, false);
     }
   }
 
@@ -1763,7 +1836,8 @@ skip_i_frames:
   }
   
   cm_flags &= ~(IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RNR_RECVD|IOHDLC_EVT_POOL_ST_CHG|
-                IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_PF_RECVD|IOHDLC_EVT_xREJ_RECVD);
+                IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_PF_RECVD|IOHDLC_EVT_xREJ_RECVD|
+                IOHDLC_EVT_UI_ENQ);
 
   if (sframe_to_send != NULL) {
     /* Send the prepared S-frame. */
@@ -1789,26 +1863,10 @@ skip_i_frames:
 }
 
 /**
- * @brief   Transmit-side scheduler for ABM mode.
- * @details ABM TX shares the common transmit logic with NRM. The is_command
- *          variable inside the loop uses IOHDLC_IS_ABM() to determine
- *          command/response from P/F state rather than from role.
- *          NRM multipoint round-robin is guarded by IOHDLC_IS_NRM().
- * @param[in] s         Station descriptor.
- * @param[in] p         Peer state.
- * @param[in] cm_flags  Pending core event flags.
- * @return  Residual event flags that still require later handling.
- */
-uint32_t ioHdlcAbmTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
-  uint32_t cm_flags) {
-  return ioHdlcNrmTx(s, p, cm_flags);
-}
-
-/**
  * @brief   TX worker entry point for the runner.
  * @details Waits for core events, serves connection-management requests, and
- *          dispatches transmit work to the mode-specific TX scheduler for the
- *          current peer.
+ *          dispatches connected-mode transmit work to the common scheduler for
+ *          the current peer.
  * @param[in] stationp   Opaque pointer to the station instance.
  */
 void ioHdlcTxEntry(void *stationp) {
@@ -1823,7 +1881,8 @@ void ioHdlcTxEntry(void *stationp) {
                IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RNR_RECVD|
                IOHDLC_EVT_POOL_ST_CHG|IOHDLC_EVT_LINK_ST_CHG|IOHDLC_EVT_UM_RECVD|
                IOHDLC_EVT_LINK_REQ|IOHDLC_EVT_LINE_IDLE|IOHDLC_EVT_xREJ_RECVD|
-               IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_REJ_ACTED|IOHDLC_EVT_PF_RECVD;
+               IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_REJ_ACTED|IOHDLC_EVT_PF_RECVD|
+               IOHDLC_EVT_UI_ENQ;
 
   /* Register event listener */
   iohdlc_evt_register(&s->cm_es, &s->cm_listener, EVENT_MASK(0), flags_mask);
@@ -1975,8 +2034,10 @@ void ioHdlcTxEntry(void *stationp) {
       continue;
     }
 
-    if (s->tx_fn)
-      cm_flags = s->tx_fn(s, p, cm_flags);
+    if (s->mode == IOHDLC_OM_NRM || s->mode == IOHDLC_OM_ABM)
+      cm_flags = ioHdlcConnectedTx(s, p, cm_flags);
+    else
+      iohdlc_mutex_unlock(&p->state_mutex);
   }
 
   iohdlc_evt_unregister(&s->cm_es, &s->cm_listener);

@@ -83,7 +83,8 @@ typedef enum {
   IOHDLC_LOG_DISC = 3,  /**< Disconnect.                                    */
   IOHDLC_LOG_UA = 4,    /**< Unnumbered Acknowledgment.                     */
   IOHDLC_LOG_DM = 5,    /**< Disconnected Mode.                             */
-  IOHDLC_LOG_FRMR = 6   /**< Frame Reject.                                  */
+  IOHDLC_LOG_FRMR = 6,  /**< Frame Reject.                                  */
+  IOHDLC_LOG_UI = 7     /**< Unnumbered Information.                        */
 } iohdlc_log_ufun_t;
 
 /**
