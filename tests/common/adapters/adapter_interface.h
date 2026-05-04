@@ -58,12 +58,16 @@ typedef struct {
   /**
    * @brief Get ioHdlcStreamPort for endpoint A (Primary station).
    * @return Port structure with ctx and ops configured.
+   * @note Unsupported endpoints may return an empty port with
+   *       @p ctx == NULL and @p ops == NULL.
    */
   ioHdlcStreamPort (*get_port_a)(void);
   
   /**
    * @brief Get ioHdlcStreamPort for endpoint B (Secondary station).
    * @return Port structure with ctx and ops configured.
+   * @note Unsupported endpoints may return an empty port with
+   *       @p ctx == NULL and @p ops == NULL.
    */
   ioHdlcStreamPort (*get_port_b)(void);
   

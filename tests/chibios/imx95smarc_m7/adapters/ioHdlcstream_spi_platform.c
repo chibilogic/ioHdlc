@@ -15,7 +15,7 @@
  */
 /**
  * @file    ioHdlcstream_spi_platform.c
- * @brief   STM32F411RE platform hooks for the ChibiOS SPI stream backend.
+ * @brief   IMX95 platform hooks for the ChibiOS SPI stream backend.
  */
 
 #include "ioHdlcstream_spi.h"

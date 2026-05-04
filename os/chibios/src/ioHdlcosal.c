@@ -48,6 +48,9 @@ static void s_dma_heap_init_once(void) {
 }
 
 void *iohdlc_dma_alloc(size_t size, size_t align) {
+  if (!iohdlc_dma_is_coherent(s_dma_heap_area, sizeof s_dma_heap_area))
+    return NULL;
+
   s_dma_heap_init_once();
   return chHeapAllocAligned(&s_dma_heap, size, (unsigned)align);
 }

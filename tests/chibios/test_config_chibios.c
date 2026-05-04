@@ -92,6 +92,13 @@
 #endif
 
 /**
+ * @brief   Local endpoint selection (both, a, b)
+ */
+#ifndef TEST_ENDPOINT
+#define TEST_ENDPOINT TEST_ENDPOINT_BOTH
+#endif
+
+/**
  * @brief   Error injection rate 0-100%
  */
 #ifndef TEST_ERROR_RATE
@@ -152,6 +159,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->exchanges_per_iteration = TEST_EXCHANGES;
   cfg->bytes_per_exchange = TEST_PACKET_SIZE;
   cfg->traffic_direction = TEST_DIRECTION;
+  cfg->endpoint_mode = TEST_ENDPOINT;
   cfg->error_rate = TEST_ERROR_RATE;
   cfg->reply_timeout_ms = TEST_REPLY_TIMEOUT;
   cfg->poll_retry_max = TEST_POLL_RETRY_MAX;

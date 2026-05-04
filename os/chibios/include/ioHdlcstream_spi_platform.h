@@ -21,8 +21,12 @@
 #ifndef IOHDLCSTREAM_SPI_PLATFORM_H
 #define IOHDLCSTREAM_SPI_PLATFORM_H
 
+#include <stdbool.h>
+
 struct ioHdlcStreamChibiosSpi;
 
 void ioHdlcStreamSpiPlatformPrepareSlaveTx(struct ioHdlcStreamChibiosSpi *ctx);
+bool ioHdlcStreamSpiPlatformCancelSlaveRxI(struct ioHdlcStreamChibiosSpi *ctx);
+bool ioHdlcStreamSpiPlatformAbortSlaveI(struct ioHdlcStreamChibiosSpi *ctx);
 
 #endif /* IOHDLCSTREAM_SPI_PLATFORM_H */

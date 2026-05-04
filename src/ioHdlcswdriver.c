@@ -320,7 +320,7 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   drv->port.callbacks.on_rx_error = s_on_rx;
   drv->port.callbacks.cb_ctx = drv;
 
-  drv->rx.stagep = (uint8_t *)iohdlc_dma_alloc(1u, IOHDLC_DMA_ALIGN_DEFAULT);
+  drv->rx.stagep = (uint8_t *)iohdlc_dma_alloc(1U, iohdlc_dma_alignment());
   IOHDLC_ASSERT(drv->rx.stagep != NULL, "DMA-safe staging allocation failed");
   *drv->rx.stagep = 0;
   drv->rx.in_frame = NULL;

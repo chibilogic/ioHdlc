@@ -48,6 +48,15 @@ typedef enum {
 } test_traffic_direction_t;
 
 /**
+ * @brief   Local test endpoint selection.
+ */
+typedef enum {
+  TEST_ENDPOINT_BOTH,     /**< Run both endpoints locally. */
+  TEST_ENDPOINT_A,        /**< Run endpoint A locally. */
+  TEST_ENDPOINT_B         /**< Run endpoint B locally. */
+} test_endpoint_mode_t;
+
+/**
  * @brief   Test configuration structure.
  */
 typedef struct {
@@ -66,6 +75,7 @@ typedef struct {
   
   /* Traffic direction */
   test_traffic_direction_t traffic_direction;
+  test_endpoint_mode_t endpoint_mode;
   
   /* Error injection */
   uint8_t error_rate;                   /**< Error rate 0-100% (0=disabled) */

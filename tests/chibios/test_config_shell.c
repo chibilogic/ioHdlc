@@ -61,6 +61,7 @@ static void print_usage(void) {
   test_printf("  -w N                Watermark delay every 256 packets in ms (default: 0)\r\n");
   test_printf("  --error-rate=N      Error rate 0-100%% (default: 0)\r\n");
   test_printf("  --direction=DIR     Direction: both|pri2sec|sec2pri (aliases: a2b|b2a)\r\n");
+  test_printf("  --endpoint=EP      Local endpoint: both|a|b (aliases: primary|secondary)\r\n");
   test_printf("  --reply-timeout=N   Reply timeout in ms (default: 0=library default %u)\r\n",
               (unsigned)IOHDLC_REPLY_TIMEOUT_MS_DEFAULT);
   test_printf("  --poll-retry-max=N  Max poll retries (default: 0=library default %u)\r\n",
@@ -103,6 +104,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->exchanges_per_iteration = 10;
   cfg->bytes_per_exchange = 64;
   cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
+  cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
   cfg->error_rate = 0;
   cfg->reply_timeout_ms = 0;        /* Use library default (100ms) */
   cfg->poll_retry_max = 0;          /* Use library default (8) */
@@ -225,6 +227,22 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
           cfg->traffic_direction = TRAFFIC_SEC_TO_PRI;
         } else {
           test_printf("Error: Invalid direction (both|a2b|b2a)\r\n");
+          return false;
+        }
+      }
+    }
+    /* --endpoint=EP */
+    else if (arg_starts_with(arg, "--endpoint=")) {
+      value = get_arg_value(arg);
+      if (value) {
+        if (strcmp(value, "both") == 0) {
+          cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
+        } else if (strcmp(value, "a") == 0 || strcmp(value, "primary") == 0) {
+          cfg->endpoint_mode = TEST_ENDPOINT_A;
+        } else if (strcmp(value, "b") == 0 || strcmp(value, "secondary") == 0) {
+          cfg->endpoint_mode = TEST_ENDPOINT_B;
+        } else {
+          test_printf("Error: Invalid endpoint (both|a|b)\r\n");
           return false;
         }
       }

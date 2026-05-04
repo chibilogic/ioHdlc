@@ -152,12 +152,26 @@ void test_print_config(const test_config_t *cfg) {
   /* Traffic pattern */
   test_printf("Exchanges:    %u per iteration\n", cfg->exchanges_per_iteration);
   test_printf("Packet size:  %u bytes\n", cfg->bytes_per_exchange);
+
+  /* Local endpoint */
+  switch (cfg->endpoint_mode) {
+    case TEST_ENDPOINT_A:
+      test_printf("Endpoint:     A\n");
+      break;
+    case TEST_ENDPOINT_B:
+      test_printf("Endpoint:     B\n");
+      break;
+    case TEST_ENDPOINT_BOTH:
+    default:
+      test_printf("Endpoint:     both\n");
+      break;
+  }
   
   /* Direction */
   const char *dir_str;
   switch (cfg->traffic_direction) {
-    case TRAFFIC_PRI_TO_SEC: dir_str = "Primary -> Secondary"; break;
-    case TRAFFIC_SEC_TO_PRI: dir_str = "Secondary -> Primary"; break;
+    case TRAFFIC_PRI_TO_SEC: dir_str = "A -> B"; break;
+    case TRAFFIC_SEC_TO_PRI: dir_str = "B -> A"; break;
     case TRAFFIC_BIDIRECTIONAL: dir_str = "Bidirectional"; break;
     default: dir_str = "UNKNOWN"; break;
   }

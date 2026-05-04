@@ -557,6 +557,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       applyModeState(s, om);
       resetPeerVars(p);
       ioHdlcSetConnected(p);
+      ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_LINK_UP);
       p->um_rsp = IOHDLC_U_UA;
       
     } else if (u_cmd == IOHDLC_U_DISC) {
