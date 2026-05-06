@@ -1093,7 +1093,10 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
   if (next_fp) {
     drv->tx.inflight_fp = next_fp;
     int32_t ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, next_fp);
-    IOHDLC_ASSERT(ret == 0, "tx_submit_frame rejected queued frame");
+    if (ret != 0) {
+      drv->tx.inflight_fp = NULL;
+      done_fp = next_fp;
+    }
   }
   iohdlc_sys_unlock_isr();
 #endif

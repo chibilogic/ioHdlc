@@ -15,23 +15,13 @@
  */
 /**
  * @file    ioHdlcstream_spi_platform.c
- * @brief   STM32F411RE platform hooks for the ChibiOS SPI stream backend.
+ * @brief   STM32F411RE SPI stream platform hook translation unit.
  */
 
-#include "ioHdlcstream_spi.h"
 #include "ioHdlcstream_spi_platform.h"
 
-void ioHdlcStreamSpiPlatformPrepareSlaveTx(ioHdlcStreamChibiosSpi *ctx) {
-  (void)ctx;
-}
-
-bool ioHdlcStreamSpiPlatformCancelSlaveRxI(ioHdlcStreamChibiosSpi *ctx) {
-  (void)ctx;
-
-  return false;
-}
-
 bool ioHdlcStreamSpiPlatformAbortSlaveI(ioHdlcStreamChibiosSpi *ctx) {
+
   (void)ctx;
 
   return false;

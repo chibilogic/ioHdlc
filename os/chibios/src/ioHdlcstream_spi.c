@@ -20,8 +20,8 @@
  * @details Binds a ChibiOS @p SPIDriver to @ref ioHdlcStreamPort.  SPI TX and
  *          RX DMA operations are mutually exclusive; the software driver owns
  *          TX ordering and this adapter executes the selected contiguous frame
- *          submission.  If TX preempts RX, the partially received data is
- *          discarded by the software deframer.
+ *          submission.  Masters using DATA_READY keep RX priority while the
+ *          slave is presenting data.
  */
 
 #include "ioHdlcstream_spi.h"
@@ -39,6 +39,8 @@ static void chb_spi_start_receive_i(ioHdlcStreamChibiosSpi *ctx,
                                     uint8_t *ptr) {
 
   iohdlc_dma_rx_prepare(ptr, len);
+  if (!ctx->is_master)
+    ioHdlcStreamSpiPlatformPrepareSlaveRxI(ctx);
   spiStartReceiveI(ctx->spip, len, ptr);
 }
 
@@ -240,9 +242,8 @@ static void chb_spi_stop(void *vctx) {
 
 /**
  * @brief   Submit a TX buffer.
- * @details If an RX is in progress it is aborted first (TX preempts RX).
- *          The partial receive is discarded silently; FCS checking in
- *          @p drv_recv_frame will reject the incomplete frame.
+ * @details DATA_READY masters reject TX while RX is active or ready; slaves may
+ *          still cancel their armed RX when switching direction.
  */
 static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
                                void *cookie) {
@@ -256,6 +257,21 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
   chDbgAssert(!ctx->tx_active, "spi tx_submit: tx already active");
 
   needs_slave_tx_prepare = !ctx->is_master && ctx->slave_tx_needs_prepare;
+
+  if (ctx->is_master) {
+    if (ctx->rx_active)
+      return false;
+#if defined(IOHDLC_SPI_USE_DR)
+    if ((ctx->rx_ptr != NULL) &&
+        ((ctx->rx_n > 1U) || (palReadLine(ctx->dr_line) == PAL_HIGH))) {
+      ctx->dr_armed = false;
+      ctx->rx_active = true;
+      spiSelectI(ctx->spip);
+      chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
+      return false;
+    }
+#endif
+  }
 
   if (ctx->rx_active) {
     ctx->rx_active = false;
@@ -287,14 +303,16 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
     ctx->slave_tx_needs_prepare = false;
   }
   iohdlc_dma_tx_prepare(ptr, len);
-  if (ctx->is_master)
+  if (ctx->is_master) {
     spiSelectI(ctx->spip);
+    spiStartSendI(ctx->spip, len, ptr);
+  } else {
+    spiStartSendI(ctx->spip, len, ptr);
 #if defined(IOHDLC_SPI_USE_DR)
-  else
     /* Slave: assert DATA_READY to signal the master that TX data is ready. */
     palSetLine(ctx->dr_line);
 #endif
-  spiStartSendI(ctx->spip, len, ptr);
+  }
 
   return true;
 }

@@ -23,6 +23,12 @@
 #include "ioHdlcosal.h"
 #include <string.h>
 
+#if defined(BOARD_NAME)
+#define TEST_PLATFORM_BOARD_NAME BOARD_NAME
+#else
+#define TEST_PLATFORM_BOARD_NAME "unknown"
+#endif
+
 /*===========================================================================*/
 /* Test Control (OS-agnostic stop mechanism)                                */
 /*===========================================================================*/
@@ -124,6 +130,7 @@ void test_print_config(const test_config_t *cfg) {
   test_printf("===================\n");
   test_printf("Test name:    %s\n", cfg->test_name ? cfg->test_name : "unnamed");
   test_printf("ioHdlc:       %s\n", IOHDLC_VERSION_STRING);
+  test_printf("Board:        %s\n", TEST_PLATFORM_BOARD_NAME);
   
   /* Mode */
   const char *mode_str;

@@ -1004,14 +1004,15 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
       msg_t result = iohdlc_condvar_wait_timeout(&peer->tx_cv,
                                                   &peer->state_mutex,
                                                   timeout_ms);
+      if (result == MSG_TIMEOUT)
+        iohdlc_mutex_lock(&peer->state_mutex);
       if ((result == MSG_TIMEOUT) && W_WAIT_COND(s, peer)) {
          /* Timeout occurred and condition still not satisfied */
         iohdlc_errno = ETIMEDOUT;
         ssize_t t = count -remaining;
+        iohdlc_mutex_unlock(&peer->state_mutex);
         return t != 0 ? t : -1;  /* Return bytes written so far */
       }
-      if (result == MSG_TIMEOUT)
-        iohdlc_mutex_lock(&peer->state_mutex);
     }
 
     if (IOHDLC_PEER_DISC(peer)) {
@@ -1159,6 +1160,8 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       wait_result = iohdlc_condvar_wait_timeout(&peer->rx_cv,
                                                 &peer->state_mutex,
                                                 remaining_ms);
+      if (wait_result == MSG_TIMEOUT)
+        iohdlc_mutex_lock(&peer->state_mutex);
       if (wait_result == MSG_TIMEOUT &&
           !s_peer_rx_has_data(peer) &&
           !IOHDLC_PEER_DISC(peer)) {
