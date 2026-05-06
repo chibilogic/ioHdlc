@@ -457,7 +457,7 @@
                                      PIN_OSPEED_VERYLOW(GPIOB_PIN7) |       \
                                      PIN_OSPEED_VERYLOW(GPIOB_PIN8) |       \
                                      PIN_OSPEED_VERYLOW(GPIOB_PIN9) |       \
-                                     PIN_OSPEED_MEDIUM(GPIOB_SPI_DR_B) |    \
+                                     PIN_OSPEED_LOW(GPIOB_SPI_DR_B) |       \
                                      PIN_OSPEED_VERYLOW(GPIOB_PIN11) |      \
                                      PIN_OSPEED_HIGH(GPIOB_SPI2_NSS) |      \
                                      PIN_OSPEED_HIGH(GPIOB_SPI2_SCK) |      \

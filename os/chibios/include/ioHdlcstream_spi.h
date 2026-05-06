@@ -47,6 +47,7 @@ typedef struct ioHdlcStreamChibiosSpi {
   SPIDriver                    *spip;       /**< ChibiOS SPI driver instance   */
   SPIConfig                    *cfgp;       /**< SPI configuration             */
   bool                          is_master;  /**< true = master, false = slave  */
+  bool                          started;    /**< Runtime accepts IRQ activity  */
   const ioHdlcStreamCallbacks  *cbs;        /**< Callbacks registered at start */
   const iohdlc_stream_caps_t   *caps;       /**< Capability descriptor         */
 

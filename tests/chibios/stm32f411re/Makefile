@@ -317,4 +317,4 @@ shell-uart:
 
 shell-spi:
 	@echo "Building shell with SPI adapter..."
-	@$(MAKE) shell USE_SPI_ADAPTER=1
+	@$(MAKE) shell USE_SPI_ADAPTER=1 CFLAGS_EXTRA="-DSTM32_SPI_SLAVE_GRACEFUL_STOP"

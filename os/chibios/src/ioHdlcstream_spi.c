@@ -20,18 +20,29 @@
  * @details Binds a ChibiOS @p SPIDriver to @ref ioHdlcStreamPort.  SPI TX and
  *          RX DMA operations are mutually exclusive; the software driver owns
  *          TX ordering and this adapter executes the selected contiguous frame
- *          submission.  If TX preempts RX, the partially received data is
- *          discarded by the software deframer.
+ *          submission.  Masters using DATA_READY keep RX priority while the
+ *          slave is presenting data.
  */
 
 #include "ioHdlcstream_spi.h"
 #include "ioHdlcstream_spi_platform.h"
+#include "ioHdlcosal.h"
 #include "ioHdlcll.h"
 #include <errno.h>
 
 /*===========================================================================*/
 /* Local callback implementations.                                           */
 /*===========================================================================*/
+
+static void chb_spi_start_receive_i(ioHdlcStreamChibiosSpi *ctx,
+                                    size_t len,
+                                    uint8_t *ptr) {
+
+  iohdlc_dma_rx_prepare(ptr, len);
+  if (!ctx->is_master)
+    ioHdlcStreamSpiPlatformPrepareSlaveRxI(ctx);
+  spiStartReceiveI(ctx->spip, len, ptr);
+}
 
 /**
  * @brief   Data callback (SPI v2 @p data_cb): transfer completed without errors.
@@ -41,6 +52,7 @@
 static void chb_spi_data_cb(SPIDriver *spip) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)spip->ip;
   if (!ctx) return;
+  if (!ctx->started) return;
 
   if (ctx->tx_active) {
     /* ---- TX finished ---------------------------------------------------- */
@@ -64,6 +76,7 @@ static void chb_spi_data_cb(SPIDriver *spip) {
     }
 #endif
     ctx->cbs->on_tx_done(ctx->cbs->cb_ctx, framep);
+    if (!ctx->started) return;
 
     /* If on_tx_done did not start a new TX and an RX buffer is ready,
      * restart receive. */
@@ -76,7 +89,7 @@ static void chb_spi_data_cb(SPIDriver *spip) {
         if (palReadLine(ctx->dr_line) == PAL_HIGH) {
           ctx->rx_active = true;
           spiSelectI(ctx->spip);
-          spiStartReceiveI(ctx->spip, ctx->rx_n, ctx->rx_ptr);
+          chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
         } else {
           ctx->dr_armed = true;
         }
@@ -89,7 +102,7 @@ static void chb_spi_data_cb(SPIDriver *spip) {
         if (ctx->is_master)
           spiSelectI(ctx->spip);
 #endif
-        spiStartReceiveI(ctx->spip, ctx->rx_n, ctx->rx_ptr);
+        chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
         chSysUnlockFromISR();
 #if defined(IOHDLC_SPI_USE_DR)
       }
@@ -98,6 +111,7 @@ static void chb_spi_data_cb(SPIDriver *spip) {
 
   } else if (ctx->rx_active) {
     /* ---- RX finished ---------------------------------------------------- */
+    iohdlc_dma_rx_complete(ctx->rx_ptr, ctx->rx_n);
     ctx->rx_active = false;
     ctx->rx_ptr    = NULL;
     ctx->rx_n      = 0;
@@ -124,6 +138,7 @@ static void chb_spi_data_cb(SPIDriver *spip) {
 static void chb_spi_error_cb(SPIDriver *spip) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)spip->ip;
   if (!ctx) return;
+  if (!ctx->started) return;
 
   /* Reset both state machines — the DMA transfer was aborted by the LLD. */
   ctx->tx_active = false;
@@ -167,49 +182,68 @@ static void chb_spi_start(void *vctx,
               "spi start: invalid callbacks");
 
   ctx->cbs       = cbs;
+  ctx->started   = false;
   ctx->tx_framep = NULL;
   ctx->tx_active = false;
   ctx->rx_ptr    = NULL;
   ctx->rx_n      = 0;
   ctx->rx_active = false;
   ctx->slave_tx_needs_prepare = false;
+  ctx->dr_armed  = false;
 
   /* Install callbacks, slave flag, and bind context pointer. */
   ctx->spip->ip = ctx;
   if (ctx->cfgp) {
     ctx->cfgp->data_cb  = chb_spi_data_cb;
     ctx->cfgp->error_cb = chb_spi_error_cb;
+#if SPI_SUPPORTS_SLAVE_MODE
     ctx->cfgp->slave    = !ctx->is_master;
+#endif
   }
   if (ctx->is_master)
     spiUnselect(ctx->spip);
   spiStart(ctx->spip, ctx->cfgp);
+  ctx->started = true;
 }
 
 static void chb_spi_stop(void *vctx) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
+  bool slave_aborted = false;
 
-  /* Do not submit new transactions before stopping the SPI. */
+  /* Disarm the software state before aborting the hardware transfer.  A
+   * DATA_READY IRQ can otherwise re-enter and submit RX during teardown. */
+  chSysLock();
+  ctx->started   = false;
+  ctx->dr_armed  = false;
+  ctx->tx_framep = NULL;
   ctx->tx_active = false;
+  ctx->rx_ptr    = NULL;
+  ctx->rx_n      = 0;
   ctx->rx_active = false;
   ctx->slave_tx_needs_prepare = false;
+  if (!ctx->is_master) {
+    slave_aborted = ioHdlcStreamSpiPlatformAbortSlaveI(ctx);
+  }
+  chSysUnlock();
 
   /* Stop any pending transactions. */
-  spiStopTransfer(ctx->spip, NULL);
-  if (ctx->is_master)
+  if (!ctx->is_master) {
+    if (!slave_aborted) {
+      spiStopTransfer(ctx->spip, NULL);
+    }
+  } else {
+    spiStopTransfer(ctx->spip, NULL);
     spiUnselect(ctx->spip);
+  }
 
   /* Stop the SPI. */
   spiStop(ctx->spip);
-  ctx->rx_ptr    = NULL;
-  ctx->rx_n      = 0;
 }
 
 /**
  * @brief   Submit a TX buffer.
- * @details If an RX is in progress it is aborted first (TX preempts RX).
- *          The partial receive is discarded silently; FCS checking in
- *          @p drv_recv_frame will reject the incomplete frame.
+ * @details DATA_READY masters reject TX while RX is active or ready; slaves may
+ *          still cancel their armed RX when switching direction.
  */
 static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
                                void *cookie) {
@@ -219,15 +253,40 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
   chDbgAssert(ctx != NULL, "spi tx_submit: null ctx");
   chDbgAssert(ptr != NULL, "spi tx_submit: null ptr");
   chDbgAssert(len > 0U, "spi tx_submit: zero length");
+  if (!ctx->started) return false;
   chDbgAssert(!ctx->tx_active, "spi tx_submit: tx already active");
 
-  needs_slave_tx_prepare = !ctx->is_master &&
-                           (ctx->rx_active || ctx->slave_tx_needs_prepare);
+  needs_slave_tx_prepare = !ctx->is_master && ctx->slave_tx_needs_prepare;
+
+  if (ctx->is_master) {
+    if (ctx->rx_active)
+      return false;
+#if defined(IOHDLC_SPI_USE_DR)
+    if ((ctx->rx_ptr != NULL) &&
+        ((ctx->rx_n > 1U) || (palReadLine(ctx->dr_line) == PAL_HIGH))) {
+      ctx->dr_armed = false;
+      ctx->rx_active = true;
+      spiSelectI(ctx->spip);
+      chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
+      return false;
+    }
+#endif
+  }
 
   if (ctx->rx_active) {
     ctx->rx_active = false;
-    if (ctx->is_master) spiUnselectI(ctx->spip);
-    spiStopTransferI(ctx->spip, NULL);
+    if (ctx->is_master) {
+      spiUnselectI(ctx->spip);
+      spiStopTransferI(ctx->spip, NULL);
+    } else {
+      if (ioHdlcStreamSpiPlatformCancelSlaveRxI(ctx)) {
+        needs_slave_tx_prepare = false;
+        ctx->slave_tx_needs_prepare = false;
+      } else {
+        spiStopTransferI(ctx->spip, NULL);
+        needs_slave_tx_prepare = true;
+      }
+    }
     /* rx_ptr/rx_n are left as-is so RX can be re-armed after TX completes. */
   }
 #if defined(IOHDLC_SPI_USE_DR)
@@ -243,14 +302,17 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
     ioHdlcStreamSpiPlatformPrepareSlaveTx(ctx);
     ctx->slave_tx_needs_prepare = false;
   }
-  if (ctx->is_master)
+  iohdlc_dma_tx_prepare(ptr, len);
+  if (ctx->is_master) {
     spiSelectI(ctx->spip);
+    spiStartSendI(ctx->spip, len, ptr);
+  } else {
+    spiStartSendI(ctx->spip, len, ptr);
 #if defined(IOHDLC_SPI_USE_DR)
-  else
     /* Slave: assert DATA_READY to signal the master that TX data is ready. */
     palSetLine(ctx->dr_line);
 #endif
-  spiStartSendI(ctx->spip, len, ptr);
+  }
 
   return true;
 }
@@ -279,7 +341,7 @@ static int32_t chb_spi_tx_submit_frame(void *vctx, iohdlc_frame_t *fp) {
 static bool chb_spi_tx_busy(void *vctx) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
   chDbgAssert(ctx != NULL, "spi tx_busy: null ctx");
-  return ctx->tx_active;
+  return ctx->started && ctx->tx_active;
 }
 
 /**
@@ -293,6 +355,7 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   chDbgAssert(ctx != NULL, "spi rx_submit: null ctx");
   chDbgAssert(ptr != NULL, "spi rx_submit: null ptr");
   chDbgAssert(len > 0U, "spi rx_submit: zero length");
+  if (!ctx->started) return false;
 
   /* Save the armed buffer (also used as "pending" signal in txend2). */
   ctx->rx_ptr = ptr;
@@ -307,7 +370,7 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
       if (palReadLine(ctx->dr_line) == PAL_HIGH) {
         ctx->rx_active = true;
         spiSelectI(ctx->spip);
-        spiStartReceiveI(ctx->spip, len, ptr);
+        chb_spi_start_receive_i(ctx, len, ptr);
       } else {
         ctx->dr_armed = true;
       }
@@ -317,8 +380,10 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
 #endif
     if (!ctx->tx_active) {
       ctx->rx_active = true;
-      if (ctx->is_master) spiSelectI(ctx->spip);
-      spiStartReceiveI(ctx->spip, len, ptr);
+      if (ctx->is_master) {
+        spiSelectI(ctx->spip);
+      }
+      chb_spi_start_receive_i(ctx, len, ptr);
     }
     /* else: DMA will be started by chb_spi_data_cb after TX completes. */
 #if defined(IOHDLC_SPI_USE_DR)
@@ -355,12 +420,14 @@ static void chb_spi_rx_cancel(void *vctx) {
  * @note    Must be called from ISR context.
  */
 void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx) {
+  if (!ctx) return;
+  if (!ctx->started) return;
   if (!ctx->dr_armed) return;
   ctx->dr_armed = false;
   if (ctx->rx_ptr != NULL && !ctx->rx_active && !ctx->tx_active) {
     ctx->rx_active = true;
     spiSelectI(ctx->spip);
-    spiStartReceiveI(ctx->spip, ctx->rx_n, ctx->rx_ptr);
+    chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
   }
 }
 #endif
@@ -397,6 +464,7 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort       *port,
   obj->spip      = spip;
   obj->cfgp      = cfgp;
   obj->is_master = is_master;
+  obj->started   = false;
   obj->dr_line   = dr_line;
   obj->dr_armed  = false;
   obj->cbs       = NULL;

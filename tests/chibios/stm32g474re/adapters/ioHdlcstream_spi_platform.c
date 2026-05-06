@@ -15,15 +15,23 @@
  */
 /**
  * @file    ioHdlcstream_spi_platform.c
- * @brief   STM32G474RE platform hooks for the ChibiOS SPI stream backend.
+ * @brief   STM32G474RE SPI stream platform hook translation unit.
  */
 
-#include "ioHdlcstream_spi.h"
 #include "ioHdlcstream_spi_platform.h"
 
-void ioHdlcStreamSpiPlatformPrepareSlaveTx(ioHdlcStreamChibiosSpi *ctx) {
+/**
+ * @brief   Aborts a slave transfer during teardown without waiting for clocks.
+ *
+ * @param[in] ctx       SPI stream context
+ * @return              true if the platform handled the abort
+ */
+bool ioHdlcStreamSpiPlatformAbortSlaveI(ioHdlcStreamChibiosSpi *ctx) {
   uint32_t cr1;
   uint32_t cr2;
+
+  dmaStreamDisable(ctx->spip->dmatx);
+  dmaStreamDisable(ctx->spip->dmarx);
 
   if (false) {
   }
@@ -57,4 +65,7 @@ void ioHdlcStreamSpiPlatformPrepareSlaveTx(ioHdlcStreamChibiosSpi *ctx) {
   ctx->spip->spi->CR1 = cr1;
   ctx->spip->spi->CR2 = cr2;
   ctx->spip->spi->CR1 = cr1 | SPI_CR1_SPE;
+  ctx->spip->state = SPI_READY;
+
+  return true;
 }

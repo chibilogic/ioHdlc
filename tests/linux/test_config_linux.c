@@ -40,7 +40,8 @@ static void print_usage(const char *progname) {
   printf("  --exchanges=N       Exchanges per iteration (default: 10)\n");
   printf("  --size=N            Packet size in bytes, header included (default: 64, range: %u-%u)\n",
          (unsigned)TEST_PACKET_HEADER_SIZE, (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
-  printf("  --direction=DIR     Traffic direction: pri2sec, sec2pri, both (default: both)\n");
+  printf("  --direction=DIR     Traffic direction: both, a2b, b2a (aliases: pri2sec, sec2pri)\n");
+  printf("  --endpoint=EP       Local endpoint: both, a, b (aliases: primary, secondary)\n");
   printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
   printf("  --reply-timeout=N   Reply timeout in ms (default: 0=library default %u)\n",
          (unsigned)IOHDLC_REPLY_TIMEOUT_MS_DEFAULT);
@@ -71,6 +72,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->exchanges_per_iteration = 10;
   cfg->bytes_per_exchange = 64;
   cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
+  cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
   cfg->error_rate = 0;  /* Disabled by default */
   cfg->reply_timeout_ms = 0;  /* Use default (100ms) */
   cfg->poll_retry_max = 0;  /* Use default (8) */
@@ -90,6 +92,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     {"exchanges", required_argument, 0, 'e'},
     {"size",      required_argument, 0, 'z'},
     {"direction", required_argument, 0, 'd'},
+    {"endpoint",  required_argument, 0, 'E'},
     {"error-rate",required_argument, 0, 'r'},
     {"reply-timeout",required_argument, 0, 'T'},
     {"poll-retry-max",required_argument, 0, 'R'},
@@ -103,7 +106,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   int opt;
   int option_index = 0;
   
-  while ((opt = getopt_long(argc, argv, "m:M:asc:t:e:z:d:r:T:R:p:w:K:h",
+  while ((opt = getopt_long(argc, argv, "m:M:asc:t:e:z:d:E:r:T:R:p:w:K:h",
                             long_options, &option_index)) != -1) {
     switch (opt) {
       case 'm':  /* --mode */
@@ -173,14 +176,27 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
       }
         
       case 'd':  /* --direction */
-        if (strcmp(optarg, "pri2sec") == 0) {
+        if (strcmp(optarg, "pri2sec") == 0 || strcmp(optarg, "a2b") == 0) {
           cfg->traffic_direction = TRAFFIC_PRI_TO_SEC;
-        } else if (strcmp(optarg, "sec2pri") == 0) {
+        } else if (strcmp(optarg, "sec2pri") == 0 || strcmp(optarg, "b2a") == 0) {
           cfg->traffic_direction = TRAFFIC_SEC_TO_PRI;
         } else if (strcmp(optarg, "both") == 0) {
           cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
         } else {
           fprintf(stderr, "Error: Invalid direction '%s'\n", optarg);
+          return false;
+        }
+        break;
+
+      case 'E':  /* --endpoint */
+        if (strcmp(optarg, "both") == 0) {
+          cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
+        } else if (strcmp(optarg, "a") == 0 || strcmp(optarg, "primary") == 0) {
+          cfg->endpoint_mode = TEST_ENDPOINT_A;
+        } else if (strcmp(optarg, "b") == 0 || strcmp(optarg, "secondary") == 0) {
+          cfg->endpoint_mode = TEST_ENDPOINT_B;
+        } else {
+          fprintf(stderr, "Error: Invalid endpoint '%s'\n", optarg);
           return false;
         }
         break;

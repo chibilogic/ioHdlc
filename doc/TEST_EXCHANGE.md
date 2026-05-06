@@ -44,6 +44,7 @@ Unless noted otherwise, the semantics are identical on Linux and in the shell. T
 | `--exchanges=N` | 10 | Packets sent per iteration |
 | `--size=N` | 64 | Packet size in bytes, including the 10-byte test header (range: 10-1024) |
 | `--direction=DIR` | both | Traffic direction: `pri2sec`, `sec2pri`, `both` |
+| `--endpoint=EP` | both | Local endpoint selection: `both`, `a`, `b` (aliases: `primary`, `secondary`) |
 | `--error-rate=N` | 0 | Error injection rate 0-100% (mock adapter only) |
 | `--reply-timeout=N` | `0` (`IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`) | HDLC reply timeout in ms |
 | `--poll-retry-max=N` | `0` (`IOHDLC_POLL_RETRY_MAX_DEFAULT`) | Max poll retries before link failure |
@@ -61,7 +62,7 @@ Shell-only shorthand:
 ### Mode and Link Type
 
 - **Mode** (`--mode`): NRM (Normal Response Mode) is the default and most common mode, while ABM is the primary choice for point-to-point links using TWS.
-- **Link type** (`--twa`/`--tws`): TWS allows both stations to transmit independently. TWA alternates transmission turns via polling. SPI adapters require TWA.
+- **Link type** (`--twa`/`--tws`): TWS allows both stations to transmit independently. TWA alternates transmission turns via polling. SPI adapters require TWA and NRM.
 - **Modulo** (`--modulo`): modulo 8 is the default. Use modulo 128 to exercise extended control fields and larger sequence spaces.
 
 ### Duration
@@ -78,6 +79,26 @@ Three duration modes, mutually exclusive:
 - `pri2sec`: primary sends only, secondary receives only (2 active threads).
 - `sec2pri`: secondary sends only, primary receives only (2 active threads).
 - ChibiOS shell also accepts `a2b` and `b2a` as aliases for `pri2sec` and `sec2pri`.
+
+Endpoint names are test-harness labels. In NRM, endpoint A is the primary and
+endpoint B is the secondary. In ABM, A/B identify the two local test endpoints;
+there is no NRM-style primary/secondary relationship.
+
+### Local Endpoint Selection
+
+`--endpoint` selects which endpoint is instantiated locally:
+
+- `both` (default): instantiate endpoint A and endpoint B in the same process or firmware image.
+- `a`: instantiate only endpoint A locally; endpoint B must run on another process or target.
+- `b`: instantiate only endpoint B locally; endpoint A must run on another process or target.
+- `primary` and `secondary` are accepted as aliases for `a` and `b`.
+
+Traffic direction still describes the logical flow between A and B. For example,
+run `--endpoint=a --direction=a2b` on the A side and
+`--endpoint=b --direction=a2b` on the B side for a two-target A-to-B test.
+
+The aliases `primary` and `secondary` follow the NRM mapping: `primary` means
+endpoint A, and `secondary` means endpoint B.
 
 ### Packet Size
 
@@ -104,10 +125,10 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 
 ## Platform-Specific Defaults
 
-- Linux runtime defaults: `--count=10`, `--mode=nrm`, `--modulo=8`, `--tws`, `--reply-timeout=0`, `--poll-retry-max=0`
-- ChibiOS shell defaults: `--count=100`, `--mode=nrm`, `--modulo=8`, `--tws`, `--reply-timeout=0`, `--poll-retry-max=0`
+- Linux runtime defaults: `--count=10`, `--mode=nrm`, `--modulo=8`, `--tws`, `--endpoint=both`, `--reply-timeout=0`, `--poll-retry-max=0`
+- ChibiOS shell defaults: `--count=100`, `--mode=nrm`, `--modulo=8`, `--tws`, `--endpoint=both`, `--reply-timeout=0`, `--poll-retry-max=0`
 - ChibiOS standalone defaults are compile-time:
-  `TEST_MODE=IOHDLC_OM_NRM`, `TEST_MODULO=8`, `TEST_USE_TWA=0`, `TEST_DURATION_TYPE=TEST_BY_COUNT`, `TEST_DURATION_VALUE=1000`
+  `TEST_MODE=IOHDLC_OM_NRM`, `TEST_MODULO=8`, `TEST_USE_TWA=0`, `TEST_ENDPOINT=TEST_ENDPOINT_BOTH`, `TEST_DURATION_TYPE=TEST_BY_COUNT`, `TEST_DURATION_VALUE=1000`
 
 ## Usage Examples
 
@@ -122,6 +143,9 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 
 # Unidirectional: primary to secondary only
 ./test_exchange --count=500 --direction=pri2sec
+
+# Run only endpoint A locally, with endpoint B on another target/process
+./test_exchange --endpoint=a --direction=a2b --count=500
 
 # ABM/TWS with modulo 128
 ./test_exchange --mode=abm --tws --modulo=128 --count=200
@@ -155,36 +179,54 @@ The tool prints periodic updates depending on the duration mode:
 
 **Count-based:**
 ```
-Progress: 5000/10000 packets sent, 4998 rcv | PRI: 2500/2500 | SEC: 2500/2498
+Progress: 5000/10000 packets sent, 4998 rcv | A: 2500/2500 | B: 2500/2498
 ```
 
 **Time-based:**
 ```
-Elapsed: 30/60 seconds | PRI: 500 sent, 498 rcv | SEC: 498 sent, 500 rcv
+Elapsed: 30/60 seconds | A: 500 sent, 498 rcv | B: 498 sent, 500 rcv
 ```
 
 **Infinite:**
 ```
-Elapsed: 120 seconds | PRI: 1000 sent, 998 rcv | SEC: 995 sent, 1000 rcv
+Elapsed: 120 seconds | A: 1000 sent, 998 rcv | B: 995 sent, 1000 rcv
 ```
 
 ### Final Report
 
-At completion, the tool prints per-station and per-direction statistics:
+At completion, the tool prints per-endpoint, per-peer and per-direction
+statistics. When `--endpoint=a` or `--endpoint=b` is used, only the local
+endpoint statistics are printed.
+
+In NRM reports, endpoint A corresponds to the primary side and endpoint B to
+the secondary side.
 
 ```
-Primary Station:
-  Packets sent:     30000
-  Packets received: 29998
+Endpoint A:
+  Packets sent:     1000
+  Packets received: 1000
   Seq errors:       0
-  Bytes sent:       1920000
-  Bytes received:   1919872
+  Bytes sent:       0000064000
+  Bytes received:   0000064000
 
-Primary -> Secondary Traffic:
-  Sent:       30000 packets (1920000 bytes)
-  Received:   29998 packets (1919872 bytes)
-  Lost:       2 packets (0.01%)
-  Throughput: 32000.00 bytes/s (31.25 KB/s)
+Endpoint B:
+  Packets sent:     1000
+  Packets received: 1000
+  Seq errors:       0
+  Bytes sent:       0000064000
+  Bytes received:   0000064000
+
+A -> B Traffic:
+  Sent:       1000 packets (0000064000 bytes)
+  Received:   1000 packets (0000064000 bytes)
+  Lost:       0 packets (0.00%)
+  Throughput: 64000.00 bytes/s (62.50 KB/s)
+
+B -> A Traffic:
+  Sent:       1000 packets (0000064000 bytes)
+  Received:   1000 packets (0000064000 bytes)
+  Lost:       0 packets (0.00%)
+  Throughput: 64000.00 bytes/s (62.50 KB/s)
 ```
 
 ### Protocol Statistics
@@ -192,12 +234,12 @@ Primary -> Secondary Traffic:
 When compiled with `-DIOHDLC_ENABLE_STATISTICS` (default on Linux), additional per-peer counters are reported:
 
 ```
-Protocol Statistics (Primary -> Secondary peer):
-  REJ received:     2
+Protocol Statistics (A -> B peer):
+  REJ received:     0
   Checkpoints:      0
   Timeouts:         0
   Out of sequence:  0
-  Pool low water:   2
+  Pool low water:   0
 ```
 
 ## Packet Format
@@ -215,16 +257,19 @@ The receiver validates each packet against the expected sequence number, updatin
 
 ## Threading Model
 
-The tool creates 4 threads per test run:
+The tool creates up to 4 worker threads per test run:
 
 | Thread | Role | Active when |
 |--------|------|-------------|
-| `pri_writer` | Primary station sends packets | `both` or `pri2sec` |
-| `pri_reader` | Primary station receives packets | `both` or `sec2pri` |
-| `sec_writer` | Secondary station sends packets | `both` or `sec2pri` |
-| `sec_reader` | Secondary station receives packets | `both` or `pri2sec` |
+| `pri_writer` | Endpoint A sends packets | `both` or `pri2sec` |
+| `pri_reader` | Endpoint A receives packets | `both` or `sec2pri` |
+| `sec_writer` | Endpoint B sends packets | `both` or `sec2pri` |
+| `sec_reader` | Endpoint B receives packets | `both` or `pri2sec` |
 
-Threads not needed for the selected direction exit immediately. Statistics are protected by per-station mutexes.
+Threads not needed for the selected direction exit immediately. Statistics are protected by per-endpoint mutexes.
+
+When `--endpoint=a` or `--endpoint=b` is selected, only the local endpoint is
+instantiated and only that endpoint's writer/reader workers are created.
 
 The global flag `test_running_global` coordinates shutdown: when any thread completes its work or encounters an error, all threads stop. On Linux, Ctrl-C sets `test_stop_requested` via signal handler.
 
@@ -234,9 +279,11 @@ The global flag `test_running_global` coordinates shutdown: when any thread comp
 |---------|----------|-----------------|-------------|
 | Mock | Linux, ChibiOS | Yes (0-100%) | None |
 | UART | ChibiOS | No | None |
-| SPI | ChibiOS | No | TWA only (`ADAPTER_CONSTRAINT_TWA_ONLY`) |
+| SPI | ChibiOS | No | TWA + NRM only (`ADAPTER_CONSTRAINT_TWA_ONLY \| ADAPTER_CONSTRAINT_NRM_ONLY`) |
 
-The tool checks adapter constraints before starting. If a SPI adapter is selected with TWS mode, the tool prints an error and exits.
+The tool checks adapter constraints before starting. If a SPI adapter is
+selected with TWS or ABM mode, the tool prints an error and exits. If the link
+type or mode is omitted, constrained adapters select their required defaults.
 
 ## Platform-Specific Details
 
@@ -254,7 +301,9 @@ Compile-time configuration via Makefile defines. See [ChibiOS Standalone Build](
 
 ### ChibiOS Shell
 
-Interactive shell with runtime CLI. It accepts the same long options as Linux, plus `a2b`/`b2a` direction aliases and the short forms `-p N`, `-w N`. See [ChibiOS Shell](../tests/chibios/README_SHELL.md) for shell-specific details.
+Interactive shell with runtime CLI. It accepts the same long options as Linux,
+plus `a2b`/`b2a` direction aliases and the short forms `-p N`, `-w N`. See
+[ChibiOS Shell](../tests/chibios/README_SHELL.md) for shell-specific details.
 
 ## Debugging
 

@@ -320,7 +320,7 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   drv->port.callbacks.on_rx_error = s_on_rx;
   drv->port.callbacks.cb_ctx = drv;
 
-  drv->rx.stagep = (uint8_t *)iohdlc_dma_alloc(1u, IOHDLC_DMA_ALIGN_DEFAULT);
+  drv->rx.stagep = (uint8_t *)iohdlc_dma_alloc(1U, iohdlc_dma_alignment());
   IOHDLC_ASSERT(drv->rx.stagep != NULL, "DMA-safe staging allocation failed");
   *drv->rx.stagep = 0;
   drv->rx.in_frame = NULL;
@@ -1093,7 +1093,10 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
   if (next_fp) {
     drv->tx.inflight_fp = next_fp;
     int32_t ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, next_fp);
-    IOHDLC_ASSERT(ret == 0, "tx_submit_frame rejected queued frame");
+    if (ret != 0) {
+      drv->tx.inflight_fp = NULL;
+      done_fp = next_fp;
+    }
   }
   iohdlc_sys_unlock_isr();
 #endif

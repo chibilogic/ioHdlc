@@ -30,9 +30,12 @@
 
 #include "ch.h"
 #include "hal.h"
+#include "cache.h"
 #include "chprintf.h"
 #include "ioHdlctypes.h"
 #include <errno.h>
+#include <stddef.h>
+#include <stdint.h>
 
 /**
  * @brief   Signed size type (not standard in ChibiOS/newlib-nano).
@@ -332,9 +335,117 @@ static inline void iohdlc_thread_yield(void) { chThdYield(); }
 
 /* DMA-safe allocation API (OS-provided). Implemented in
  * os/chibios/ioHdlcosal.c using ChibiOS mem heaps.*/
-#ifndef IOHDLC_DMA_ALIGN_DEFAULT
-#define IOHDLC_DMA_ALIGN_DEFAULT 32u
+#if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT != 0)
+#define IOHDLC_DMA_CACHE_MAINTENANCE_REQUIRED TRUE
+#else
+#define IOHDLC_DMA_CACHE_MAINTENANCE_REQUIRED FALSE
 #endif
+
+#ifndef IOHDLC_DMA_CACHE_LINE_SIZE
+#if IOHDLC_DMA_CACHE_MAINTENANCE_REQUIRED == TRUE
+#define IOHDLC_DMA_CACHE_LINE_SIZE          CACHE_LINE_SIZE
+#else
+#define IOHDLC_DMA_CACHE_LINE_SIZE          1U
+#endif
+#endif
+
+#ifndef IOHDLC_DMA_ALIGN_DEFAULT
+#define IOHDLC_DMA_ALIGN_DEFAULT            IOHDLC_DMA_CACHE_LINE_SIZE
+#endif
+
+extern uint8_t __nocache_base__[];
+extern uint8_t __nocache_end__[];
+
+static inline size_t iohdlc_dma_alignment(void) {
+
+  return (size_t)IOHDLC_DMA_ALIGN_DEFAULT;
+}
+
+static inline bool iohdlc_dma_is_coherent(const void *p, size_t n) {
+#if IOHDLC_DMA_CACHE_MAINTENANCE_REQUIRED == FALSE
+  (void)p;
+  (void)n;
+  return true;
+#elif defined(IMX95_NOCACHE_ENABLE) && (IMX95_NOCACHE_ENABLE == TRUE)
+  uintptr_t start = (uintptr_t)p;
+  uintptr_t end = start + n;
+
+  return (start >= (uintptr_t)__nocache_base__) &&
+         (end <= (uintptr_t)__nocache_end__);
+#else
+  (void)p;
+  (void)n;
+  return false;
+#endif
+}
+
+static inline void iohdlc_dma_cache_flush_range(const void *p, size_t n) {
+#if IOHDLC_DMA_CACHE_MAINTENANCE_REQUIRED == TRUE
+  uintptr_t start;
+  uintptr_t end;
+
+  if ((p == NULL) || (n == 0U))
+    return;
+
+  start = (uintptr_t)p & ~((uintptr_t)IOHDLC_DMA_CACHE_LINE_SIZE - 1U);
+  end = ((uintptr_t)p + n + IOHDLC_DMA_CACHE_LINE_SIZE - 1U) &
+        ~((uintptr_t)IOHDLC_DMA_CACHE_LINE_SIZE - 1U);
+
+  __DSB();
+  while (start < end) {
+    SCB->DCCIMVAC = (uint32_t)start;
+    start += IOHDLC_DMA_CACHE_LINE_SIZE;
+  }
+  __DSB();
+  __ISB();
+#else
+  (void)p;
+  (void)n;
+#endif
+}
+
+static inline void iohdlc_dma_cache_invalidate_range(void *p, size_t n) {
+#if IOHDLC_DMA_CACHE_MAINTENANCE_REQUIRED == TRUE
+  uintptr_t start;
+  uintptr_t end;
+
+  if ((p == NULL) || (n == 0U))
+    return;
+
+  start = (uintptr_t)p & ~((uintptr_t)IOHDLC_DMA_CACHE_LINE_SIZE - 1U);
+  end = ((uintptr_t)p + n + IOHDLC_DMA_CACHE_LINE_SIZE - 1U) &
+        ~((uintptr_t)IOHDLC_DMA_CACHE_LINE_SIZE - 1U);
+
+  __DSB();
+  while (start < end) {
+    SCB->DCIMVAC = (uint32_t)start;
+    start += IOHDLC_DMA_CACHE_LINE_SIZE;
+  }
+  __DSB();
+  __ISB();
+#else
+  (void)p;
+  (void)n;
+#endif
+}
+
+static inline void iohdlc_dma_tx_prepare(const void *p, size_t n) {
+
+  if (!iohdlc_dma_is_coherent(p, n))
+    iohdlc_dma_cache_flush_range(p, n);
+}
+
+static inline void iohdlc_dma_rx_prepare(void *p, size_t n) {
+
+  if (!iohdlc_dma_is_coherent(p, n))
+    iohdlc_dma_cache_flush_range(p, n);
+}
+
+static inline void iohdlc_dma_rx_complete(void *p, size_t n) {
+
+  if (!iohdlc_dma_is_coherent(p, n))
+    iohdlc_dma_cache_invalidate_range(p, n);
+}
 
 void *iohdlc_dma_alloc(size_t size, size_t align);
 void iohdlc_dma_free(void *p);

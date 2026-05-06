@@ -399,6 +399,31 @@ static inline void iohdlc_mutex_init(iohdlc_mutex_t *m) {
  */
 #define IOHDLC_DMA_ALIGN_DEFAULT 1
 
+static inline size_t iohdlc_dma_alignment(void) {
+  return IOHDLC_DMA_ALIGN_DEFAULT;
+}
+
+static inline bool iohdlc_dma_is_coherent(const void *p, size_t n) {
+  (void)p;
+  (void)n;
+  return true;
+}
+
+static inline void iohdlc_dma_tx_prepare(const void *p, size_t n) {
+  (void)p;
+  (void)n;
+}
+
+static inline void iohdlc_dma_rx_prepare(void *p, size_t n) {
+  (void)p;
+  (void)n;
+}
+
+static inline void iohdlc_dma_rx_complete(void *p, size_t n) {
+  (void)p;
+  (void)n;
+}
+
 /**
  * @brief   Allocate memory block.
  * @param[in] size   Number of bytes to allocate.

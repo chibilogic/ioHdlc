@@ -22,6 +22,7 @@ make exchange \
   TEST_USE_TWA=1 \
   TEST_DURATION_TYPE=TEST_BY_TIME \
   TEST_DURATION_VALUE=60 \
+  TEST_ENDPOINT=TEST_ENDPOINT_BOTH \
   TEST_EXCHANGES=50 \
   TEST_PACKET_SIZE=512
 ```
@@ -40,6 +41,7 @@ make exchange \
 | `TEST_EXCHANGES` | 97 | Packets per iteration |
 | `TEST_PACKET_SIZE` | 120 | Packet size in bytes, header included (range: 10-1024) |
 | `TEST_DIRECTION` | `TRAFFIC_BIDIRECTIONAL` | `TRAFFIC_PRI_TO_SEC`, `TRAFFIC_SEC_TO_PRI`, `TRAFFIC_BIDIRECTIONAL` |
+| `TEST_ENDPOINT` | `TEST_ENDPOINT_BOTH` | `TEST_ENDPOINT_BOTH`, `TEST_ENDPOINT_A`, `TEST_ENDPOINT_B` |
 | `TEST_ERROR_RATE` | 1 | Error injection 0-100% (mock adapter only) |
 | `TEST_REPLY_TIMEOUT` | 0 | Reply timeout in ms (`0` = `IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`) |
 | `TEST_POLL_RETRY_MAX` | 0 | Max retries (`0` = `IOHDLC_POLL_RETRY_MAX_DEFAULT`) |
@@ -60,4 +62,5 @@ Output goes to the serial console (115200 baud, 8N1).
 
 - [Exchange Test Tool](../../doc/TEST_EXCHANGE.md) -- full documentation
 - [ChibiOS Shell](README_SHELL.md) -- interactive shell with runtime CLI
-- [Adapter Architecture](README_ADAPTERS.md) -- mock/UART/SPI adapter details
+- [Test Architecture](../../doc/TEST_ARCHITECTURE.md) -- adapter abstraction and constraints
+- [Hardware Getting Started](../../doc/GETTING_STARTED_HARDWARE.md) -- UART/SPI wiring and frontend notes

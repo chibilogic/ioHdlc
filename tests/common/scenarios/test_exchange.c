@@ -29,6 +29,7 @@
 #include "ioHdlc_runner.h"
 #include "ioHdlcfmempool.h"
 #include "ioHdlcosal.h"
+#include "ioHdlc_app_events.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,6 +56,9 @@ static volatile bool test_failed_global = false;
 static volatile bool s_exchange_error_reported = false;
 static volatile uint32_t s_exchange_active_workers = 0U;
 static iohdlc_mutex_t s_exchange_state_mutex;
+static const uint8_t s_exchange_optfuncs_norej[5] = {
+  0x00, 0x00, IOHDLC_OPT_SST, 0x00, IOHDLC_OPT_FFF | IOHDLC_OPT_INH
+};
 static uint8_t s_pri_writer_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
 static uint8_t s_sec_writer_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
 static uint8_t s_pri_reader_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
@@ -179,8 +183,12 @@ static void *writer_thread(void *arg) {
         s_exchange_abort_peer(s_sec_peer);
 
         if (dump_once) {
-          test_dump_station_state(st_pri, "Pri At writer error");
-          test_dump_station_state(st_sec, "Sec At writer error");
+          if (st_pri != NULL) {
+            test_dump_station_state(st_pri, "A At writer error");
+          }
+          if (st_sec != NULL) {
+            test_dump_station_state(st_sec, "B At writer error");
+          }
         }
 
         if (iohdlc_errno == ETIMEDOUT)
@@ -254,8 +262,12 @@ static void *reader_thread(void *arg) {
       s_exchange_abort_peer(s_sec_peer);
 
       if (dump_once) {
-        test_dump_station_state(st_pri, "Pri At reader error");
-        test_dump_station_state(st_sec, "Sec At reader error");
+        if (st_pri != NULL) {
+          test_dump_station_state(st_pri, "A At reader error");
+        }
+        if (st_sec != NULL) {
+          test_dump_station_state(st_sec, "B At reader error");
+        }
       }
 
       test_printf("Reader %u Error %d!\r\n", ctx->station->addr, iohdlc_errno);
@@ -284,6 +296,8 @@ static void *reader_thread(void *arg) {
 /*===========================================================================*/
 
 iohdlc_station_t station_primary, station_secondary;
+static uint8_t s_exchange_arena_primary[EXCHANGE_ARENA_SIZE];
+static uint8_t s_exchange_arena_secondary[EXCHANGE_ARENA_SIZE];
 
 /**
  * @brief Exchange test main function.
@@ -301,19 +315,30 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   ioHdlcSwDriver driver_primary, driver_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t station_config;
-  thread_context_t ctx_pri_writer, ctx_pri_reader, ctx_sec_writer, ctx_sec_reader;
-  iohdlc_thread_t *thread_pri_writer, *thread_pri_reader, *thread_sec_writer, *thread_sec_reader;
-  static uint8_t arena_primary[EXCHANGE_ARENA_SIZE], arena_secondary[EXCHANGE_ARENA_SIZE];
-  int32_t result;
-  uint32_t start_time, elapsed_time;
-  ioHdlcStreamPort port_primary, port_secondary;
+  thread_context_t ctx_pri_writer = {0}, ctx_pri_reader = {0};
+  thread_context_t ctx_sec_writer = {0}, ctx_sec_reader = {0};
+  iohdlc_thread_t *thread_pri_writer = NULL, *thread_pri_reader = NULL;
+  iohdlc_thread_t *thread_sec_writer = NULL, *thread_sec_reader = NULL;
+  test_statistics_t *stats_local;
+  iohdlc_station_peer_t *peer_local;
+  thread_context_t *ctx_writer_local;
+  thread_context_t *ctx_reader_local;
+  ioHdlcStreamPort port_primary = {0}, port_secondary = {0};
   bool twa_explicit = false;
   bool tws_explicit = false;
-  
-  st_pri = &station_primary;
-  st_sec = &station_secondary;
-  s_pri_peer = NULL;
-  s_sec_peer = NULL;
+  bool endpoint_a_active;
+  bool endpoint_b_active;
+  bool both_endpoints;
+  const char *local_label;
+  const char *remote_label;
+  const uint8_t *optfuncs;
+  uint8_t log2mod;
+  int result;
+  uint32_t start_time = 0U, elapsed_time = 0U;
+  uint32_t active_workers;
+  bool thread_create_failed = false;
+  bool adapter_initialized = false;
+  int return_code = 0;
 
   /* Reset global state for multiple runs */
   test_failed_global = false;
@@ -380,225 +405,345 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   /* Print configuration */
   test_printf("\r\n");
   test_print_config(&config);
-  
-  /* Initialize statistics */
+
+  endpoint_a_active = config.endpoint_mode != TEST_ENDPOINT_B;
+  endpoint_b_active = config.endpoint_mode != TEST_ENDPOINT_A;
+  both_endpoints = endpoint_a_active && endpoint_b_active;
+  local_label = endpoint_a_active ? "A" : "B";
+  remote_label = endpoint_a_active ? "B" : "A";
+  log2mod = (config.modulo == 128) ? 7 : 3;
+  optfuncs = (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY) ?
+      s_exchange_optfuncs_norej : NULL;
+
+  memset(&station_primary, 0, sizeof station_primary);
+  memset(&station_secondary, 0, sizeof station_secondary);
+  memset(&peer_at_primary, 0, sizeof peer_at_primary);
+  memset(&peer_at_secondary, 0, sizeof peer_at_secondary);
   memset(&stats_primary, 0, sizeof stats_primary);
   memset(&stats_secondary, 0, sizeof stats_secondary);
+
+  st_pri = endpoint_a_active ? &station_primary : NULL;
+  st_sec = endpoint_b_active ? &station_secondary : NULL;
+  s_pri_peer = NULL;
+  s_sec_peer = NULL;
+
   stats_primary.start_time_ms = iohdlc_time_now_ms();
-  stats_secondary.start_time_ms = iohdlc_time_now_ms();
-  
-  /* Initialize mutexes */
+  stats_secondary.start_time_ms = stats_primary.start_time_ms;
   iohdlc_mutex_init(&stats_mutex_primary);
   iohdlc_mutex_init(&stats_mutex_secondary);
-  
+
+  if (adapter->init) {
+    adapter->init();
+    adapter_initialized = true;
+  }
+
   test_printf("\r\n");
   test_printf("========================================\r\n");
-  test_printf("Initializing HDLC stations...\r\n");
+  test_printf(both_endpoints ?
+      "Initializing HDLC stations...\r\n" :
+      "Initializing local HDLC endpoint...\r\n");
   test_printf("========================================\r\n\r\n");
-  
-  /* Initialize adapter (compile-time selected: UART or mock) */
   test_printf("Using adapter: %s\r\n", adapter->name);
-  
-  /* Configure error injection if supported (typically only mock adapter) */
+
   if (config.error_rate > 0 && adapter->configure_error_injection) {
     if (adapter->configure_error_injection(config.error_rate) != 0) {
       test_printf("Warning: Error injection not supported by adapter\r\n");
     }
   }
-  
-  if (adapter->init) {
-    adapter->init();
-  }
-  
-  /* Get communication ports from adapter */
-  port_primary = adapter->get_port_a();
-  port_secondary = adapter->get_port_b();
-  
-  /* Initialize drivers */
-  ioHdlcSwDriverInit(&driver_secondary, NULL);
-  ioHdlcSwDriverInit(&driver_primary, NULL);
-  
-  /* Configure primary station */
-  /* Note: Using default optfuncs (NULL) which enables TYPE0 FFF (max 127 bytes frame) */
-  /* SPI adapters use no-REJ optfuncs: recovery via checkpoint only is the correct mode. */
-  static const uint8_t optfuncs_norej[5] = {
-    0x00, 0x00, IOHDLC_OPT_SST, 0x00, IOHDLC_OPT_FFF | IOHDLC_OPT_INH
-  };
-  const uint8_t *optfuncs = (adapter->constraints & ADAPTER_CONSTRAINT_TWA_ONLY)
-                            ? optfuncs_norej : NULL;
-  const uint8_t log2mod = (config.modulo == 128) ? 7 : 3;
 
-  /* Configure primary station */
-  station_config.mode = (config.mode == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;;
-  station_config.flags = IOHDLC_FLG_PRI | (config.use_twa ? IOHDLC_FLG_TWA : 0);
-  station_config.log2mod = log2mod;
-  station_config.addr = PRIMARY_ADDR;
-  station_config.driver = (ioHdlcDriver *)&driver_primary;
-  station_config.frame_arena = arena_primary;
-  station_config.frame_arena_size = sizeof arena_primary;
-  station_config.max_info_len = 0;
-  station_config.pool_watermark = 0;  /* Auto: 20% min 1 */
-  station_config.fff_type = 1;  /* TYPE0 */
-  station_config.optfuncs = optfuncs;
-  station_config.phydriver = &port_primary;
-  station_config.phydriver_config = NULL;
-  station_config.reply_timeout_ms = config.reply_timeout_ms;
-  station_config.poll_retry_max = config.poll_retry_max;
-  
-  memset(&station_primary, 0, sizeof station_primary);
-  result = ioHdlcStationInit(&station_primary, &station_config);
-  if (result != 0) {
-    test_printf("Primary station init failed: %d\r\n", result);
-    return 1;
-  }
-  
-  /* Configure secondary station.
-     NRM starts in NDM (Normal Disconnected Mode).
-     ABM/ARM start in ADM (Asynchronous Disconnected Mode). */
-  station_config.mode = (config.mode == IOHDLC_OM_NRM) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
-  station_config.flags = config.use_twa ? IOHDLC_FLG_TWA : 0;
-  station_config.log2mod = log2mod;
-  station_config.addr = SECONDARY_ADDR;
-  station_config.driver = (ioHdlcDriver *)&driver_secondary;
-  station_config.frame_arena = arena_secondary;
-  station_config.frame_arena_size = sizeof arena_secondary;
-  station_config.max_info_len = 0;  /* Auto: 122 bytes for TYPE0 FFF */
-  station_config.pool_watermark = 0;  /* Auto: 20% min 1 */
-  station_config.phydriver = &port_secondary;
-  station_config.reply_timeout_ms = config.reply_timeout_ms;
-  station_config.poll_retry_max = config.poll_retry_max;
-  
-  memset(&station_secondary, 0, sizeof station_secondary);
-  result = ioHdlcStationInit(&station_secondary, &station_config);
-  if (result != 0) {
-    test_printf("Secondary station init failed: %d\r\n", result);
-    return 1;
-  }
-  
-  /* Add peers */
-  result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
-  if (result != 0) {
-    test_printf("Add peer to primary failed: %d\r\n", result);
-    return 1;
-  }
-
-  result = ioHdlcAddPeer(&station_secondary, &peer_at_secondary, PRIMARY_ADDR);
-  if (result != 0) {
-    test_printf("Add peer to secondary failed: %d\r\n", result);
-    return 1;
-  }
-
-  if (config.krs != 0) {
-    if (ioHdlcPeerSetWindow(&peer_at_primary, config.krs, config.krs) != 0 ||
-        ioHdlcPeerSetWindow(&peer_at_secondary, config.krs, config.krs) != 0) {
-      test_printf("Error: --krs %u exceeds modmask\r\n", config.krs);
-      return 1;
+  if (endpoint_a_active) {
+    if (adapter->get_port_a == NULL) {
+      test_printf("Error: adapter '%s' does not provide endpoint A.\r\n",
+                  adapter->name);
+      return_code = 1;
+      goto cleanup;
+    }
+    port_primary = adapter->get_port_a();
+    if (port_primary.ctx == NULL || port_primary.ops == NULL) {
+      test_printf("Error: adapter '%s' does not provide endpoint A.\r\n",
+                  adapter->name);
+      return_code = 1;
+      goto cleanup;
     }
   }
 
-  s_pri_peer = &peer_at_primary;
-  s_sec_peer = &peer_at_secondary;
-  
-  /* Start runners */
-  test_printf("Starting HDLC protocol runners...\r\n");
-  result = ioHdlcRunnerStart(&station_primary);
-  TEST_ASSERT(result == 0, "Failed to start primary runner");
-  result = ioHdlcRunnerStart(&station_secondary);
-  TEST_ASSERT(result == 0, "Failed to start secondary runner");
+  if (endpoint_b_active) {
+    if (adapter->get_port_b == NULL) {
+      test_printf("Error: adapter '%s' does not provide endpoint B.\r\n",
+                  adapter->name);
+      return_code = 1;
+      goto cleanup;
+    }
+    port_secondary = adapter->get_port_b();
+    if (port_secondary.ctx == NULL || port_secondary.ops == NULL) {
+      test_printf("Error: adapter '%s' does not provide endpoint B.\r\n",
+                  adapter->name);
+      return_code = 1;
+      goto cleanup;
+    }
+  }
+
+  if (endpoint_a_active) {
+    ioHdlcSwDriverInit(&driver_primary, NULL);
+
+    station_config.mode = (config.mode == IOHDLC_OM_NRM) ?
+        IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+    station_config.flags = IOHDLC_FLG_PRI |
+        (config.use_twa ? IOHDLC_FLG_TWA : 0U);
+    station_config.log2mod = log2mod;
+    station_config.addr = PRIMARY_ADDR;
+    station_config.driver = (ioHdlcDriver *)&driver_primary;
+    station_config.frame_arena = s_exchange_arena_primary;
+    station_config.frame_arena_size = sizeof s_exchange_arena_primary;
+    station_config.max_info_len = 0;
+    station_config.pool_watermark = 0;
+    station_config.fff_type = 1;
+    station_config.optfuncs = optfuncs;
+    station_config.phydriver = &port_primary;
+    station_config.phydriver_config = NULL;
+    station_config.reply_timeout_ms = config.reply_timeout_ms;
+    station_config.poll_retry_max = config.poll_retry_max;
+
+    result = ioHdlcStationInit(&station_primary, &station_config);
+    if (result != 0) {
+      test_printf("Endpoint A station init failed: %d\r\n", result);
+      return_code = 1;
+      goto cleanup;
+    }
+
+    result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
+    if (result != 0) {
+      test_printf("Add peer to endpoint A failed: %d\r\n", result);
+      return_code = 1;
+      goto cleanup;
+    }
+    s_pri_peer = &peer_at_primary;
+  }
+
+  if (endpoint_b_active) {
+    ioHdlcSwDriverInit(&driver_secondary, NULL);
+
+    station_config.mode = (config.mode == IOHDLC_OM_NRM) ?
+        IOHDLC_OM_NDM : IOHDLC_OM_ADM;
+    station_config.flags = config.use_twa ? IOHDLC_FLG_TWA : 0U;
+    station_config.log2mod = log2mod;
+    station_config.addr = SECONDARY_ADDR;
+    station_config.driver = (ioHdlcDriver *)&driver_secondary;
+    station_config.frame_arena = s_exchange_arena_secondary;
+    station_config.frame_arena_size = sizeof s_exchange_arena_secondary;
+    station_config.max_info_len = 0;
+    station_config.pool_watermark = 0;
+    station_config.fff_type = 1;
+    station_config.optfuncs = optfuncs;
+    station_config.phydriver = &port_secondary;
+    station_config.phydriver_config = NULL;
+    station_config.reply_timeout_ms = config.reply_timeout_ms;
+    station_config.poll_retry_max = config.poll_retry_max;
+
+    result = ioHdlcStationInit(&station_secondary, &station_config);
+    if (result != 0) {
+      test_printf("Endpoint B station init failed: %d\r\n", result);
+      return_code = 1;
+      goto cleanup;
+    }
+
+    result = ioHdlcAddPeer(&station_secondary, &peer_at_secondary, PRIMARY_ADDR);
+    if (result != 0) {
+      test_printf("Add peer to endpoint B failed: %d\r\n", result);
+      return_code = 1;
+      goto cleanup;
+    }
+    s_sec_peer = &peer_at_secondary;
+  }
+
+  if (config.krs != 0) {
+    if (endpoint_a_active &&
+        ioHdlcPeerSetWindow(&peer_at_primary, config.krs, config.krs) != 0) {
+      test_printf("Error: --krs %u exceeds modmask\r\n", config.krs);
+      return_code = 1;
+      goto cleanup;
+    }
+    if (endpoint_b_active &&
+        ioHdlcPeerSetWindow(&peer_at_secondary, config.krs, config.krs) != 0) {
+      test_printf("Error: --krs %u exceeds modmask\r\n", config.krs);
+      return_code = 1;
+      goto cleanup;
+    }
+  }
+
+  test_printf("Starting HDLC protocol runner%s...\r\n",
+              both_endpoints ? "s" : "");
+  if (endpoint_a_active) {
+    result = ioHdlcRunnerStart(&station_primary);
+    TEST_ASSERT(result == 0, "Failed to start endpoint A runner");
+  }
+  if (endpoint_b_active) {
+    result = ioHdlcRunnerStart(&station_secondary);
+    TEST_ASSERT(result == 0, "Failed to start endpoint B runner");
+  }
   ioHdlc_sleep_ms(50);
-  
-  /* Establish connection */
+
   test_printf("Establishing connection...\r\n");
-  result = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, config.mode);
-  if (result != 0) {
-    test_printf("Link up failed: %d\r\n", result);
-    goto cleanup;
+  if (endpoint_a_active) {
+    result = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, config.mode);
+    if (result != 0) {
+      test_printf("Link up failed: %d\r\n", result);
+      return_code = 1;
+      goto cleanup;
+    }
+  } else if (endpoint_b_active) {
+    iohdlc_event_listener_t listener;
+    eventflags_t flags = 0U;
+
+    iohdlc_evt_register(&station_secondary.app_es, &listener, EVENT_MASK(0),
+                        IOHDLC_APP_LINK_UP | IOHDLC_APP_LINK_REFUSED);
+    if (!IOHDLC_PEER_DISC(&peer_at_secondary)) {
+      flags = IOHDLC_APP_LINK_UP;
+    } else {
+      eventmask_t evt = iohdlc_evt_wait_any_timeout(
+          EVENT_MASK(0),
+          s_exchange_io_timeout_ms(&station_secondary, &peer_at_secondary));
+      if (evt != 0U) {
+        flags = iohdlc_evt_get_and_clear_flags(&listener);
+      }
+    }
+    iohdlc_evt_unregister(&station_secondary.app_es, &listener);
+
+    if (IOHDLC_PEER_DISC(&peer_at_secondary)) {
+      test_printf((flags & IOHDLC_APP_LINK_REFUSED) != 0U ?
+          "Connection refused\r\n" :
+          "Connection not established\r\n");
+      return_code = 1;
+      goto cleanup;
+    }
   }
-  
+
   ioHdlc_sleep_ms(100);
-  
-  if (IOHDLC_PEER_DISC(&peer_at_primary) || IOHDLC_PEER_DISC(&peer_at_secondary)) {
+  if ((endpoint_a_active && IOHDLC_PEER_DISC(&peer_at_primary)) ||
+      (endpoint_b_active && IOHDLC_PEER_DISC(&peer_at_secondary))) {
     test_printf("Connection not established\r\n");
+    return_code = 1;
     goto cleanup;
   }
-  
-  test_printf("✅ Connection established\r\n\r\n");
-  
-  /* Prepare thread contexts - 4 threads: writer and reader for each station */
-  
-  /* Primary writer */
-  ctx_pri_writer.station = &station_primary;
-  ctx_pri_writer.peer = &peer_at_primary;
-  ctx_pri_writer.stats = &stats_primary;
-  ctx_pri_writer.stats_mutex = &stats_mutex_primary;
-  ctx_pri_writer.config = &config;
-  ctx_pri_writer.buffer = s_pri_writer_buf;
-  ctx_pri_writer.buffer_size = sizeof s_pri_writer_buf;
-  ctx_pri_writer.seq = 0;
-  ctx_pri_writer.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
-                            config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
-  
-  /* Primary reader */
-  ctx_pri_reader.station = &station_primary;
-  ctx_pri_reader.peer = &peer_at_primary;
-  ctx_pri_reader.stats = &stats_primary;
-  ctx_pri_reader.stats_mutex = &stats_mutex_primary;
-  ctx_pri_reader.config = &config;
-  ctx_pri_reader.buffer = s_pri_reader_buf;
-  ctx_pri_reader.buffer_size = sizeof s_pri_reader_buf;
-  ctx_pri_reader.seq = 0;
-  ctx_pri_reader.enabled = (config.traffic_direction == TRAFFIC_SEC_TO_PRI ||
-                            config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
-  
-  /* Secondary writer */
-  ctx_sec_writer.station = &station_secondary;
-  ctx_sec_writer.peer = &peer_at_secondary;
-  ctx_sec_writer.stats = &stats_secondary;
-  ctx_sec_writer.stats_mutex = &stats_mutex_secondary;
-  ctx_sec_writer.config = &config;
-  ctx_sec_writer.buffer = s_sec_writer_buf;
-  ctx_sec_writer.buffer_size = sizeof s_sec_writer_buf;
-  ctx_sec_writer.seq = 0;
-  ctx_sec_writer.enabled = (config.traffic_direction == TRAFFIC_SEC_TO_PRI ||
-                            config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
-  
-  /* Secondary reader */
-  ctx_sec_reader.station = &station_secondary;
-  ctx_sec_reader.peer = &peer_at_secondary;
-  ctx_sec_reader.stats = &stats_secondary;
-  ctx_sec_reader.stats_mutex = &stats_mutex_secondary;
-  ctx_sec_reader.config = &config;
-  ctx_sec_reader.buffer = s_sec_reader_buf;
-  ctx_sec_reader.buffer_size = sizeof s_sec_reader_buf;
-  ctx_sec_reader.seq = 0;
-  ctx_sec_reader.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
-                            config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
+
+  test_printf("Connection established\r\n\r\n");
+
+  if (endpoint_a_active) {
+    ctx_pri_writer.station = &station_primary;
+    ctx_pri_writer.peer = &peer_at_primary;
+    ctx_pri_writer.stats = &stats_primary;
+    ctx_pri_writer.stats_mutex = &stats_mutex_primary;
+    ctx_pri_writer.config = &config;
+    ctx_pri_writer.buffer = s_pri_writer_buf;
+    ctx_pri_writer.buffer_size = sizeof s_pri_writer_buf;
+    ctx_pri_writer.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
+                              config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
+
+    ctx_pri_reader.station = &station_primary;
+    ctx_pri_reader.peer = &peer_at_primary;
+    ctx_pri_reader.stats = &stats_primary;
+    ctx_pri_reader.stats_mutex = &stats_mutex_primary;
+    ctx_pri_reader.config = &config;
+    ctx_pri_reader.buffer = s_pri_reader_buf;
+    ctx_pri_reader.buffer_size = sizeof s_pri_reader_buf;
+    ctx_pri_reader.enabled = (config.traffic_direction == TRAFFIC_SEC_TO_PRI ||
+                              config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
+  }
+
+  if (endpoint_b_active) {
+    ctx_sec_writer.station = &station_secondary;
+    ctx_sec_writer.peer = &peer_at_secondary;
+    ctx_sec_writer.stats = &stats_secondary;
+    ctx_sec_writer.stats_mutex = &stats_mutex_secondary;
+    ctx_sec_writer.config = &config;
+    ctx_sec_writer.buffer = s_sec_writer_buf;
+    ctx_sec_writer.buffer_size = sizeof s_sec_writer_buf;
+    ctx_sec_writer.enabled = (config.traffic_direction == TRAFFIC_SEC_TO_PRI ||
+                              config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
+
+    ctx_sec_reader.station = &station_secondary;
+    ctx_sec_reader.peer = &peer_at_secondary;
+    ctx_sec_reader.stats = &stats_secondary;
+    ctx_sec_reader.stats_mutex = &stats_mutex_secondary;
+    ctx_sec_reader.config = &config;
+    ctx_sec_reader.buffer = s_sec_reader_buf;
+    ctx_sec_reader.buffer_size = sizeof s_sec_reader_buf;
+    ctx_sec_reader.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
+                              config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
+  }
 
   s_exchange_active_workers =
       (ctx_pri_writer.enabled ? 1U : 0U) +
       (ctx_pri_reader.enabled ? 1U : 0U) +
       (ctx_sec_writer.enabled ? 1U : 0U) +
       (ctx_sec_reader.enabled ? 1U : 0U);
-  
+
   test_printf("========================================\r\n");
   test_printf("Starting data exchange...\r\n");
   test_printf("========================================\r\n\r\n");
-  
-  /* Start 4 threads */
-  start_time = iohdlc_time_now_ms();
-  thread_pri_writer = iohdlc_thread_create("pri_writer", 0, 0, writer_thread, &ctx_pri_writer);
-  thread_pri_reader = iohdlc_thread_create("pri_reader", 0, 0, reader_thread, &ctx_pri_reader);
-  thread_sec_writer = iohdlc_thread_create("sec_writer", 0, 0, writer_thread, &ctx_sec_writer);
-  thread_sec_reader = iohdlc_thread_create("sec_reader", 0, 0, reader_thread, &ctx_sec_reader);
-  
-  /* Monitor progress */
-  while (!test_should_stop()) {
-    uint32_t active_workers;
 
+  start_time = iohdlc_time_now_ms();
+
+  if (ctx_pri_writer.enabled) {
+    thread_pri_writer = iohdlc_thread_create("pri_writer", 0, 0,
+                                             writer_thread, &ctx_pri_writer);
+    if (thread_pri_writer == NULL) {
+      iohdlc_mutex_lock(&s_exchange_state_mutex);
+      if (s_exchange_active_workers > 0U)
+        s_exchange_active_workers--;
+      iohdlc_mutex_unlock(&s_exchange_state_mutex);
+      test_printf("Failed to create endpoint A writer thread\r\n");
+      thread_create_failed = true;
+    }
+  }
+  if (ctx_pri_reader.enabled) {
+    thread_pri_reader = iohdlc_thread_create("pri_reader", 0, 0,
+                                             reader_thread, &ctx_pri_reader);
+    if (thread_pri_reader == NULL) {
+      iohdlc_mutex_lock(&s_exchange_state_mutex);
+      if (s_exchange_active_workers > 0U)
+        s_exchange_active_workers--;
+      iohdlc_mutex_unlock(&s_exchange_state_mutex);
+      test_printf("Failed to create endpoint A reader thread\r\n");
+      thread_create_failed = true;
+    }
+  }
+  if (ctx_sec_writer.enabled) {
+    thread_sec_writer = iohdlc_thread_create("sec_writer", 0, 0,
+                                             writer_thread, &ctx_sec_writer);
+    if (thread_sec_writer == NULL) {
+      iohdlc_mutex_lock(&s_exchange_state_mutex);
+      if (s_exchange_active_workers > 0U)
+        s_exchange_active_workers--;
+      iohdlc_mutex_unlock(&s_exchange_state_mutex);
+      test_printf("Failed to create endpoint B writer thread\r\n");
+      thread_create_failed = true;
+    }
+  }
+  if (ctx_sec_reader.enabled) {
+    thread_sec_reader = iohdlc_thread_create("sec_reader", 0, 0,
+                                             reader_thread, &ctx_sec_reader);
+    if (thread_sec_reader == NULL) {
+      iohdlc_mutex_lock(&s_exchange_state_mutex);
+      if (s_exchange_active_workers > 0U)
+        s_exchange_active_workers--;
+      iohdlc_mutex_unlock(&s_exchange_state_mutex);
+      test_printf("Failed to create endpoint B reader thread\r\n");
+      thread_create_failed = true;
+    }
+  }
+
+  if (thread_create_failed) {
+    test_failed_global = true;
+    test_request_stop();
+    s_exchange_abort_peer(s_pri_peer);
+    s_exchange_abort_peer(s_sec_peer);
+  }
+
+  while (!test_should_stop()) {
     iohdlc_mutex_lock(&s_exchange_state_mutex);
     active_workers = s_exchange_active_workers;
     iohdlc_mutex_unlock(&s_exchange_state_mutex);
-
     if (active_workers == 0U) {
       break;
     }
@@ -607,189 +752,283 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     if (test_should_stop()) {
       break;
     }
+
     elapsed_time = (iohdlc_time_now_ms() - start_time) / 1000;
-    
+
     if (config.duration_type == TEST_BY_TIME) {
       if (elapsed_time >= config.duration_value) {
         test_request_stop();
         break;
       }
-      test_printf("Elapsed: %u/%u seconds | PRI: %u sent, %u rcv | SEC: %u sent, %u rcv\r\n",
-             elapsed_time, config.duration_value,
-             stats_primary.packets_sent, stats_primary.packets_received,
-             stats_secondary.packets_sent, stats_secondary.packets_received);
-    } else if (config.duration_type == TEST_BY_COUNT) {
-      /* Calculate progress based on packets sent/received vs expected */
-      uint32_t expected_total = config.duration_value * config.exchanges_per_iteration;
-      uint32_t current_sent = 0;
-      uint32_t current_rcv = 0;
-      
-      if (config.traffic_direction == TRAFFIC_PRI_TO_SEC) {
-        current_sent = stats_primary.packets_sent;
-        current_rcv = stats_secondary.packets_received;
-      } else if (config.traffic_direction == TRAFFIC_SEC_TO_PRI) {
-        current_sent = stats_secondary.packets_sent;
-        current_rcv = stats_primary.packets_received;
-      } else {  /* BIDIRECTIONAL */
-        current_sent = stats_primary.packets_sent + stats_secondary.packets_sent;
-        current_rcv = stats_primary.packets_received + stats_secondary.packets_received;
-        expected_total *= 2;  /* Both directions */
+      if (both_endpoints) {
+        test_printf("Elapsed: %u/%u seconds | A: %u sent, %u rcv | B: %u sent, %u rcv\r\n",
+                    elapsed_time, config.duration_value,
+                    stats_primary.packets_sent, stats_primary.packets_received,
+                    stats_secondary.packets_sent, stats_secondary.packets_received);
+      } else {
+        stats_local = endpoint_a_active ? &stats_primary : &stats_secondary;
+        test_printf("Elapsed: %u/%u seconds | Local %s: %u sent, %u rcv\r\n",
+                    elapsed_time, config.duration_value, local_label,
+                    stats_local->packets_sent, stats_local->packets_received);
       }
-      
-      test_printf("Progress: %u/%u packets sent, %u rcv | PRI: %u/%u | SEC: %u/%u\r\n",
-             current_sent, expected_total, current_rcv,
-             stats_primary.packets_sent, stats_primary.packets_received,
-             stats_secondary.packets_sent, stats_secondary.packets_received);
+    } else if (config.duration_type == TEST_BY_COUNT) {
+      if (both_endpoints) {
+        uint32_t expected_total = config.duration_value *
+            config.exchanges_per_iteration;
+        uint32_t current_sent = 0U;
+        uint32_t current_rcv = 0U;
+
+        if (config.traffic_direction == TRAFFIC_PRI_TO_SEC) {
+          current_sent = stats_primary.packets_sent;
+          current_rcv = stats_secondary.packets_received;
+        } else if (config.traffic_direction == TRAFFIC_SEC_TO_PRI) {
+          current_sent = stats_secondary.packets_sent;
+          current_rcv = stats_primary.packets_received;
+        } else {
+          current_sent = stats_primary.packets_sent + stats_secondary.packets_sent;
+          current_rcv = stats_primary.packets_received + stats_secondary.packets_received;
+          expected_total *= 2U;
+        }
+
+        test_printf("Progress: %u/%u packets sent, %u rcv | A: %u/%u | B: %u/%u\r\n",
+                    current_sent, expected_total, current_rcv,
+                    stats_primary.packets_sent, stats_primary.packets_received,
+                    stats_secondary.packets_sent, stats_secondary.packets_received);
+      } else {
+        const uint32_t expected = config.duration_value *
+            config.exchanges_per_iteration;
+
+        stats_local = endpoint_a_active ? &stats_primary : &stats_secondary;
+        ctx_writer_local = endpoint_a_active ? &ctx_pri_writer : &ctx_sec_writer;
+        ctx_reader_local = endpoint_a_active ? &ctx_pri_reader : &ctx_sec_reader;
+        test_printf("Progress: Local %s TX %u/%u | RX %u/%u\r\n",
+                    local_label,
+                    stats_local->packets_sent,
+                    ctx_writer_local->enabled ? expected : 0U,
+                    stats_local->packets_received,
+                    ctx_reader_local->enabled ? expected : 0U);
+      }
     } else if (config.duration_type == TEST_INFINITE) {
-      test_printf("Elapsed: %u seconds | PRI: %u sent, %u rcv | SEC: %u sent, %u rcv\r\n",
-             elapsed_time,
-             stats_primary.packets_sent, stats_primary.packets_received,
-             stats_secondary.packets_sent, stats_secondary.packets_received);
+      if (both_endpoints) {
+        test_printf("Elapsed: %u seconds | A: %u sent, %u rcv | B: %u sent, %u rcv\r\n",
+                    elapsed_time,
+                    stats_primary.packets_sent, stats_primary.packets_received,
+                    stats_secondary.packets_sent, stats_secondary.packets_received);
+      } else {
+        stats_local = endpoint_a_active ? &stats_primary : &stats_secondary;
+        test_printf("Elapsed: %u seconds | Local %s: %u sent, %u rcv\r\n",
+                    elapsed_time, local_label,
+                    stats_local->packets_sent, stats_local->packets_received);
+      }
     }
   }
-  
+
   elapsed_time = (iohdlc_time_now_ms() - start_time) / 1000;
   stats_primary.end_time_ms = iohdlc_time_now_ms();
-  stats_secondary.end_time_ms = iohdlc_time_now_ms();
+  stats_secondary.end_time_ms = stats_primary.end_time_ms;
 
   if (test_failed_global) {
-    s_exchange_abort_peer(&peer_at_primary);
-    s_exchange_abort_peer(&peer_at_secondary);
+    return_code = 1;
   }
-  
-  /* Wait for threads */
+
   test_printf("\r\nStopping threads...\r\n");
   iohdlc_thread_join(thread_pri_writer);
   iohdlc_thread_join(thread_pri_reader);
   iohdlc_thread_join(thread_sec_writer);
   iohdlc_thread_join(thread_sec_reader);
-  
-  if (!test_failed_global &&
+
+  if (!test_failed_global && endpoint_a_active &&
       station_primary.c_peer != NULL &&
       !IOHDLC_PEER_DISC(&peer_at_primary)) {
     ioHdlcStationLinkDown(&station_primary, station_primary.c_peer->addr);
   }
 
-  /* Print results */
   test_printf("\r\n");
   test_printf("========================================\r\n");
   test_printf("TEST COMPLETED\r\n");
   test_printf("========================================\r\n\r\n");
-  
   test_printf("Total elapsed time: %u seconds\r\n\r\n", elapsed_time);
-  
-  /* Print station statistics */
-  test_printf("Primary Station:\r\n");
-  test_printf("  Packets sent:     %u\r\n", stats_primary.packets_sent);
-  test_printf("  Packets received: %u\r\n", stats_primary.packets_received);
-  test_printf("  Seq errors:       %u\r\n", stats_primary.packets_reordered);
-  test_printf("  Bytes sent:       " U64_FMT "\r\n", U64_ARGS(stats_primary.total_bytes_sent));
-  test_printf("  Bytes received:   " U64_FMT "\r\n", U64_ARGS(stats_primary.total_bytes_received));
-  test_printf("\r\n");
-  
-  test_printf("Secondary Station:\r\n");
-  test_printf("  Packets sent:     %u\r\n", stats_secondary.packets_sent);
-  test_printf("  Packets received: %u\r\n", stats_secondary.packets_received);
-  test_printf("  Seq errors:       %u\r\n", stats_secondary.packets_reordered);
-  test_printf("  Bytes sent:       " U64_FMT "\r\n", U64_ARGS(stats_secondary.total_bytes_sent));
-  test_printf("  Bytes received:   " U64_FMT "\r\n", U64_ARGS(stats_secondary.total_bytes_received));
-  test_printf("\r\n");
+
+  if (both_endpoints) {
+    test_printf("Endpoint A:\r\n");
+    test_printf("  Packets sent:     %u\r\n", stats_primary.packets_sent);
+    test_printf("  Packets received: %u\r\n", stats_primary.packets_received);
+    test_printf("  Seq errors:       %u\r\n", stats_primary.packets_reordered);
+    test_printf("  Bytes sent:       " U64_FMT "\r\n",
+                U64_ARGS(stats_primary.total_bytes_sent));
+    test_printf("  Bytes received:   " U64_FMT "\r\n",
+                U64_ARGS(stats_primary.total_bytes_received));
+    test_printf("\r\n");
+
+    test_printf("Endpoint B:\r\n");
+    test_printf("  Packets sent:     %u\r\n", stats_secondary.packets_sent);
+    test_printf("  Packets received: %u\r\n", stats_secondary.packets_received);
+    test_printf("  Seq errors:       %u\r\n", stats_secondary.packets_reordered);
+    test_printf("  Bytes sent:       " U64_FMT "\r\n",
+                U64_ARGS(stats_secondary.total_bytes_sent));
+    test_printf("  Bytes received:   " U64_FMT "\r\n",
+                U64_ARGS(stats_secondary.total_bytes_received));
+    test_printf("\r\n");
 
 #if defined(IOHDLC_ENABLE_STATISTICS)
-  test_printf("Protocol Statistics (Primary → Secondary peer):\r\n");
-  test_printf("  REJ received:     %u\r\n", peer_at_primary.stats.rej_received);
-  test_printf("  Checkpoints:      %u\r\n", peer_at_primary.stats.checkpoints);
-  test_printf("  Timeouts:         %u\r\n", peer_at_primary.stats.timeouts);
-  test_printf("  Out of sequence:  %u\r\n", peer_at_primary.stats.out_of_sequence);
-  test_printf("  Pool low water:   %u\r\n", peer_at_primary.stats.pool_low_water);
-  test_printf("\r\n");
+    test_printf("Protocol Statistics (A -> B peer):\r\n");
+    test_printf("  REJ received:     %u\r\n", peer_at_primary.stats.rej_received);
+    test_printf("  Checkpoints:      %u\r\n", peer_at_primary.stats.checkpoints);
+    test_printf("  Timeouts:         %u\r\n", peer_at_primary.stats.timeouts);
+    test_printf("  Out of sequence:  %u\r\n", peer_at_primary.stats.out_of_sequence);
+    test_printf("  Pool low water:   %u\r\n", peer_at_primary.stats.pool_low_water);
+    test_printf("\r\n");
 
-  test_printf("Protocol Statistics (Secondary \xe2\x86\x92 Primary peer):\r\n");
-  test_printf("  REJ received:     %u\r\n", peer_at_secondary.stats.rej_received);
-  test_printf("  Checkpoints:      %u\r\n", peer_at_secondary.stats.checkpoints);
-  test_printf("  Timeouts:         %u\r\n", peer_at_secondary.stats.timeouts);
-  test_printf("  Out of sequence:  %u\r\n", peer_at_secondary.stats.out_of_sequence);
-  test_printf("  Pool low water:   %u\r\n", peer_at_secondary.stats.pool_low_water);
-  test_printf("\r\n");
+    test_printf("Protocol Statistics (B -> A peer):\r\n");
+    test_printf("  REJ received:     %u\r\n", peer_at_secondary.stats.rej_received);
+    test_printf("  Checkpoints:      %u\r\n", peer_at_secondary.stats.checkpoints);
+    test_printf("  Timeouts:         %u\r\n", peer_at_secondary.stats.timeouts);
+    test_printf("  Out of sequence:  %u\r\n", peer_at_secondary.stats.out_of_sequence);
+    test_printf("  Pool low water:   %u\r\n", peer_at_secondary.stats.pool_low_water);
+    test_printf("\r\n");
 #endif
 
-  /* Calculate and print traffic statistics based on direction */
-  if (config.traffic_direction == TRAFFIC_PRI_TO_SEC) {
-    uint32_t lost = (stats_primary.packets_sent > stats_secondary.packets_received) ?
-                     (stats_primary.packets_sent - stats_secondary.packets_received) : 0;
-    float loss_percent = (stats_primary.packets_sent > 0) ?
-                          (100.0f * lost / stats_primary.packets_sent) : 0.0f;
-    float throughput = (elapsed_time > 0) ?
-                        ((float)stats_secondary.total_bytes_received / elapsed_time) : 0.0f;
-    
-    test_printf("Primary → Secondary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
-           stats_primary.packets_sent, U64_ARGS(stats_primary.total_bytes_sent));
-    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
-           stats_secondary.packets_received, U64_ARGS(stats_secondary.total_bytes_received));
-    test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
-    test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput, throughput / 1024.0f);
+    if (config.traffic_direction == TRAFFIC_PRI_TO_SEC) {
+      uint32_t lost = (stats_primary.packets_sent > stats_secondary.packets_received) ?
+          (stats_primary.packets_sent - stats_secondary.packets_received) : 0U;
+      float loss_percent = (stats_primary.packets_sent > 0U) ?
+          (100.0f * lost / stats_primary.packets_sent) : 0.0f;
+      float throughput = (elapsed_time > 0U) ?
+          ((float)stats_secondary.total_bytes_received / elapsed_time) : 0.0f;
+
+      test_printf("A -> B Traffic:\r\n");
+      test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+                  stats_primary.packets_sent,
+                  U64_ARGS(stats_primary.total_bytes_sent));
+      test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+                  stats_secondary.packets_received,
+                  U64_ARGS(stats_secondary.total_bytes_received));
+      test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
+      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
+                  throughput, throughput / 1024.0f);
+      test_printf("\r\n");
+    } else if (config.traffic_direction == TRAFFIC_SEC_TO_PRI) {
+      uint32_t lost = (stats_secondary.packets_sent > stats_primary.packets_received) ?
+          (stats_secondary.packets_sent - stats_primary.packets_received) : 0U;
+      float loss_percent = (stats_secondary.packets_sent > 0U) ?
+          (100.0f * lost / stats_secondary.packets_sent) : 0.0f;
+      float throughput = (elapsed_time > 0U) ?
+          ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
+
+      test_printf("B -> A Traffic:\r\n");
+      test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+                  stats_secondary.packets_sent,
+                  U64_ARGS(stats_secondary.total_bytes_sent));
+      test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+                  stats_primary.packets_received,
+                  U64_ARGS(stats_primary.total_bytes_received));
+      test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
+      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
+                  throughput, throughput / 1024.0f);
+      test_printf("\r\n");
+    } else {
+      uint32_t lost_a2b = (stats_primary.packets_sent > stats_secondary.packets_received) ?
+          (stats_primary.packets_sent - stats_secondary.packets_received) : 0U;
+      float loss_percent_a2b = (stats_primary.packets_sent > 0U) ?
+          (100.0f * lost_a2b / stats_primary.packets_sent) : 0.0f;
+      float throughput_a2b = (elapsed_time > 0U) ?
+          ((float)stats_secondary.total_bytes_received / elapsed_time) : 0.0f;
+      uint32_t lost_b2a = (stats_secondary.packets_sent > stats_primary.packets_received) ?
+          (stats_secondary.packets_sent - stats_primary.packets_received) : 0U;
+      float loss_percent_b2a = (stats_secondary.packets_sent > 0U) ?
+          (100.0f * lost_b2a / stats_secondary.packets_sent) : 0.0f;
+      float throughput_b2a = (elapsed_time > 0U) ?
+          ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
+
+      test_printf("A -> B Traffic:\r\n");
+      test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+                  stats_primary.packets_sent,
+                  U64_ARGS(stats_primary.total_bytes_sent));
+      test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+                  stats_secondary.packets_received,
+                  U64_ARGS(stats_secondary.total_bytes_received));
+      test_printf("  Lost:       %u packets (%.2f%%)\r\n",
+                  lost_a2b, loss_percent_a2b);
+      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
+                  throughput_a2b, throughput_a2b / 1024.0f);
+      test_printf("\r\n");
+
+      test_printf("B -> A Traffic:\r\n");
+      test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+                  stats_secondary.packets_sent,
+                  U64_ARGS(stats_secondary.total_bytes_sent));
+      test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+                  stats_primary.packets_received,
+                  U64_ARGS(stats_primary.total_bytes_received));
+      test_printf("  Lost:       %u packets (%.2f%%)\r\n",
+                  lost_b2a, loss_percent_b2a);
+      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
+                  throughput_b2a, throughput_b2a / 1024.0f);
+      test_printf("\r\n");
+    }
+  } else {
+    stats_local = endpoint_a_active ? &stats_primary : &stats_secondary;
+    peer_local = endpoint_a_active ? &peer_at_primary : &peer_at_secondary;
+    ctx_writer_local = endpoint_a_active ? &ctx_pri_writer : &ctx_sec_writer;
+    ctx_reader_local = endpoint_a_active ? &ctx_pri_reader : &ctx_sec_reader;
+
+    test_printf("Local Endpoint %s:\r\n", local_label);
+    test_printf("  Packets sent:     %u\r\n", stats_local->packets_sent);
+    test_printf("  Packets received: %u\r\n", stats_local->packets_received);
+    test_printf("  Seq errors:       %u\r\n", stats_local->packets_reordered);
+    test_printf("  Bytes sent:       " U64_FMT "\r\n",
+                U64_ARGS(stats_local->total_bytes_sent));
+    test_printf("  Bytes received:   " U64_FMT "\r\n",
+                U64_ARGS(stats_local->total_bytes_received));
     test_printf("\r\n");
-  } else if (config.traffic_direction == TRAFFIC_SEC_TO_PRI) {
-    uint32_t lost = (stats_secondary.packets_sent > stats_primary.packets_received) ?
-                     (stats_secondary.packets_sent - stats_primary.packets_received) : 0;
-    float loss_percent = (stats_secondary.packets_sent > 0) ?
-                          (100.0f * lost / stats_secondary.packets_sent) : 0.0f;
-    float throughput = (elapsed_time > 0) ?
-                        ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
-    
-    test_printf("Secondary → Primary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
-           stats_secondary.packets_sent, U64_ARGS(stats_secondary.total_bytes_sent));
-    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
-           stats_primary.packets_received, U64_ARGS(stats_primary.total_bytes_received));
-    test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
-    test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput, throughput / 1024.0f);
+
+#if defined(IOHDLC_ENABLE_STATISTICS)
+    test_printf("Protocol Statistics (Local peer %s -> %s):\r\n",
+                local_label, remote_label);
+    test_printf("  REJ received:     %u\r\n", peer_local->stats.rej_received);
+    test_printf("  Checkpoints:      %u\r\n", peer_local->stats.checkpoints);
+    test_printf("  Timeouts:         %u\r\n", peer_local->stats.timeouts);
+    test_printf("  Out of sequence:  %u\r\n", peer_local->stats.out_of_sequence);
+    test_printf("  Pool low water:   %u\r\n", peer_local->stats.pool_low_water);
     test_printf("\r\n");
-  } else if (config.traffic_direction == TRAFFIC_BIDIRECTIONAL) {
-    /* Primary → Secondary */
-    uint32_t lost_p2s = (stats_primary.packets_sent > stats_secondary.packets_received) ?
-                         (stats_primary.packets_sent - stats_secondary.packets_received) : 0;
-    float loss_percent_p2s = (stats_primary.packets_sent > 0) ?
-                              (100.0f * lost_p2s / stats_primary.packets_sent) : 0.0f;
-    float throughput_p2s = (elapsed_time > 0) ?
-                            ((float)stats_secondary.total_bytes_received / elapsed_time) : 0.0f;
-    
-    /* Secondary → Primary */
-    uint32_t lost_s2p = (stats_secondary.packets_sent > stats_primary.packets_received) ?
-                         (stats_secondary.packets_sent - stats_primary.packets_received) : 0;
-    float loss_percent_s2p = (stats_secondary.packets_sent > 0) ?
-                              (100.0f * lost_s2p / stats_secondary.packets_sent) : 0.0f;
-    float throughput_s2p = (elapsed_time > 0) ?
-                            ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
-    
-    test_printf("Primary → Secondary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
-           stats_primary.packets_sent, U64_ARGS(stats_primary.total_bytes_sent));
-    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
-           stats_secondary.packets_received, U64_ARGS(stats_secondary.total_bytes_received));
-    test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost_p2s, loss_percent_p2s);
-    test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput_p2s, throughput_p2s / 1024.0f);
-    test_printf("\r\n");
-    
-    test_printf("Secondary → Primary Traffic:\r\n");
-    test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
-           stats_secondary.packets_sent, U64_ARGS(stats_secondary.total_bytes_sent));
-    test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
-           stats_primary.packets_received, U64_ARGS(stats_primary.total_bytes_received));
-    test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost_s2p, loss_percent_s2p);
-    test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n", throughput_s2p, throughput_s2p / 1024.0f);
-    test_printf("\r\n");
+#endif
+
+    if (ctx_writer_local->enabled) {
+      float tx_throughput = (elapsed_time > 0U) ?
+          ((float)stats_local->total_bytes_sent / elapsed_time) : 0.0f;
+
+      test_printf("Local %s -> %s Traffic:\r\n", local_label, remote_label);
+      test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
+                  stats_local->packets_sent,
+                  U64_ARGS(stats_local->total_bytes_sent));
+      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
+                  tx_throughput, tx_throughput / 1024.0f);
+      test_printf("\r\n");
+    }
+
+    if (ctx_reader_local->enabled) {
+      float rx_throughput = (elapsed_time > 0U) ?
+          ((float)stats_local->total_bytes_received / elapsed_time) : 0.0f;
+
+      test_printf("Local %s <- %s Traffic:\r\n", local_label, remote_label);
+      test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
+                  stats_local->packets_received,
+                  U64_ARGS(stats_local->total_bytes_received));
+      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
+                  rx_throughput, rx_throughput / 1024.0f);
+      test_printf("\r\n");
+    }
   }
-  
+
 cleanup:
-  ioHdlcStationDeinit(&station_primary);
-  ioHdlcStationDeinit(&station_secondary);
-  
-  /* Deinitialize adapter */
-  if (adapter && adapter->deinit) {
+  if (endpoint_a_active)
+    ioHdlcStationDeinit(&station_primary);
+  if (endpoint_b_active)
+    ioHdlcStationDeinit(&station_secondary);
+
+  if (adapter_initialized && adapter->deinit) {
     adapter->deinit();
   }
-  
-  return 0;
+
+  return return_code;
 }

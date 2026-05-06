@@ -15,7 +15,7 @@
  */
 /**
  * @file    ioHdlcstream_spi_platform.c
- * @brief   STM32F411RE SPI stream platform hook translation unit.
+ * @brief   IMX95 SPI stream platform hook translation unit.
  */
 
 #include "ioHdlcstream_spi_platform.h"

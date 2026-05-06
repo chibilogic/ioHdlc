@@ -412,9 +412,27 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
                                               caps->fcs.default_size, 
                                               max_info,
                                               want_transparency);
+  uint32_t frame_align = IOHDLC_FRAME_POOL_ALIGNMENT;
+  size_t dma_align = iohdlc_dma_alignment();
+  uintptr_t arena_start = (uintptr_t)ioHdlcsconfp->frame_arena;
+  uintptr_t arena_aligned;
+  size_t arena_skip;
+  size_t usable_arena_size;
+  size_t frame_stride;
+
+  if (dma_align > frame_align)
+    frame_align = (uint32_t)dma_align;
+
+  arena_aligned = (arena_start + frame_align - 1U) &
+                  ~((uintptr_t)frame_align - 1U);
+  arena_skip = (size_t)(arena_aligned - arena_start);
+  usable_arena_size = (arena_skip < ioHdlcsconfp->frame_arena_size) ?
+                      (ioHdlcsconfp->frame_arena_size - arena_skip) : 0U;
+  frame_stride = (sizeof (iohdlc_frame_t) + frame_size + frame_align - 1U) &
+                 ~(size_t)(frame_align - 1U);
   
   /* Calculate the low watermark percentage. */
-  uint32_t num_frames = ioHdlcsconfp->frame_arena_size / frame_size;
+  uint32_t num_frames = usable_arena_size / frame_stride;
   uint8_t watermark_pct = (ioHdlcsconfp->pool_watermark != 0) ? 
                           ioHdlcsconfp->pool_watermark :
                           IOHDLC_POOL_WATERMARK_PCT_DEFAULT;
@@ -430,7 +448,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
           ioHdlcsconfp->frame_arena,
           ioHdlcsconfp->frame_arena_size,
           frame_size,
-          IOHDLC_FRAME_POOL_ALIGNMENT);
+          frame_align);
   
   /* Configure low/high watermarks with the configured hysteresis multiplier. */
   hdlcPoolConfigWatermark((ioHdlcFramePool *)&ioHdlcsp->frame_pool, 
@@ -986,14 +1004,15 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
       msg_t result = iohdlc_condvar_wait_timeout(&peer->tx_cv,
                                                   &peer->state_mutex,
                                                   timeout_ms);
+      if (result == MSG_TIMEOUT)
+        iohdlc_mutex_lock(&peer->state_mutex);
       if ((result == MSG_TIMEOUT) && W_WAIT_COND(s, peer)) {
          /* Timeout occurred and condition still not satisfied */
         iohdlc_errno = ETIMEDOUT;
         ssize_t t = count -remaining;
+        iohdlc_mutex_unlock(&peer->state_mutex);
         return t != 0 ? t : -1;  /* Return bytes written so far */
       }
-      if (result == MSG_TIMEOUT)
-        iohdlc_mutex_lock(&peer->state_mutex);
     }
 
     if (IOHDLC_PEER_DISC(peer)) {
@@ -1141,6 +1160,8 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
       wait_result = iohdlc_condvar_wait_timeout(&peer->rx_cv,
                                                 &peer->state_mutex,
                                                 remaining_ms);
+      if (wait_result == MSG_TIMEOUT)
+        iohdlc_mutex_lock(&peer->state_mutex);
       if (wait_result == MSG_TIMEOUT &&
           !s_peer_rx_has_data(peer) &&
           !IOHDLC_PEER_DISC(peer)) {
