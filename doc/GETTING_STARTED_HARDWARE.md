@@ -170,11 +170,12 @@ make tests USE_SPI_ADAPTER=1
 make exchange USE_SPI_ADAPTER=1
 ```
 
-### SPI Operates in TWA Mode
+### SPI Operates in TWA/NRM Mode
 
-The SPI adapter sets the `ADAPTER_CONSTRAINT_TWA_ONLY` flag. The exchange
-tool detects this and selects `TWA` mode automatically. If you explicitly
-request `TWS`, the tool prints an error and exits.
+The SPI adapter sets `ADAPTER_CONSTRAINT_TWA_ONLY` and
+`ADAPTER_CONSTRAINT_NRM_ONLY`. The exchange tool detects these constraints and
+selects `TWA`/`NRM` automatically. If you explicitly request `TWS` or `ABM`,
+the tool prints an error and exits.
 
 ## Flashing
 
@@ -229,7 +230,7 @@ Establishing connection...
 Starting data exchange...
 ========================================
 
-Progress: 100/100 packets sent, 100 rcv | PRI: 100/100 | SEC: 100/100
+Progress: 100/100 packets sent, 100 rcv | A: 100/100 | B: 100/100
 
 ========================================
 TEST COMPLETED
@@ -242,8 +243,8 @@ TEST COMPLETED
 iohdlc> exchange --count=10 --size=64
 ```
 
-The output is analogous, but the adapter reports `SPI Hardware`. `TWA` mode
-is selected automatically by the adapter constraint.
+The output is analogous, but the adapter reports `SPI Hardware`. `TWA` and
+`NRM` are selected automatically by the adapter constraints.
 
 ### Stress test
 
@@ -307,6 +308,6 @@ firmware build and ChibiOS integration without hardware connections.
 - Check the `CS/NSS` wire: `PA4 -> PB12`
 - Build with `USE_SPI_ADAPTER=1`
 
-**SPI: "adapter requires TWA mode" error**
-- Do not pass `--tws` when using the SPI adapter
-- `TWA` is the only supported mode on this half-duplex SPI transport
+**SPI: "adapter requires TWA/NRM mode" error**
+- Do not pass `--tws` or `--mode=abm` when using the SPI adapter
+- `TWA`/`NRM` is the supported protocol mode on this half-duplex SPI transport

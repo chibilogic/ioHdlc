@@ -28,6 +28,7 @@ Output:
 
 Each board frontend is a standalone ChibiOS project:
 - `tests/chibios/stm32g474re`
+- `tests/chibios/stm32f411re`
 
 ### Build Information
 

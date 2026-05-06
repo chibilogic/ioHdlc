@@ -40,17 +40,17 @@ tests/
 │   └── Makefile                # Builds all binaries into build/bin/
 │
 └── chibios/                    # ChibiOS/RT target
-    ├── adapters/               # Hardware adapters (UART, SPI)
-    │   ├── adapter_uart.c
-    │   └── adapter_spi.c
-    ├── board_config/           # STM32/Nucleo board files
-    ├── conf/                   # ChibiOS kernel and HAL configuration
-    ├── main_tests.c            # Automated test runner (flashed, runs on target)
-    ├── main_exchange.c         # Interactive exchange entry point
+    ├── main_tests.c            # Automated test runner shared by frontends
+    ├── main_exchange.c         # Standalone exchange entry point
     ├── main_shell.c            # Serial shell entry point
-    ├── test_config_chibios.c   # ChibiOS adapter/runner factory
-    ├── Makefile
-    └── README*.md              # Platform-specific notes
+    ├── test_config_chibios.c   # Compile-time exchange configuration
+    ├── test_config_shell.c     # Shell/runtime exchange configuration
+    ├── <frontend>/             # Board/frontend-specific project
+    │   ├── adapters/           # Hardware adapters (UART, SPI)
+    │   ├── board_config/       # Board-local wiring/configuration
+    │   ├── conf/               # ChibiOS kernel and HAL configuration
+    │   └── Makefile
+    └── README*.md              # ChibiOS-specific notes
 ```
 
 ## Testing Philosophy
@@ -97,11 +97,12 @@ Tests specific to OS implementation:
 
 **Status**: ✅ Implemented
 - UART adapter (`adapter_uart.c`) for real-line testing
-- SPI adapter (`adapter_spi.c`) for real-line testing (`ADAPTER_CONSTRAINT_TWA_ONLY`)
+- SPI adapter (`adapter_spi.c`) for real-line testing (`ADAPTER_CONSTRAINT_TWA_ONLY | ADAPTER_CONSTRAINT_NRM_ONLY`)
 - Conditional build: `USE_UART_ADAPTER` / `USE_SPI_ADAPTER` defines
 - Same OS-agnostic scenarios run on real hardware
 
-**Note**: Allows protocol validation on real lines using a single board.
+**Note**: Allows protocol validation on real lines using both endpoints on one
+board, or one local endpoint selected with `--endpoint` / `TEST_ENDPOINT`.
 
 ### Level 3: Core Unit Tests
 

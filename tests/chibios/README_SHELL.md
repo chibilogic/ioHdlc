@@ -43,6 +43,7 @@ Runs the HDLC exchange stress test. Accepts the same options as the Linux CLI:
 ```
 iohdlc> exchange --count=100 --size=512 --twa
 iohdlc> exchange --time=60 --error-rate=5 --direction=pri2sec
+iohdlc> exchange --endpoint=a --direction=a2b --count=1000
 iohdlc> exchange --help
 ```
 
@@ -92,4 +93,5 @@ Edit the frontend-specific `conf/shellconf.h` to adjust:
 
 - [Exchange Test Tool](../../doc/TEST_EXCHANGE.md) -- full documentation
 - [ChibiOS Standalone Build](README_EXCHANGE.md) -- compile-time configuration
-- [Adapter Architecture](README_ADAPTERS.md) -- mock/UART/SPI adapter details
+- [Test Architecture](../../doc/TEST_ARCHITECTURE.md) -- adapter abstraction and constraints
+- [Hardware Getting Started](../../doc/GETTING_STARTED_HARDWARE.md) -- UART/SPI wiring and frontend notes

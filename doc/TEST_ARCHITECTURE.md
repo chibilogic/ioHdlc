@@ -15,7 +15,7 @@ Guiding principles:
 The test system is organized in layers, each depending only on those below it:
 
 ```
-  7  Platform config        test_config_linux.c, test_config_chibios.c
+  7  Platform config        test_config_linux.c, test_config_chibios.c, test_config_shell.c
   6  Platform runners        test_runner_*.c (Linux), main_tests.c (ChibiOS)
   5  Test scenarios          common/scenarios/*.c
   4  Mock infrastructure     mock_stream, mock_stream_adapter
@@ -26,7 +26,7 @@ The test system is organized in layers, each depending only on those below it:
 
 **Layer 1 -- Assertion Primitives** (`test_helpers.h`): Macros for assertions (`TEST_ASSERT`, `TEST_ASSERT_EQ`, `_GOTO` variants), test runners (`RUN_TEST`, `RUN_TEST_ADAPTER`), and suite reporting (`TEST_SUITE_START/END`). Pure C, no OS dependencies.
 
-**Layer 2 -- Test Framework** (`test_framework.h`): Structures for parametrized testing: `test_config_t` (mode, duration, traffic direction, error rate), `test_statistics_t` (latency, throughput, loss), `test_packet_t` (sequenced packets for validation). Used by `test_exchange.c`.
+**Layer 2 -- Test Framework** (`test_framework.h`): Structures for parametrized testing: `test_config_t` (mode, duration, traffic direction, endpoint selection, error rate), `test_statistics_t` (latency, throughput, loss), `test_packet_t` (sequenced packets for validation). Used by `test_exchange.c`.
 
 **Layer 3 -- Adapter Abstraction** (`adapter_interface.h`): Decouples test scenarios from the stream backend. The `test_adapter_t` vtable provides `init`, `deinit`, `reset`, `get_port_a`, `get_port_b`, `configure_error_injection`, and a `constraints` bitmask that aliases `IOHDLC_PORT_CONSTR_*` from `ioHdlcStreamPort`. Primary constraint enforcement occurs inside the protocol core (at `ioHdlcStationInit` and `ioHdlcStationLinkUp`); test runners may additionally inspect `adapter->constraints` to skip scenarios incompatible with the physical backend. This allows the same scenario to run against `mock_adapter` (in-process loopback), `adapter_uart` (ChibiOS physical UART), or `adapter_spi` (ChibiOS SPI).
 
@@ -47,6 +47,12 @@ The adapter layer exists so that **one scenario source file runs against any bac
 The `ADAPTER_CONSTRAINT_*` flags defined in `adapter_interface.h` are aliases of the `IOHDLC_PORT_CONSTR_*` flags on `ioHdlcStreamPort`. Backend implementations set `port.constraints` directly on their `ioHdlcStreamPort` instances; the protocol core validates these constraints during `ioHdlcStationInit` (TWA check) and `ioHdlcStationLinkUp` (NRM-only check). Test runners may additionally inspect `adapter->constraints` to skip scenarios that are incompatible with the physical backend.
 
 The error injection interface (`configure_error_injection`) is optional -- hardware adapters set it to `NULL`.
+
+The exchange scenario can instantiate both logical endpoints locally, or only
+endpoint A or B when a real peer runs on another process or target. This is a
+scenario-level selection (`--endpoint` / `TEST_ENDPOINT`) and does not change
+the adapter interface: adapters still expose `get_port_a()` and `get_port_b()`
+for the endpoints they can provide.
 
 ## Runner / Scenario Separation
 
@@ -86,7 +92,7 @@ Adapter `init()`/`deinit()` per test ensures clean state -- no cross-test contam
 | SPI adapter | -- | `adapter_spi.c` |
 | Test scenarios | All from `common/scenarios/` | All from `common/scenarios/` |
 | Platform tests | OSAL bsem/events, mock stream | Hardware-specific |
-| Config/CLI | `test_config_linux.c` (getopt) | `test_config_chibios.c` (shell) |
+| Config/CLI | `test_config_linux.c` (getopt) | `test_config_chibios.c` (standalone), `test_config_shell.c` (shell) |
 
 ## Testing Levels
 
