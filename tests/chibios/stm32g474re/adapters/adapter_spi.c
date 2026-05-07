@@ -126,8 +126,8 @@ static void adapter_spi_init(void) {
                                        );
 
 #if defined(IOHDLC_SPI_USE_DR)
-  /* Register DATA_READY callback and keep EXTI permanently armed.
-   * The driver uses dr_armed flag to gate the callback — no
+  /* Register DATA_READY callback and keep EXTI permanently enabled.
+   * The driver uses rx_waiting_dr flag to gate the callback — no
    * palDisableLineEventI/palEnableLineEventI calls are made, so the
    * PAL _pal_events entry is never cleared by _pal_clear_event(). */
   palSetLineCallback(TEST_SPI_DR_LINE_A, spi_dr_callback, &spi_endpoint_a_obj);

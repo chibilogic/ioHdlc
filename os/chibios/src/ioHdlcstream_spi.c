@@ -71,9 +71,8 @@ static void chb_spi_data_cb(SPIDriver *spip) {
      * frame selected by the driver, setting tx_active = true again. */
 #if defined(IOHDLC_SPI_USE_DR)
     /* Slave: deassert DATA_READY before notifying upper layer. */
-    if (!ctx->is_master) {
+    if (!ctx->is_master)
       palClearLine(ctx->dr_line);
-    }
 #endif
     ctx->cbs->on_tx_done(ctx->cbs->cb_ctx, framep);
     if (!ctx->started) return;
@@ -83,16 +82,15 @@ static void chb_spi_data_cb(SPIDriver *spip) {
     if (!ctx->tx_active && ctx->rx_ptr != NULL) {
 #if defined(IOHDLC_SPI_USE_DR)
       if (ctx->is_master) {
-        /* Re-arm DATA_READY interrupt; if slave has already asserted DR the
-         * rising edge would not fire again — check level and start DMA now. */
+        /* Accept the next DATA_READY; if the slave already asserted DR, the
+         * rising edge would not fire again, so check the level now. */
         chSysLockFromISR();
         if (palReadLine(ctx->dr_line) == PAL_HIGH) {
           ctx->rx_active = true;
           spiSelectI(ctx->spip);
           chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
-        } else {
-          ctx->dr_armed = true;
-        }
+        } else
+          ctx->rx_waiting_dr = true;
         chSysUnlockFromISR();
       } else {
 #endif
@@ -115,9 +113,8 @@ static void chb_spi_data_cb(SPIDriver *spip) {
     ctx->rx_active = false;
     ctx->rx_ptr    = NULL;
     ctx->rx_n      = 0;
-    if (!ctx->is_master) {
+    if (!ctx->is_master)
       ctx->slave_tx_needs_prepare = true;
-    }
 
     chDbgAssert(ctx->cbs && ctx->cbs->on_rx,
                 "spi data_cb: on_rx not set");
@@ -152,9 +149,8 @@ static void chb_spi_error_cb(SPIDriver *spip) {
     spiUnselectI(ctx->spip);
   }
 
-  if (ctx->cbs && ctx->cbs->on_rx_error) {
+  if (ctx->cbs && ctx->cbs->on_rx_error)
     ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_OVERRUN);
-  }
 }
 
 /*===========================================================================*/
@@ -189,7 +185,7 @@ static void chb_spi_start(void *vctx,
   ctx->rx_n      = 0;
   ctx->rx_active = false;
   ctx->slave_tx_needs_prepare = false;
-  ctx->dr_armed  = false;
+  ctx->rx_waiting_dr = false;
 
   /* Install callbacks, slave flag, and bind context pointer. */
   ctx->spip->ip = ctx;
@@ -214,23 +210,21 @@ static void chb_spi_stop(void *vctx) {
    * DATA_READY IRQ can otherwise re-enter and submit RX during teardown. */
   chSysLock();
   ctx->started   = false;
-  ctx->dr_armed  = false;
+  ctx->rx_waiting_dr = false;
   ctx->tx_framep = NULL;
   ctx->tx_active = false;
   ctx->rx_ptr    = NULL;
   ctx->rx_n      = 0;
   ctx->rx_active = false;
   ctx->slave_tx_needs_prepare = false;
-  if (!ctx->is_master) {
+  if (!ctx->is_master)
     slave_aborted = ioHdlcStreamSpiPlatformAbortSlaveI(ctx);
-  }
   chSysUnlock();
 
   /* Stop any pending transactions. */
   if (!ctx->is_master) {
-    if (!slave_aborted) {
+    if (!slave_aborted)
       spiStopTransfer(ctx->spip, NULL);
-    }
   } else {
     spiStopTransfer(ctx->spip, NULL);
     spiUnselect(ctx->spip);
@@ -243,7 +237,7 @@ static void chb_spi_stop(void *vctx) {
 /**
  * @brief   Submit a TX buffer.
  * @details DATA_READY masters reject TX while RX is active or ready; slaves may
- *          still cancel their armed RX when switching direction.
+ *          still cancel their pending RX when switching direction.
  */
 static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
                                void *cookie) {
@@ -264,7 +258,7 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
 #if defined(IOHDLC_SPI_USE_DR)
     if ((ctx->rx_ptr != NULL) &&
         ((ctx->rx_n > 1U) || (palReadLine(ctx->dr_line) == PAL_HIGH))) {
-      ctx->dr_armed = false;
+      ctx->rx_waiting_dr = false;
       ctx->rx_active = true;
       spiSelectI(ctx->spip);
       chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
@@ -290,10 +284,9 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
     /* rx_ptr/rx_n are left as-is so RX can be re-armed after TX completes. */
   }
 #if defined(IOHDLC_SPI_USE_DR)
-  else if (ctx->is_master && ctx->rx_ptr != NULL) {
-    /* DR edge may be pending — disarm the software flag before TX starts. */
-    ctx->dr_armed = false;
-  }
+  else if (ctx->is_master && ctx->rx_ptr != NULL)
+    /* A pending DR edge must not start RX while this TX is being submitted. */
+    ctx->rx_waiting_dr = false;
 #endif
 
   ctx->tx_framep = cookie;
@@ -357,7 +350,7 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   chDbgAssert(len > 0U, "spi rx_submit: zero length");
   if (!ctx->started) return false;
 
-  /* Save the armed buffer (also used as "pending" signal in txend2). */
+  /* Save the pending buffer (also used as "pending" signal in txend2). */
   ctx->rx_ptr = ptr;
   ctx->rx_n   = len;
 
@@ -371,9 +364,8 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
         ctx->rx_active = true;
         spiSelectI(ctx->spip);
         chb_spi_start_receive_i(ctx, len, ptr);
-      } else {
-        ctx->dr_armed = true;
-      }
+      } else
+        ctx->rx_waiting_dr = true;
     }
     /* else: data_cb will handle after TX completes. */
   } else {
@@ -402,10 +394,9 @@ static void chb_spi_rx_cancel(void *vctx) {
     ctx->rx_active = false;
   }
 #if defined(IOHDLC_SPI_USE_DR)
-  else if (ctx->is_master && ctx->rx_ptr != NULL) {
-    /* DR edge may be pending — disarm the software flag. */
-    ctx->dr_armed = false;
-  }
+  else if (ctx->is_master && ctx->rx_ptr != NULL)
+    /* A pending DR edge has no RX buffer to complete after cancel. */
+    ctx->rx_waiting_dr = false;
 #endif
   ctx->rx_ptr = NULL;
   ctx->rx_n   = 0;
@@ -415,15 +406,17 @@ static void chb_spi_rx_cancel(void *vctx) {
 /**
  * @brief   Called from a board-level PAL event callback when the slave
  *          DATA_READY line goes high (one-shot rising edge).
- * @details Disarms the EXTI event and starts SPI DMA receive.  If a TX is
- *          in progress the call is a no-op; data_cb will restart RX afterwards.
+ * @details DATA_READY events remain enabled permanently; this software gate
+ *          decides whether the current edge/level may start SPI DMA receive.
+ *          If a TX is in progress the call is a no-op; data_cb will restart RX
+ *          afterwards.
  * @note    Must be called from ISR context.
  */
 void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx) {
   if (!ctx) return;
   if (!ctx->started) return;
-  if (!ctx->dr_armed) return;
-  ctx->dr_armed = false;
+  if (!ctx->rx_waiting_dr) return;
+  ctx->rx_waiting_dr = false;
   if (ctx->rx_ptr != NULL && !ctx->rx_active && !ctx->tx_active) {
     ctx->rx_active = true;
     spiSelectI(ctx->spip);
@@ -466,7 +459,7 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort       *port,
   obj->is_master = is_master;
   obj->started   = false;
   obj->dr_line   = dr_line;
-  obj->dr_armed  = false;
+  obj->rx_waiting_dr = false;
   obj->cbs       = NULL;
   obj->caps      = &chibios_spi_caps;
   obj->tx_framep = NULL;

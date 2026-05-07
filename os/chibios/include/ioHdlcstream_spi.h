@@ -56,8 +56,8 @@ typedef struct ioHdlcStreamChibiosSpi {
   bool                          tx_active;  /**< DMA TX in progress             */
 
   /* RX state */
-  uint8_t                      *rx_ptr;     /**< Buffer armed by rx_submit      */
-  size_t                        rx_n;       /**< Length of armed RX buffer      */
+  uint8_t                      *rx_ptr;     /**< Buffer saved by rx_submit      */
+  size_t                        rx_n;       /**< Length of saved RX buffer      */
   bool                          rx_active;  /**< DMA RX in progress             */
   bool                          slave_tx_needs_prepare; /**< RX->TX boundary flag */
 
@@ -65,7 +65,10 @@ typedef struct ioHdlcStreamChibiosSpi {
   /* Master: input monitored via PAL event; slave: output asserted on TX send.  */
   /* Set to PAL_NOLINE if DATA_READY signalling is not used.                    */
   ioline_t                      dr_line;    /**< DATA_READY GPIO line           */
-  bool                          dr_armed;   /**< true = next DR edge starts RX  */
+  /* Master only: rx_ptr/rx_n describe a pending RX that must start on the
+   * next DATA_READY high level. PAL events stay enabled; this is only a
+   * software gate. */
+  bool                          rx_waiting_dr;
 } ioHdlcStreamChibiosSpi;
 
 /**
