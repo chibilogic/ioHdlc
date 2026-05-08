@@ -242,7 +242,7 @@ static void *reader_thread(void *arg) {
       test_validate_packet(ctx->buffer, received, &ctx->seq, ctx->stats);
       iohdlc_mutex_unlock(ctx->stats_mutex);
     } else if (received > 0) {
-      test_printf("Warning: received short packet (%zd bytes)\r\n", received);
+      test_printf("Warning: received short packet (%d bytes)\r\n", (int)received);
     } else if (received == 0) {
       test_printf("Reader %u zero read!\r\n", ctx->station->addr);
       test_running = false;  /* No data received, assume test end */

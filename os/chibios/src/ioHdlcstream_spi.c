@@ -30,14 +30,38 @@
 #include "ioHdlcll.h"
 #include <errno.h>
 
+#if !defined(IOHDLC_SPI_SLAVE_UNSELECT_DELAY_US)
+#define IOHDLC_SPI_SLAVE_UNSELECT_DELAY_US  200U
+#endif
+
 /*===========================================================================*/
 /* Local callback implementations.                                           */
 /*===========================================================================*/
 
-static void chb_spi_start_receive_i(ioHdlcStreamChibiosSpi *ctx,
-                                    size_t len,
-                                    uint8_t *ptr) {
+static void chb_spi_slave_unselect_cb(virtual_timer_t *vtp, void *p) {
+  ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)p;
+  bool aborted = false;
 
+  (void)vtp;
+
+  chSysLockFromISR();
+  if (!ctx->is_master && ctx->started && ctx->rx_active && ctx->rx_n > 1U) {
+    if (ioHdlcStreamSpiPlatformCancelSlaveRxI(ctx)) {
+      ctx->rx_active = false;
+      ctx->rx_ptr = NULL;
+      ctx->rx_n = 0;
+      ctx->slave_tx_needs_prepare = false;
+      aborted = true;
+    }
+  }
+  chSysUnlockFromISR();
+
+  if (aborted && ctx->cbs && ctx->cbs->on_rx_error)
+    ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_OVERRUN);
+}
+
+static void chb_spi_start_receive_i(ioHdlcStreamChibiosSpi *ctx, size_t len,
+                                    uint8_t *ptr) {
   iohdlc_dma_rx_prepare(ptr, len);
   if (!ctx->is_master)
     ioHdlcStreamSpiPlatformPrepareSlaveRxI(ctx);
@@ -63,9 +87,10 @@ static void chb_spi_data_cb(SPIDriver *spip) {
     chDbgAssert(ctx->cbs && ctx->cbs->on_tx_done,
                 "spi end_cb: on_tx_done not set");
 
-    if (ctx->is_master) {
+#if SPI_SELECT_MODE != SPI_SELECT_MODE_NONE
+    if (ctx->is_master)
       spiUnselectI(spip);
-    }
+#endif
 
     /* Notify the swdriver. on_tx_done() may synchronously submit the next
      * frame selected by the driver, setting tx_active = true again. */
@@ -113,15 +138,20 @@ static void chb_spi_data_cb(SPIDriver *spip) {
     ctx->rx_active = false;
     ctx->rx_ptr    = NULL;
     ctx->rx_n      = 0;
-    if (!ctx->is_master)
+    if (!ctx->is_master) {
+      chSysLockFromISR();
+      chVTResetI(&ctx->slave_unselect_vt);
+      chSysUnlockFromISR();
       ctx->slave_tx_needs_prepare = true;
+    }
 
     chDbgAssert(ctx->cbs && ctx->cbs->on_rx,
                 "spi data_cb: on_rx not set");
 
-    if (ctx->is_master) {
+#if SPI_SELECT_MODE != SPI_SELECT_MODE_NONE
+    if (ctx->is_master)
       spiUnselectI(spip);
-    }
+#endif
 
     ctx->cbs->on_rx(ctx->cbs->cb_ctx, 0);
   }
@@ -144,15 +174,21 @@ static void chb_spi_error_cb(SPIDriver *spip) {
   ctx->rx_ptr    = NULL;
   ctx->rx_n      = 0;
   ctx->slave_tx_needs_prepare = false;
+  if (!ctx->is_master) {
+    chSysLockFromISR();
+    chVTResetI(&ctx->slave_unselect_vt);
+    chSysUnlockFromISR();
+  }
 
 #if defined(IOHDLC_SPI_USE_DR)
   if (!ctx->is_master)
     palClearLine(ctx->dr_line);
 #endif
 
-  if (ctx->is_master) {
+#if SPI_SELECT_MODE != SPI_SELECT_MODE_NONE
+  if (ctx->is_master)
     spiUnselectI(ctx->spip);
-  }
+#endif
 
   if (ctx->cbs && ctx->cbs->on_rx_error)
     ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_OVERRUN);
@@ -173,8 +209,7 @@ static const iohdlc_stream_caps_t *chb_spi_get_caps(void *vctx) {
   return ctx->caps ? ctx->caps : &chibios_spi_caps;
 }
 
-static void chb_spi_start(void *vctx,
-                          const ioHdlcStreamCallbacks *cbs,
+static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
                           const ioHdlcStreamDriverOps *drvops) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
   (void)drvops;
@@ -191,6 +226,7 @@ static void chb_spi_start(void *vctx,
   ctx->rx_active = false;
   ctx->slave_tx_needs_prepare = false;
   ctx->rx_waiting_dr = false;
+  chVTReset(&ctx->slave_unselect_vt);
 
 #if defined(IOHDLC_SPI_USE_DR)
   if (!ctx->is_master)
@@ -227,6 +263,7 @@ static void chb_spi_stop(void *vctx) {
   ctx->rx_n      = 0;
   ctx->rx_active = false;
   ctx->slave_tx_needs_prepare = false;
+  chVTResetI(&ctx->slave_unselect_vt);
 #if defined(IOHDLC_SPI_USE_DR)
   if (!ctx->is_master)
     palClearLine(ctx->dr_line);
@@ -386,9 +423,10 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
 #endif
     if (!ctx->tx_active) {
       ctx->rx_active = true;
-      if (ctx->is_master) {
+#if SPI_SELECT_MODE != SPI_SELECT_MODE_NONE
+      if (ctx->is_master)
         spiSelectI(ctx->spip);
-      }
+#endif
       chb_spi_start_receive_i(ctx, len, ptr);
     }
     /* else: DMA will be started by chb_spi_data_cb after TX completes. */
@@ -439,6 +477,27 @@ void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx) {
 }
 #endif
 
+/**
+ * @brief   Notifies a slave SPI transaction boundary.
+ * @details CS deassert can precede the RX DMA completion callback.  The abort
+ *          decision is therefore deferred by a short timer; if the RX callback
+ *          completes in the meantime then the timer is cancelled.
+ *
+ * @param[in] ctx       slave SPI context
+ */
+void ioHdlcStreamSpiSlaveUnselect(ioHdlcStreamChibiosSpi *ctx) {
+  if (!ctx) return;
+
+  chSysLockFromISR();
+  if (!ctx->is_master && ctx->started && ctx->rx_active && ctx->rx_n > 1U) {
+    chVTSetI(&ctx->slave_unselect_vt,
+             TIME_US2I(IOHDLC_SPI_SLAVE_UNSELECT_DELAY_US),
+             chb_spi_slave_unselect_cb, ctx);
+  } else if (!ctx->is_master)
+    chVTResetI(&ctx->slave_unselect_vt);
+  chSysUnlockFromISR();
+}
+
 static const ioHdlcStreamPortOps chibios_spi_ops = {
   .get_caps  = chb_spi_get_caps,
   .start     = chb_spi_start,
@@ -462,12 +521,10 @@ static const ioHdlcStreamPortOps chibios_spi_ops = {
  * @param[in]  cfgp       SPI configuration (end_cb will be set at start time)
  * @param[in]  is_master  true if this node drives the SPI clock
  */
-void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort       *port,
+void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
                                           ioHdlcStreamChibiosSpi *obj,
-                                          SPIDriver              *spip,
-                                          SPIConfig              *cfgp,
-                                          bool                    is_master,
-                                          ioline_t                dr_line) {
+                                          SPIDriver *spip, SPIConfig *cfgp,
+                                          bool is_master, ioline_t dr_line) {
   obj->spip      = spip;
   obj->cfgp      = cfgp;
   obj->is_master = is_master;
@@ -482,6 +539,7 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort       *port,
   obj->rx_n      = 0;
   obj->rx_active = !is_master;
   obj->slave_tx_needs_prepare = false;
+  chVTObjectInit(&obj->slave_unselect_vt);
 
   port->ctx = obj;
   port->ops = &chibios_spi_ops;

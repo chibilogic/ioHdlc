@@ -60,6 +60,7 @@ typedef struct ioHdlcStreamChibiosSpi {
   size_t                        rx_n;       /**< Length of saved RX buffer      */
   bool                          rx_active;  /**< DMA RX in progress             */
   bool                          slave_tx_needs_prepare; /**< RX->TX boundary flag */
+  virtual_timer_t               slave_unselect_vt; /**< Deferred RX abort timer */
 
   /* DATA_READY GPIO line (optional, see IOHDLC_SPI_USE_DR).                    */
   /* Master: input monitored via PAL event; slave: output asserted on TX send.  */
@@ -81,12 +82,12 @@ typedef struct ioHdlcStreamChibiosSpi {
  *                        the adapter at start time
  * @param[in]  is_master  true if this node drives the SPI clock
  */
-void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort        *port,
-                                          ioHdlcStreamChibiosSpi  *obj,
-                                          SPIDriver               *spip,
-                                          SPIConfig               *cfgp,
-                                          bool                     is_master,
-                                          ioline_t                 dr_line);
+void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
+                                          ioHdlcStreamChibiosSpi *obj,
+                                          SPIDriver *spip, SPIConfig *cfgp,
+                                          bool is_master, ioline_t dr_line);
+
+void ioHdlcStreamSpiSlaveUnselect(ioHdlcStreamChibiosSpi *ctx);
 
 #if defined(IOHDLC_SPI_USE_DR)
 /**
