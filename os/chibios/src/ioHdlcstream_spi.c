@@ -145,6 +145,11 @@ static void chb_spi_error_cb(SPIDriver *spip) {
   ctx->rx_n      = 0;
   ctx->slave_tx_needs_prepare = false;
 
+#if defined(IOHDLC_SPI_USE_DR)
+  if (!ctx->is_master)
+    palClearLine(ctx->dr_line);
+#endif
+
   if (ctx->is_master) {
     spiUnselectI(ctx->spip);
   }
@@ -187,6 +192,11 @@ static void chb_spi_start(void *vctx,
   ctx->slave_tx_needs_prepare = false;
   ctx->rx_waiting_dr = false;
 
+#if defined(IOHDLC_SPI_USE_DR)
+  if (!ctx->is_master)
+    palClearLine(ctx->dr_line);
+#endif
+
   /* Install callbacks, slave flag, and bind context pointer. */
   ctx->spip->ip = ctx;
   if (ctx->cfgp) {
@@ -217,6 +227,10 @@ static void chb_spi_stop(void *vctx) {
   ctx->rx_n      = 0;
   ctx->rx_active = false;
   ctx->slave_tx_needs_prepare = false;
+#if defined(IOHDLC_SPI_USE_DR)
+  if (!ctx->is_master)
+    palClearLine(ctx->dr_line);
+#endif
   if (!ctx->is_master)
     slave_aborted = ioHdlcStreamSpiPlatformAbortSlaveI(ctx);
   chSysUnlock();
