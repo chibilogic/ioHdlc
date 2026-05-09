@@ -44,7 +44,7 @@ make exchange \
 | `TEST_ENDPOINT` | `TEST_ENDPOINT_BOTH` | `TEST_ENDPOINT_BOTH`, `TEST_ENDPOINT_A`, `TEST_ENDPOINT_B` |
 | `TEST_ERROR_RATE` | 1 | Error injection 0-100% (mock adapter only) |
 | `TEST_REPLY_TIMEOUT` | 0 | Reply timeout in ms (`0` = `IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`) |
-| `TEST_POLL_RETRY_MAX` | 0 | Max retries (`0` = `IOHDLC_POLL_RETRY_MAX_DEFAULT`) |
+| `TEST_POLL_RETRY_MAX` | 0 | Max retries, range 0-31 (`0` = auto from reply-timeout, about 25 s cumulative retry timeout) |
 | `TEST_PROGRESS_INTERVAL` | 1000 | Progress update interval in ms |
 
 ## Flashing and Running

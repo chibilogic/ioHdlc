@@ -433,12 +433,12 @@ struct iohdlc_station_peer {
   iohdlc_virtual_timer_t t3_tmr;/* Primary/secondary/combined station T3 time-out timer. */
 
   /* retry counters. */
-  volatile uint8_t poll_retry_count;  /* Current number of retries for frames with P=1 (poll bit).
-                                         Incremented on reply_tmr expiry, reset when F=1
-                                         response received. Volatile: accessed from timer context. */
-  uint8_t poll_retry_max;       /* Maximum number of retries allowed for poll frames.
-                                   When poll_retry_count >= poll_retry_max, the link
-                                   is considered down. */
+  volatile uint8_t poll_retry_count;  /* Number of poll retries scheduled for the
+                                         current outstanding P=1 command. Reset
+                                         when F=1 response is received. */
+  uint8_t poll_retry_max;       /* Maximum number of retry attempts after the
+                                   original poll. After the last retry expires,
+                                   the link is considered down. */
 
   /* FRMR exception condition state (ISO 13239, 5.5.3). */
   volatile bool frmr_condition;       /* true = frame reject exception active. */
@@ -522,7 +522,8 @@ struct iohdlc_station_config {
   uint16_t reply_timeout_ms; /**< @brief T1 reply timeout in ms. Must account
                                       for: (ks × frame_tx_time) + wire_RTT +
                                       peer_processing + margin.              */
-  uint8_t poll_retry_max; /**< @brief max poll retries (0 = default 8)       */
+  uint8_t poll_retry_max; /**< @brief max retry attempts after a poll
+                                      (0 = default 8)                        */
 };
 
 /*===========================================================================*/

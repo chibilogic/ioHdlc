@@ -87,9 +87,9 @@
 
 /**
  * @brief   Derive the API safety timeout for a link-management transaction.
- * @details The protocol core uses exponential T1 backoff and declares failure
- *          after a cumulative budget of @c T1 * (2^N2 - 1). The public API
- *          waits one extra base slot, i.e. @c T1 * 2^N2, as a safety margin.
+ * @details The protocol core uses exponential T1 backoff for normal retry
+ *          windows, then a bounded final window after the last retry. The
+ *          public API waits one extra base T1 slot as a safety margin.
  *          Saturates on overflow.
  * @param[in] s   Station descriptor.
  * @param[in] p   Peer descriptor.
@@ -99,15 +99,27 @@ static uint32_t s_link_api_timeout_ms(const iohdlc_station_t *s,
                                       const iohdlc_station_peer_t *p) {
   uint32_t t1_ms;
   uint8_t n2;
+  uint64_t total;
+  uint64_t last;
 
   IOHDLC_ASSERT(s != NULL, "s_link_api_timeout_ms: null station");
   IOHDLC_ASSERT(p != NULL, "s_link_api_timeout_ms: null peer");
 
   t1_ms = s->reply_timeout_ms;
   n2 = p->poll_retry_max;
-  if (n2 >= 32U || t1_ms > (~(uint32_t)0U >> n2))
+  if (n2 >= 32U)
     return ~(uint32_t)0U;
-  return t1_ms << n2;
+
+  total = (uint64_t)t1_ms * (((uint64_t)1U << n2) - 1U);
+  last = (uint64_t)t1_ms * IOHDLC_LAST_RETRY_T1_RATIO;
+  if (last < IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS)
+    last = IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS;
+
+  total += last + t1_ms;
+  if (total > ~(uint32_t)0U)
+    return ~(uint32_t)0U;
+
+  return (uint32_t)total;
 }
 
 static bool s_peer_rx_has_data(const iohdlc_station_peer_t *peer) {

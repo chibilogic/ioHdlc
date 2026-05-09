@@ -1209,6 +1209,10 @@ bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
               "Peer should be marked aborted after link timeout");
   TEST_ASSERT(!IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_primary),
               "Peer should not be marked orderly closed after timeout");
+#if defined(IOHDLC_ENABLE_STATISTICS)
+  TEST_ASSERT(peer_at_primary.stats.timeouts == 2U,
+              "poll_retry_max=1 should allow one retry plus final timeout");
+#endif
   {
     char dummy = 0;
     ssize_t received = ioHdlcReadTmo(&peer_at_primary, &dummy, 1U, 0U);

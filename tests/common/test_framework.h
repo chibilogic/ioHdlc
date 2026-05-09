@@ -82,7 +82,9 @@ typedef struct {
   
   /* HDLC protocol parameters */
   uint16_t reply_timeout_ms;            /**< Reply timeout in ms (0=default 100ms) */
-  uint8_t poll_retry_max;               /**< Max poll retries (0=default 8) */
+  uint8_t poll_retry_max;               /**< Max poll retries (0=auto in exchange tool) */
+  bool poll_retry_max_auto;             /**< true if the exchange tool computed poll_retry_max */
+  uint32_t poll_retry_total_timeout_ms; /**< Cumulative retry budget estimate */
   uint32_t krs;                         /**< Window size ks=kr (0=use modmask default) */
   
   /* Progress reporting */
@@ -113,6 +115,7 @@ typedef struct __attribute__((packed)) {
 
 #define TEST_PACKET_HEADER_SIZE 10U
 #define TEST_EXCHANGE_MAX_PACKET_SIZE 1024U
+#define TEST_POLL_RETRY_MAX_LIMIT 31U
 
 /*===========================================================================*/
 /* Test Statistics                                                           */
