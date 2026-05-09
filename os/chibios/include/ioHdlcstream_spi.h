@@ -19,7 +19,8 @@
  *
  * @details Provides the SPI-backed @ref ioHdlcStreamPort context used by the
  *          software HDLC driver.  TX and RX DMA operations are mutually
- *          exclusive.
+ *          exclusive. DATA_READY is part of the SPI physical protocol: masters
+ *          wait for the slave notification before clocking RX data.
  *
  * @note    The caller must configure @p SPIConfig with a @p NULL end_cb; the
  *          adapter installs its own @p end_cb at start time.
@@ -62,9 +63,8 @@ typedef struct ioHdlcStreamChibiosSpi {
   bool                          slave_tx_needs_prepare; /**< RX->TX boundary flag */
   virtual_timer_t               slave_unselect_vt; /**< Deferred RX abort timer */
 
-  /* DATA_READY GPIO line (optional, see IOHDLC_SPI_USE_DR).                    */
+  /* DATA_READY GPIO line.                                                     */
   /* Master: input monitored via PAL event; slave: output asserted on TX send.  */
-  /* Set to PAL_NOLINE if DATA_READY signalling is not used.                    */
   ioline_t                      dr_line;    /**< DATA_READY GPIO line           */
   /* Master only: rx_ptr/rx_n describe a pending RX that must start on the
    * next DATA_READY high level. PAL events stay enabled; this is only a
@@ -89,7 +89,6 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
 
 void ioHdlcStreamSpiSlaveUnselect(ioHdlcStreamChibiosSpi *ctx);
 
-#if defined(IOHDLC_SPI_USE_DR)
 /**
  * @brief   Called from a PAL event callback when the slave DATA_READY line
  *          goes high.  Disarms the edge interrupt and starts SPI DMA receive.
@@ -97,6 +96,5 @@ void ioHdlcStreamSpiSlaveUnselect(ioHdlcStreamChibiosSpi *ctx);
  * @param[in] ctx  master SPI context registered for this DATA_READY line.
  */
 void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx);
-#endif
 
 #endif /* IOHDLCSTREAM_SPI_H */

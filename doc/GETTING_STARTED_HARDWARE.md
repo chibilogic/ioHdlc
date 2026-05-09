@@ -160,7 +160,7 @@ make clean
 make shell USE_SPI_ADAPTER=1
 ```
 
-For this frontend, `USE_SPI_ADAPTER=1` already enables `IOHDLC_SPI_USE_DR`.
+For this frontend, `DATA_READY` is required and enabled unconditionally.
 No extra `CFLAGS_EXTRA` flag is required.
 
 Other targets:

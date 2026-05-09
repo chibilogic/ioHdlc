@@ -87,7 +87,6 @@ static ioHdlcStreamPort port_b;
 /* Adapter implementation                                                    */
 /*===========================================================================*/
 
-#if defined(IOHDLC_SPI_USE_DR)
 static void spi_dr_callback(void *arg) {
   /* Called from PAL/EXTI ISR when slave asserts DATA_READY.
    * I-class functions inside DataReadyI require the system lock. */
@@ -95,49 +94,28 @@ static void spi_dr_callback(void *arg) {
   ioHdlcStreamSpiDataReadyI((ioHdlcStreamChibiosSpi *)arg);
   chSysUnlockFromISR();
 }
-#endif
 
 static void adapter_spi_init(void) {
   /* Endpoint A: SPI master */
-  ioHdlcStreamPortChibiosSpiObjectInit(&port_a,
-                                       &spi_endpoint_a_obj,
-                                       &TEST_SPI_ENDPOINT_A,
-                                       &spi_cfg_a,
-                                       true,              /* is_master */
-#if defined(IOHDLC_SPI_USE_DR)
-                                       TEST_SPI_DR_LINE_A /* DR input  */
-#else
-                                       PAL_NOLINE
-#endif
-                                       );
+  ioHdlcStreamPortChibiosSpiObjectInit(&port_a, &spi_endpoint_a_obj,
+                                       &TEST_SPI_ENDPOINT_A, &spi_cfg_a,
+                                       true, TEST_SPI_DR_LINE_A);
 
   /* Endpoint B: SPI slave */
-  ioHdlcStreamPortChibiosSpiObjectInit(&port_b,
-                                       &spi_endpoint_b_obj,
-                                       &TEST_SPI_ENDPOINT_B,
-                                       &spi_cfg_b,
-                                       false,             /* is_slave  */
-#if defined(IOHDLC_SPI_USE_DR)
-                                       TEST_SPI_DR_LINE_B /* DR output */
-#else
-                                       PAL_NOLINE
-#endif
-                                       );
+  ioHdlcStreamPortChibiosSpiObjectInit(&port_b, &spi_endpoint_b_obj,
+                                       &TEST_SPI_ENDPOINT_B, &spi_cfg_b,
+                                       false, TEST_SPI_DR_LINE_B);
 
-#if defined(IOHDLC_SPI_USE_DR)
   /* Register DATA_READY callback and keep EXTI permanently enabled.
    * The driver uses rx_waiting_dr flag to gate the callback — no
    * palDisableLineEventI/palEnableLineEventI calls are made, so the
    * PAL _pal_events entry is never cleared by _pal_clear_event(). */
   palSetLineCallback(TEST_SPI_DR_LINE_A, spi_dr_callback, &spi_endpoint_a_obj);
   palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_RISING_EDGE);
-#endif
 }
 
 static void adapter_spi_deinit(void) {
-#if defined(IOHDLC_SPI_USE_DR)
   palDisableLineEvent(TEST_SPI_DR_LINE_A);
-#endif
 }
 
 static ioHdlcStreamPort adapter_spi_get_port_a(void) {

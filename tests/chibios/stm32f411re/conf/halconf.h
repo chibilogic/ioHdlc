@@ -210,7 +210,7 @@
  * @note    Disabling this option saves both code and data space.
  */
 #if !defined(PAL_USE_CALLBACKS) || defined(__DOXYGEN__)
-#if defined(IOHDLC_SPI_USE_DR)
+#if defined(USE_SPI_ADAPTER)
 #define PAL_USE_CALLBACKS                   TRUE
 #else
 #define PAL_USE_CALLBACKS                   FALSE

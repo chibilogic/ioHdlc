@@ -30,8 +30,13 @@
 #include "ioHdlcll.h"
 #include <errno.h>
 
+/*
+ * Delay after slave CS deassert before aborting an incomplete RX transfer.
+ * The effective delay is bounded by the system timer resolution and by
+ * CH_CFG_ST_TIMEDELTA on ChibiOS tickless ports.
+ */
 #if !defined(IOHDLC_SPI_SLAVE_UNSELECT_DELAY_US)
-#define IOHDLC_SPI_SLAVE_UNSELECT_DELAY_US  200U
+#define IOHDLC_SPI_SLAVE_UNSELECT_DELAY_US  10U
 #endif
 
 /*===========================================================================*/
@@ -92,20 +97,18 @@ static void chb_spi_data_cb(SPIDriver *spip) {
       spiUnselectI(spip);
 #endif
 
-    /* Notify the swdriver. on_tx_done() may synchronously submit the next
-     * frame selected by the driver, setting tx_active = true again. */
-#if defined(IOHDLC_SPI_USE_DR)
     /* Slave: deassert DATA_READY before notifying upper layer. */
     if (!ctx->is_master)
       palClearLine(ctx->dr_line);
-#endif
+
+    /* Notify the swdriver. on_tx_done() may synchronously submit the next
+     * frame selected by the driver, setting tx_active = true again. */
     ctx->cbs->on_tx_done(ctx->cbs->cb_ctx, framep);
     if (!ctx->started) return;
 
     /* If on_tx_done did not start a new TX and an RX buffer is ready,
      * restart receive. */
     if (!ctx->tx_active && ctx->rx_ptr != NULL) {
-#if defined(IOHDLC_SPI_USE_DR)
       if (ctx->is_master) {
         /* Accept the next DATA_READY; if the slave already asserted DR, the
          * rising edge would not fire again, so check the level now. */
@@ -118,18 +121,11 @@ static void chb_spi_data_cb(SPIDriver *spip) {
           ctx->rx_waiting_dr = true;
         chSysUnlockFromISR();
       } else {
-#endif
         ctx->rx_active = true;
         chSysLockFromISR();
-#if !defined(IOHDLC_SPI_USE_DR)
-        if (ctx->is_master)
-          spiSelectI(ctx->spip);
-#endif
         chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
         chSysUnlockFromISR();
-#if defined(IOHDLC_SPI_USE_DR)
       }
-#endif
     }
 
   } else if (ctx->rx_active) {
@@ -180,10 +176,8 @@ static void chb_spi_error_cb(SPIDriver *spip) {
     chSysUnlockFromISR();
   }
 
-#if defined(IOHDLC_SPI_USE_DR)
   if (!ctx->is_master)
     palClearLine(ctx->dr_line);
-#endif
 
 #if SPI_SELECT_MODE != SPI_SELECT_MODE_NONE
   if (ctx->is_master)
@@ -228,10 +222,8 @@ static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
   ctx->rx_waiting_dr = false;
   chVTReset(&ctx->slave_unselect_vt);
 
-#if defined(IOHDLC_SPI_USE_DR)
   if (!ctx->is_master)
     palClearLine(ctx->dr_line);
-#endif
 
   /* Install callbacks, slave flag, and bind context pointer. */
   ctx->spip->ip = ctx;
@@ -264,10 +256,8 @@ static void chb_spi_stop(void *vctx) {
   ctx->rx_active = false;
   ctx->slave_tx_needs_prepare = false;
   chVTResetI(&ctx->slave_unselect_vt);
-#if defined(IOHDLC_SPI_USE_DR)
   if (!ctx->is_master)
     palClearLine(ctx->dr_line);
-#endif
   if (!ctx->is_master)
     slave_aborted = ioHdlcStreamSpiPlatformAbortSlaveI(ctx);
   chSysUnlock();
@@ -306,7 +296,6 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
   if (ctx->is_master) {
     if (ctx->rx_active)
       return false;
-#if defined(IOHDLC_SPI_USE_DR)
     if ((ctx->rx_ptr != NULL) &&
         ((ctx->rx_n > 1U) || (palReadLine(ctx->dr_line) == PAL_HIGH))) {
       ctx->rx_waiting_dr = false;
@@ -315,7 +304,6 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
       chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
       return false;
     }
-#endif
   }
 
   if (ctx->rx_active) {
@@ -334,11 +322,9 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
     }
     /* rx_ptr/rx_n are left as-is so RX can be re-armed after TX completes. */
   }
-#if defined(IOHDLC_SPI_USE_DR)
   else if (ctx->is_master && ctx->rx_ptr != NULL)
     /* A pending DR edge must not start RX while this TX is being submitted. */
     ctx->rx_waiting_dr = false;
-#endif
 
   ctx->tx_framep = cookie;
   ctx->tx_active = true;
@@ -352,10 +338,8 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
     spiStartSendI(ctx->spip, len, ptr);
   } else {
     spiStartSendI(ctx->spip, len, ptr);
-#if defined(IOHDLC_SPI_USE_DR)
     /* Slave: assert DATA_READY to signal the master that TX data is ready. */
     palSetLine(ctx->dr_line);
-#endif
   }
 
   return true;
@@ -405,7 +389,6 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
   ctx->rx_ptr = ptr;
   ctx->rx_n   = len;
 
-#if defined(IOHDLC_SPI_USE_DR)
   if (ctx->is_master) {
     /* Master cannot start DMA without clock — wait for DATA_READY signal. */
     if (!ctx->tx_active) {
@@ -420,19 +403,12 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
     }
     /* else: data_cb will handle after TX completes. */
   } else {
-#endif
     if (!ctx->tx_active) {
       ctx->rx_active = true;
-#if SPI_SELECT_MODE != SPI_SELECT_MODE_NONE
-      if (ctx->is_master)
-        spiSelectI(ctx->spip);
-#endif
       chb_spi_start_receive_i(ctx, len, ptr);
     }
     /* else: DMA will be started by chb_spi_data_cb after TX completes. */
-#if defined(IOHDLC_SPI_USE_DR)
   }
-#endif
 
   return true;
 }
@@ -445,16 +421,13 @@ static void chb_spi_rx_cancel(void *vctx) {
     spiStopTransferI(ctx->spip, NULL);
     ctx->rx_active = false;
   }
-#if defined(IOHDLC_SPI_USE_DR)
   else if (ctx->is_master && ctx->rx_ptr != NULL)
     /* A pending DR edge has no RX buffer to complete after cancel. */
     ctx->rx_waiting_dr = false;
-#endif
   ctx->rx_ptr = NULL;
   ctx->rx_n   = 0;
 }
 
-#if defined(IOHDLC_SPI_USE_DR)
 /**
  * @brief   Called from a board-level PAL event callback when the slave
  *          DATA_READY line goes high (one-shot rising edge).
@@ -475,7 +448,6 @@ void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx) {
     chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
   }
 }
-#endif
 
 /**
  * @brief   Notifies a slave SPI transaction boundary.
@@ -525,6 +497,8 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
                                           ioHdlcStreamChibiosSpi *obj,
                                           SPIDriver *spip, SPIConfig *cfgp,
                                           bool is_master, ioline_t dr_line) {
+  chDbgAssert(dr_line != PAL_NOLINE, "spi object init: DATA_READY required");
+
   obj->spip      = spip;
   obj->cfgp      = cfgp;
   obj->is_master = is_master;
