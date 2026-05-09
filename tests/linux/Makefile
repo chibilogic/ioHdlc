@@ -14,6 +14,7 @@ COMMON_DIR = $(TESTS_DIR)/common
 COMMON_SCENARIOS_DIR = $(COMMON_DIR)/scenarios
 
 include $(ROOT_DIR)/mk/ioHdlc_version.mk
+include $(ROOT_DIR)/mk/ioHdlc_sources.mk
 
 # Output
 BUILD_DIR = build
@@ -54,18 +55,9 @@ DEPFLAGS = -MMD -MP
 LDFLAGS = -pthread -lrt
 
 # Source files
-CORE_SRCS = \
-	$(SRC_DIR)/ioHdlc_core.c \
-	$(SRC_DIR)/ioHdlc.c \
-	$(SRC_DIR)/ioHdlc_log.c \
-	$(SRC_DIR)/ioHdlcll.c \
-	$(SRC_DIR)/ioHdlcswdriver.c \
-	$(SRC_DIR)/ioHdlcpool_common.c \
-	$(SRC_DIR)/ioHdlc_runner.c
+CORE_SRCS = $(IOHDLC_CORE_SRCS)
 
-OSAL_SRCS = \
-	$(OS_LINUX_DIR)/src/ioHdlcosal.c \
-	$(OS_LINUX_DIR)/src/ioHdlcfmempool.c
+OSAL_SRCS = $(IOHDLC_LINUX_BASE_SRCS)
 
 MOCK_SRCS = \
 	$(MOCKS_DIR)/mock_stream.c \

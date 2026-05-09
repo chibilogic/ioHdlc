@@ -124,15 +124,6 @@ LDSCRIPT = $(TARGET_LDSCRIPT)
 # Source files
 ##############################################################################
 
-IOHDLC_CORE_SRCS = \
-	$(SRC_DIR)/ioHdlc_core.c \
-	$(SRC_DIR)/ioHdlc.c \
-	$(SRC_DIR)/ioHdlc_log.c \
-	$(SRC_DIR)/ioHdlcll.c \
-	$(SRC_DIR)/ioHdlcswdriver.c \
-	$(SRC_DIR)/ioHdlcpool_common.c \
-	$(SRC_DIR)/ioHdlc_runner.c
-
 ifeq ($(SHELL_TARGET),1)
   CHIBIOS_CONFIG_SRCS = $(TESTS_CHIBIOS_DIR)/test_config_shell.c
 else

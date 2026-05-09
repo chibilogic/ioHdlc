@@ -2,12 +2,12 @@
 # ioHdlc ChibiOS binding files
 # 
 IOHDLCBINDDIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+IOHDLC_ROOT_DIR ?= $(abspath $(IOHDLCBINDDIR)/../..)
+
+include $(IOHDLC_ROOT_DIR)/mk/ioHdlc_sources.mk
 
 IOHDLCBINDINC := $(IOHDLCBINDDIR)/include
-IOHDLCBINDSRC := $(IOHDLCBINDDIR)/src/ioHdlcosal.c     \
-                 $(IOHDLCBINDDIR)/src/ioHdlcfmempool.c \
-				 $(IOHDLCBINDDIR)/src/ioHdlcstream_uart.c \
-				 $(IOHDLCBINDDIR)/src/ioHdlcstream_spi.c
+IOHDLCBINDSRC := $(IOHDLC_CHIBIOS_ALL_SRCS)
 
 # Shared variables
 ALLCSRC += $(IOHDLCBINDSRC) 
