@@ -160,11 +160,13 @@ static bool chb_tx_busy(void *vctx) {
   return ctx->uartp->txstate != UART_TX_IDLE;
 }
 
-static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len) {
+static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len,
+                          iohdlc_rx_mode_t mode) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   chDbgAssert(ctx != NULL, "uart rx_submit: null ctx");
   chDbgAssert(ptr != NULL, "uart rx_submit: null ptr");
   chDbgAssert(len > 0U, "uart rx_submit: zero length");
+  (void)mode;
   if (ctx->uartp->rxstate == UART_RX_ACTIVE) {
     return false; /* one RX at a time */
   }

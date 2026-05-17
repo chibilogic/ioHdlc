@@ -186,12 +186,20 @@ static inline bool iohdlc_vt_is_armed(iohdlc_virtual_timer_t *vtp) {
 static inline void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp,
                     uint32_t delay_ms, iohdlc_vt_callback_t callback,
                     void *par) {
-  chVTSet(&vtp->vt, TIME_MS2I(delay_ms), (vtfunc_t)callback, par);
+  chSysLock();
+  if (chVTIsArmedI(&vtp->vt))
+    chVTResetI(&vtp->vt);
+  vtp->expired = false;
+  chVTSetI(&vtp->vt, TIME_MS2I(delay_ms), (vtfunc_t)callback, par);
+  chSysUnlock();
 }
 
 static inline void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp) {
-  chVTReset(&vtp->vt);
+  chSysLock();
+  if (chVTIsArmedI(&vtp->vt))
+    chVTResetI(&vtp->vt);
   vtp->expired = false;
+  chSysUnlock();
 }
 
 /*===========================================================================*/

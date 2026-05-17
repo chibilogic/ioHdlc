@@ -106,12 +106,10 @@ static void adapter_spi_init(void) {
                                        &TEST_SPI_ENDPOINT_B, &spi_cfg_b,
                                        false, TEST_SPI_DR_LINE_B);
 
-  /* Register DATA_READY callback and keep EXTI permanently enabled.
-   * The driver uses rx_waiting_dr flag to gate the callback — no
-   * palDisableLineEventI/palEnableLineEventI calls are made, so the
-   * PAL _pal_events entry is never cleared by _pal_clear_event(). */
+  /* Register DATA_READY callback and keep EXTI permanently enabled.  Both
+   * edges delimit the physical slave-packet epoch. */
   palSetLineCallback(TEST_SPI_DR_LINE_A, spi_dr_callback, &spi_endpoint_a_obj);
-  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_RISING_EDGE);
+  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_BOTH_EDGES);
 }
 
 static void adapter_spi_deinit(void) {

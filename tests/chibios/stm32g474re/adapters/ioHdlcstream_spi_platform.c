@@ -20,6 +20,26 @@
 
 #include "ioHdlcstream_spi_platform.h"
 
+#if STM32_SPI_USE_SPI2
+OSAL_IRQ_HANDLER(VectorD0) {
+  ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)SPID2.ip;
+
+  OSAL_IRQ_PROLOGUE();
+
+  if ((SPI2->SR & SPI_SR_OVR) != 0U) {
+    palToggleLine(PAL_LINE(GPIOC, 8U));
+    if (ctx != NULL && ctx->started)
+      ioHdlcStreamSpiSlaveOverrunI(ctx);
+    else {
+      (void)SPI2->DR;
+      (void)SPI2->SR;
+    }
+  }
+
+  OSAL_IRQ_EPILOGUE();
+}
+#endif
+
 /**
  * @brief   Aborts a slave transfer during teardown without waiting for clocks.
  *
@@ -60,12 +80,15 @@ bool ioHdlcStreamSpiPlatformAbortSlaveI(ioHdlcStreamChibiosSpi *ctx) {
   }
 
   cr1 = ctx->cfgp->cr1 & ~(SPI_CR1_MSTR | SPI_CR1_SPE);
-  cr2 = ctx->cfgp->cr2 | SPI_CR2_FRXTH | SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN;
+  cr2 = ctx->cfgp->cr2 | SPI_CR2_FRXTH | SPI_CR2_RXDMAEN |
+        SPI_CR2_TXDMAEN | SPI_CR2_ERRIE;
 
   ctx->spip->spi->CR1 = cr1;
   ctx->spip->spi->CR2 = cr2;
   ctx->spip->spi->CR1 = cr1 | SPI_CR1_SPE;
   ctx->spip->state = SPI_READY;
+  if (ctx->spip == &SPID2)
+    nvicEnableVector(SPI2_IRQn, STM32_SPI_SPI2_IRQ_PRIORITY);
 
   return true;
 }

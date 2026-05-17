@@ -59,7 +59,7 @@ static void adapter_spi_init(void) {
                                        TEST_SPI_DR_LINE_A);
 
   palSetLineCallback(TEST_SPI_DR_LINE_A, spi_dr_callback, &spi_endpoint_a_obj);
-  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_RISING_EDGE);
+  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_BOTH_EDGES);
 }
 
 static void adapter_spi_deinit(void) {

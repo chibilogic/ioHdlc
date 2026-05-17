@@ -36,8 +36,7 @@
 #include "ioHdlcstream_spi.h"
 
 #if defined(TEST_SPI_USE_CS)
-/* Hardware NSS: master drives PA4 as GPIO select, slave listens on PB12 */
-#define TEST_SPI_CS_LINE_B        PAL_LINE(TEST_SPI_CS_PORT_B, TEST_SPI_CS_PAD_B)
+/* Hardware NSS: master drives PA4 as GPIO select, slave listens on PB12. */
 #define TEST_SPI_ADAPTER_CFG_A_CR1  (SPI_CR1_BR_2 /*| SPI_CR1_BR_1 | SPI_CR1_BR_0*/)
 #define TEST_SPI_ADAPTER_CFG_B_CR1  0
 #else
@@ -97,14 +96,19 @@ static void spi_dr_callback(void *arg) {
   chSysUnlockFromISR();
 }
 
-#if defined(TEST_SPI_USE_CS)
-static void spi_slave_cs_callback(void *arg) {
-  if (palReadLine(TEST_SPI_CS_LINE_B) == PAL_HIGH)
-    ioHdlcStreamSpiSlaveUnselect((ioHdlcStreamChibiosSpi *)arg);
-}
+static void adapter_spi_init(void) {
+#if defined(STM32G474xx)
+  palClearLine(PAL_LINE(GPIOC, 8U));
+  palSetLineMode(PAL_LINE(GPIOC, 8U),
+                 PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_MID1);
+  palClearLine(PAL_LINE(GPIOC, 9U));
+  palSetLineMode(PAL_LINE(GPIOC, 9U),
+                 PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_MID1);
+  palClearLine(PAL_LINE(GPIOC, 6U));
+  palSetLineMode(PAL_LINE(GPIOC, 6U),
+                 PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_MID1);
 #endif
 
-static void adapter_spi_init(void) {
   /* Endpoint A: SPI master */
   ioHdlcStreamPortChibiosSpiObjectInit(&port_a, &spi_endpoint_a_obj,
                                        &TEST_SPI_ENDPOINT_A, &spi_cfg_a,
@@ -115,25 +119,15 @@ static void adapter_spi_init(void) {
                                        &TEST_SPI_ENDPOINT_B, &spi_cfg_b,
                                        false, TEST_SPI_DR_LINE_B);
 
-  /* Register DATA_READY callback and keep EXTI permanently enabled.
-   * The driver uses rx_waiting_dr flag to gate the callback — no
-   * palDisableLineEventI/palEnableLineEventI calls are made, so the
-   * PAL _pal_events entry is never cleared by _pal_clear_event(). */
+  /* Register DATA_READY callback and keep EXTI permanently enabled.  Both
+   * edges delimit the physical slave-packet epoch. */
   palSetLineCallback(TEST_SPI_DR_LINE_A, spi_dr_callback, &spi_endpoint_a_obj);
-  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_RISING_EDGE);
+  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_BOTH_EDGES);
 
-#if defined(TEST_SPI_USE_CS)
-  /* PB12 remains SPI2_NSS AF; PAL/EXTI only observes the deassert edge. */
-  palSetLineCallback(TEST_SPI_CS_LINE_B, spi_slave_cs_callback, &spi_endpoint_b_obj);
-  palEnableLineEvent(TEST_SPI_CS_LINE_B, PAL_EVENT_MODE_RISING_EDGE);
-#endif
 }
 
 static void adapter_spi_deinit(void) {
   palDisableLineEvent(TEST_SPI_DR_LINE_A);
-#if defined(TEST_SPI_USE_CS)
-  palDisableLineEvent(TEST_SPI_CS_LINE_B);
-#endif
 }
 
 static ioHdlcStreamPort adapter_spi_get_port_a(void) {

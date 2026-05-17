@@ -179,7 +179,6 @@ void ioHdlcStartReplyTimer(iohdlc_station_peer_t *peer,
                                  iohdlc_timer_kind_t timer_kind,
                                  uint32_t timeout_ms) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
-  timer->expired = false;
   iohdlc_vt_set(timer, timeout_ms, s_timer_cb, 0);
 }
 
@@ -190,10 +189,8 @@ void ioHdlcRestartReplyTimer(iohdlc_station_peer_t *peer,
                                    iohdlc_timer_kind_t timer_kind,
                                    uint32_t timeout_ms) {
   iohdlc_virtual_timer_t *timer = s_select_timer(peer, timer_kind);
-  if (iohdlc_vt_is_armed(timer)) {
-    timer->expired = false;
+  if (iohdlc_vt_is_armed(timer))
     iohdlc_vt_set(timer, timeout_ms, s_timer_cb, 0);
-  }
 }
 
 /**

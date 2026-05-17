@@ -59,17 +59,20 @@ typedef struct ioHdlcStreamChibiosSpi {
   /* RX state */
   uint8_t                      *rx_ptr;     /**< Buffer saved by rx_submit      */
   size_t                        rx_n;       /**< Length of saved RX buffer      */
+  iohdlc_rx_mode_t              rx_mode;    /**< Physical RX packet position    */
+  iohdlc_rx_mode_t              rx_active_mode; /**< Mode of active RX DMA       */
   bool                          rx_active;  /**< DMA RX in progress             */
+  bool                          rx_allowed; /**< Master can clock current packet */
   bool                          slave_tx_needs_prepare; /**< RX->TX boundary flag */
-  virtual_timer_t               slave_unselect_vt; /**< Deferred RX abort timer */
+  virtual_timer_t               slave_watchdog_vt; /**< Slave RX/TX guard        */
 
   /* DATA_READY GPIO line.                                                     */
   /* Master: input monitored via PAL event; slave: output asserted on TX send.  */
   ioline_t                      dr_line;    /**< DATA_READY GPIO line           */
-  /* Master only: rx_ptr/rx_n describe a pending RX that must start on the
-   * next DATA_READY high level. PAL events stay enabled; this is only a
-   * software gate. */
-  bool                          rx_waiting_dr;
+  /* Master only: DATA_READY edge state. */
+  bool                          dr_epoch_active; /**< DATA_READY physical epoch */
+  bool                          dr_captured; /**< Unconsumed DATA_READY edge     */
+  bool                          dr_collision; /**< DR seen while master was TX   */
 } ioHdlcStreamChibiosSpi;
 
 /**
@@ -87,14 +90,13 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
                                           SPIDriver *spip, SPIConfig *cfgp,
                                           bool is_master, ioline_t dr_line);
 
-void ioHdlcStreamSpiSlaveUnselect(ioHdlcStreamChibiosSpi *ctx);
-
 /**
- * @brief   Called from a PAL event callback when the slave DATA_READY line
- *          goes high.  Disarms the edge interrupt and starts SPI DMA receive.
+ * @brief   Called from a PAL event callback on DATA_READY edges.
  * @note    Must be called from ISR context (PAL callback).
  * @param[in] ctx  master SPI context registered for this DATA_READY line.
  */
 void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx);
+
+void ioHdlcStreamSpiSlaveOverrunI(ioHdlcStreamChibiosSpi *ctx);
 
 #endif /* IOHDLCSTREAM_SPI_H */

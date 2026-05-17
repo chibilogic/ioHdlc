@@ -26,7 +26,7 @@
 #define TEST_SPI_DR_LINE_A    LINE_SPI_DATA_READY
 
 #ifndef TEST_SPI_BAUD
-#define TEST_SPI_BAUD         5720000U
+#define TEST_SPI_BAUD         4350000U
 #endif
 
 #endif /* BOARD_CONFIG_H */

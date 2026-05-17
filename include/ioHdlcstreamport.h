@@ -79,6 +79,7 @@ extern "C" {
  */
 typedef void (*ioHdlcStreamOnRx)(void *cb_ctx, uint32_t errmask);
 typedef void (*ioHdlcStreamOnTxDone)(void *cb_ctx, void *framep);
+typedef void (*ioHdlcStreamOnTxErrorI)(void *cb_ctx, void *framep, uint32_t errmask);
 typedef void (*ioHdlcStreamOnRxError)(void *cb_ctx, uint32_t errmask);
 
 /**
@@ -88,10 +89,11 @@ typedef void (*ioHdlcStreamOnRxError)(void *cb_ctx, uint32_t errmask);
  *          callbacks to notify RX progress, TX completion, and RX errors.
  */
 typedef struct ioHdlcStreamCallbacks {
-  ioHdlcStreamOnRx      on_rx;      /**< RX byte ready or timeout notification */
-  ioHdlcStreamOnTxDone  on_tx_done; /**< TX buffer has been fully sent */
-  ioHdlcStreamOnRxError on_rx_error;/**< Stream/DMA error notification */
-  void                 *cb_ctx;     /**< Opaque callback owner context passed back to all callbacks. */
+  ioHdlcStreamOnRx       on_rx;         /**< RX byte ready or timeout notification */
+  ioHdlcStreamOnTxDone   on_tx_done;    /**< TX buffer has been fully sent */
+  ioHdlcStreamOnTxErrorI on_tx_error_i; /**< TX aborted, called from I-class context */
+  ioHdlcStreamOnRxError  on_rx_error;   /**< Stream/DMA error notification */
+  void                  *cb_ctx;        /**< Opaque callback owner context passed back to all callbacks. */
 } ioHdlcStreamCallbacks;
 
 /**
@@ -105,6 +107,17 @@ typedef struct ioHdlcStreamDriverOps {
                            const iohdlc_tx_plan_opts_t *opts,
                            iohdlc_tx_plan_t *plan);
 } ioHdlcStreamDriverOps;
+
+/**
+ * @brief   Physical RX packet position declared by the stream parser.
+ * @details Some transports, notably SPI with DATA_READY, need to know whether
+ *          a submitted RX belongs to the same physical packet or must wait for
+ *          a new packet indication. This is a transport hint, not HDLC state.
+ */
+typedef enum {
+  IOHDLC_RX_START_PACKET = 0,    /**< RX must start from a new physical packet. */
+  IOHDLC_RX_CONTINUE_PACKET      /**< RX continues the current physical packet. */
+} iohdlc_rx_mode_t;
 
 /**
  * @brief Driver -> HAL/adapter operations.
@@ -143,7 +156,7 @@ typedef struct ioHdlcStreamPortOps {
   bool (*tx_busy)(void *ctx);
 
   /** Arm a RX transfer of 'len' bytes into 'ptr'. */
-  bool (*rx_submit)(void *ctx, uint8_t *ptr, size_t len);
+  bool (*rx_submit)(void *ctx, uint8_t *ptr, size_t len, iohdlc_rx_mode_t mode);
   
   /** Cancel current RX transfer if supported. */
   void (*rx_cancel)(void *ctx);
