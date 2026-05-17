@@ -77,7 +77,7 @@
 
 /*
  * DATA_READY signal for SPI master/slave synchronization.
- * Used only when IOHDLC_SPI_USE_DR is defined at compile time.
+ * Required by the SPI frontend.
  * Slave asserts this line (high) when it has a frame ready to transmit.
  * Master monitors it via PAL event callback to know when to start receive DMA.
  *

@@ -85,6 +85,7 @@ PROJECT = iohdlc_shell
 TEST_MAIN_SRC = $(TEST_CHIBIOS_FRONTEND_DIR)/main_shell.c
 
 include $(ROOT_DIR)/mk/ioHdlc_version.mk
+include $(ROOT_DIR)/mk/ioHdlc_sources.mk
 
 MCU = cortex-m7
 
@@ -121,20 +122,6 @@ endif
 # Source files
 ##############################################################################
 
-IOHDLC_CORE_SRCS = \
-	$(SRC_DIR)/ioHdlc_core.c \
-	$(SRC_DIR)/ioHdlc.c \
-	$(SRC_DIR)/ioHdlc_log.c \
-	$(SRC_DIR)/ioHdlcll.c \
-	$(SRC_DIR)/ioHdlcswdriver.c \
-	$(SRC_DIR)/ioHdlcpool_common.c \
-	$(SRC_DIR)/ioHdlc_runner.c
-
-IOHDLC_CHIBIOS_SRCS = \
-	$(OS_CHIBIOS_DIR)/src/ioHdlcosal.c \
-	$(OS_CHIBIOS_DIR)/src/ioHdlcfmempool.c \
-	$(OS_CHIBIOS_DIR)/src/ioHdlcstream_spi.c
-
 CHIBIOS_CONFIG_SRCS = $(TESTS_CHIBIOS_DIR)/test_config_shell.c
 
 COMMON_TEST_SRCS = \
@@ -150,7 +137,8 @@ COMMON_TEST_SCENARIOS = $(COMMON_SCENARIOS_DIR)/test_exchange.c
 
 CSRC = $(ALLCSRC) \
        $(IOHDLC_CORE_SRCS) \
-       $(IOHDLC_CHIBIOS_SRCS) \
+       $(IOHDLC_CHIBIOS_BASE_SRCS) \
+       $(IOHDLC_CHIBIOS_SPI_SRCS) \
        $(CHIBIOS_CONFIG_SRCS) \
        $(COMMON_TEST_SRCS) \
        $(FRONTEND_SRCS) \
@@ -194,7 +182,6 @@ UDEFS = -DCHPRINTF_USE_FLOAT=1 \
         -DIMX95_DEMO_STACKS_DTCM=$(DEMO_STACKS_DTCM) \
         $(IOHDLC_VERSION_DEFS) \
         -DUSE_SPI_ADAPTER \
-        -DIOHDLC_SPI_USE_DR \
         -DIOHDLC_ENABLE_STATISTICS \
         -DSHELL_CMD_TEST_ENABLED=FALSE \
         -DSHELL_CMD_FILES_ENABLED=FALSE \

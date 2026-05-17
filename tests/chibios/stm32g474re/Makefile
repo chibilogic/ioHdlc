@@ -124,15 +124,6 @@ LDSCRIPT = $(TARGET_LDSCRIPT)
 # Source files
 ##############################################################################
 
-IOHDLC_CORE_SRCS = \
-	$(SRC_DIR)/ioHdlc_core.c \
-	$(SRC_DIR)/ioHdlc.c \
-	$(SRC_DIR)/ioHdlc_log.c \
-	$(SRC_DIR)/ioHdlcll.c \
-	$(SRC_DIR)/ioHdlcswdriver.c \
-	$(SRC_DIR)/ioHdlcpool_common.c \
-	$(SRC_DIR)/ioHdlc_runner.c
-
 ifeq ($(SHELL_TARGET),1)
   CHIBIOS_CONFIG_SRCS = $(TESTS_CHIBIOS_DIR)/test_config_shell.c
 else
@@ -222,7 +213,9 @@ ifdef USE_UART_ADAPTER
   UDEFS += -DUSE_UART_ADAPTER -DIOHDLC_ENABLE_STATISTICS
 else ifdef USE_SPI_ADAPTER
   TEST_ADAPTER_SRCS = $(FRONTEND_ADAPTERS_DIR)/adapter_spi.c
-  UDEFS += -DUSE_SPI_ADAPTER -DIOHDLC_SPI_USE_DR -DIOHDLC_ENABLE_STATISTICS
+  UDEFS += -DUSE_SPI_ADAPTER -DIOHDLC_ENABLE_STATISTICS
+  UDEFS += -DIOHDLC_SPI_SLAVE_RX_WATCHDOG_DELAY_US=500U
+  UDEFS += -DIOHDLC_SPI_SLAVE_TX_WATCHDOG_DELAY_US=500U
 else
   TEST_ADAPTER_SRCS = $(COMMON_DIR)/adapters/adapter_mock.c \
                       $(COMMON_DIR)/mocks/mock_stream.c \

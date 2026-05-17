@@ -24,6 +24,17 @@ static inline void ioHdlcStreamSpiPlatformPrepareSlaveRxI(
 }
 
 /**
+ * @brief   Prepares slave RX after a completed slave TX transfer.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+static inline void ioHdlcStreamSpiPlatformPrepareSlaveRxAfterTxI(
+    ioHdlcStreamChibiosSpi *ctx) {
+
+  ioHdlcStreamSpiPlatformPrepareSlaveRxI(ctx);
+}
+
+/**
  * @brief   Prepares a slave TX transfer after a RX boundary.
  *
  * @param[in] ctx       SPI stream context

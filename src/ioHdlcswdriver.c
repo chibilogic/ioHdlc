@@ -41,6 +41,7 @@
 
 static void s_on_rx(void *cb_ctx, uint32_t errmask);
 static void s_on_tx_done(void *cb_ctx, void *framep);
+static void s_on_tx_error_i(void *cb_ctx, void *framep, uint32_t errmask);
 static const struct _iohdlc_driver_vmt s_vmt;
 static const ioHdlcStreamDriverOps s_stream_drvops;
 
@@ -317,6 +318,7 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
 
   drv->port.callbacks.on_rx = s_on_rx;
   drv->port.callbacks.on_tx_done = s_on_tx_done;
+  drv->port.callbacks.on_tx_error_i = s_on_tx_error_i;
   drv->port.callbacks.on_rx_error = s_on_rx;
   drv->port.callbacks.cb_ctx = drv;
 
@@ -327,7 +329,10 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
 
   drv->port.handle.ops->start(drv->port.handle.ctx, &drv->port.callbacks, &s_stream_drvops);
   iohdlc_sys_lock();
-  (void)drv->port.handle.ops->rx_submit(drv->port.handle.ctx, drv->rx.stagep, 1);
+#if defined(STM32G474xx)
+  palSetLine(PAL_LINE(GPIOC, 6U));
+#endif
+  (void)drv->port.handle.ops->rx_submit(drv->port.handle.ctx, drv->rx.stagep, 1, IOHDLC_RX_START_PACKET);
   iohdlc_sys_unlock();
   
 #ifndef IOHDLC_USE_MOCK_ADAPTER
@@ -856,6 +861,7 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
   size_t n = 1;
   uint8_t *b = 0;
+  iohdlc_rx_mode_t rx_mode = IOHDLC_RX_START_PACKET;
 
   /* Handle timeout */
   if (errmask & IOHDLC_STREAM_ERR_TMO) {
@@ -890,13 +896,16 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
     if ((*b == IOHDLC_FLAG) && (drv->config.frame_format_size != 2 ||
         drv->rx.in_frame->elen != 1)) {
       /* Frame complete */
-      if (!drv->rx.in_frame->elen)
+      if (!drv->rx.in_frame->elen) {
+        rx_mode = IOHDLC_RX_CONTINUE_PACKET;
         goto nextoctet;  /* Empty frame */
+      }
 
       if (drv->rx.in_frame->elen < HDLC_BASIC_MIN_L) {
         /* Too short - discard */
         drv->rx.in_frame->elen = 0;
         b = &drv->rx.in_frame->frame[0];
+        rx_mode = IOHDLC_RX_CONTINUE_PACKET;
         goto nextoctet;
       }
 
@@ -921,10 +930,13 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
             n = (size_t)drv->rx.in_frame->frame[0];
             drv->rx.in_frame->elen = n;
             b = &drv->rx.in_frame->frame[1];
+            rx_mode = IOHDLC_RX_CONTINUE_PACKET;
           } else {
             /* Invalid TYPE 0 FFF - discard frame */
             s_handle_rx_error(drv);
             n = 1;
+            b = drv->rx.stagep;
+            rx_mode = IOHDLC_RX_START_PACKET;
           }
         } else if (drv->config.frame_format_size == 2) {
           if (drv->rx.in_frame->elen == 0) {
@@ -933,9 +945,12 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
               /* Valid TYPE 1 first byte - continue to read second byte */
               ++drv->rx.in_frame->elen;
               b = &drv->rx.in_frame->frame[1];
+              rx_mode = IOHDLC_RX_CONTINUE_PACKET;
             } else {
               /* Invalid TYPE 1 first byte - discard frame */
               s_handle_rx_error(drv);
+              b = drv->rx.stagep;
+              rx_mode = IOHDLC_RX_START_PACKET;
             }
           } else if (drv->rx.in_frame->elen == 1) {
             /* TYPE 1: second byte received, calculate total length */
@@ -945,24 +960,33 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
               /* The second FFF byte is already in the buffer. */
               drv->rx.in_frame->elen = n--;
               b = &drv->rx.in_frame->frame[2];
+              rx_mode = IOHDLC_RX_CONTINUE_PACKET;
             } else {
               /* Frame too large - discard */
               s_handle_rx_error(drv);
               n = 1;
+              b = drv->rx.stagep;
+              rx_mode = IOHDLC_RX_START_PACKET;
             }
           } else {
             /* Already past FFF bytes - continue accumulating */
             ++b;
             if (++drv->rx.in_frame->elen >= drv->fpp->framesize) {
               s_handle_rx_error(drv);
-            }
+              b = drv->rx.stagep;
+              rx_mode = IOHDLC_RX_START_PACKET;
+            } else
+              rx_mode = IOHDLC_RX_CONTINUE_PACKET;
           }
         } else {
           /* Continue accumulating bytes (no FFF or unknown type) */
           ++b;
           if (++drv->rx.in_frame->elen >= drv->fpp->framesize) {
             s_handle_rx_error(drv);
-          }
+            b = drv->rx.stagep;
+            rx_mode = IOHDLC_RX_START_PACKET;
+          } else
+            rx_mode = IOHDLC_RX_CONTINUE_PACKET;
         }
       } else {
         /* No FFF - continue accumulating bytes */
@@ -970,7 +994,10 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
         if (++drv->rx.in_frame->elen >= drv->fpp->framesize) {
           /* Frame too large - discard */
           s_handle_rx_error(drv);
-        }
+          b = drv->rx.stagep;
+          rx_mode = IOHDLC_RX_START_PACKET;
+        } else
+          rx_mode = IOHDLC_RX_CONTINUE_PACKET;
       }
     }
   }
@@ -991,13 +1018,14 @@ newframe:
     
     drv->rx.in_frame->elen = 0;
     b = &drv->rx.in_frame->frame[0];
+    rx_mode = IOHDLC_RX_CONTINUE_PACKET;
   }
 
 nextoctet:
   /* Arm next RX byte/chunk */
   IOHDLC_ASSERT(n != 0, "Invalid RX chunk size");
   iohdlc_sys_lock_isr();
-  (void)drv->port.handle.ops->rx_submit(drv->port.handle.ctx, b, n);
+  (void)drv->port.handle.ops->rx_submit(drv->port.handle.ctx, b, n, rx_mode);
   iohdlc_sys_unlock_isr();
 }
 
@@ -1055,6 +1083,22 @@ static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo) {
   return fp;
 }
 
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+static void s_restore_tx_shadow(ioHdlcSwDriver *drv, iohdlc_frame_t *fp) {
+  if (fp == NULL || drv->tx.shadow_fp != fp)
+    return;
+
+  if (drv->tx.shadow_prefix_len > 0U)
+    memcpy(fp->frame, drv->tx.shadow_prefix, drv->tx.shadow_prefix_len);
+  if (drv->tx.shadow_suffix_len > 0U)
+    memcpy(&fp->frame[fp->elen], drv->tx.shadow_suffix, drv->tx.shadow_suffix_len);
+
+  drv->tx.shadow_fp = NULL;
+  drv->tx.shadow_prefix_len = 0U;
+  drv->tx.shadow_suffix_len = 0U;
+}
+#endif
+
 /**
  * @brief   Frame sender callback: TX complete.
  * @details Releases the completed frame and, on non-mock backends, kicks the
@@ -1071,17 +1115,8 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
   if (drv->tx.inflight_fp == done_fp)
     drv->tx.inflight_fp = NULL;
 
-  if (done_fp != NULL && drv->tx.shadow_fp == done_fp) {
-    if (drv->tx.shadow_prefix_len > 0U)
-      memcpy(done_fp->frame, drv->tx.shadow_prefix, drv->tx.shadow_prefix_len);
-    if (drv->tx.shadow_suffix_len > 0U)
-      memcpy(&done_fp->frame[done_fp->elen], drv->tx.shadow_suffix, drv->tx.shadow_suffix_len);
+  s_restore_tx_shadow(drv, done_fp);
 
-    drv->tx.shadow_fp = NULL;
-    drv->tx.shadow_prefix_len = 0U;
-    drv->tx.shadow_suffix_len = 0U;
-  }
-  
   if (!ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
     iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->tx.raw_q);
     next_fp = IOHDLC_FRAME_FROM_Q_AUX(qh);
@@ -1103,6 +1138,51 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
 
   if (done_fp)
     hdlcReleaseFrame(drv->fpp, done_fp);
+}
+
+/**
+ * @brief   Frame sender callback: TX aborted by the transport.
+ * @details Releases the aborted in-flight frame and drops the swdriver-owned
+ *          raw TX queue without starting another physical transfer.
+ * @note    Called with the OSAL system lock held and returns with it held.
+ */
+static void s_on_tx_error_i(void *cb_ctx, void *framep, uint32_t errmask) {
+  ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
+  iohdlc_frame_t *done_fp = (iohdlc_frame_t *)framep;
+
+  (void)errmask;
+
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+  if (done_fp == NULL)
+    done_fp = drv->tx.inflight_fp;
+  drv->tx.inflight_fp = NULL;
+  s_restore_tx_shadow(drv, done_fp);
+
+  while (!ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
+    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->tx.raw_q);
+    iohdlc_frame_t *queued_fp = IOHDLC_FRAME_FROM_Q_AUX(qh);
+
+    queued_fp->q_aux.next = NULL;
+    queued_fp->q_aux.prev = NULL;
+    s_restore_tx_shadow(drv, queued_fp);
+    iohdlc_sys_unlock_isr();
+    hdlcReleaseFrame(drv->fpp, queued_fp);
+    iohdlc_sys_lock_isr();
+  }
+
+  s_restore_tx_shadow(drv, drv->tx.shadow_fp);
+#endif
+
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+  if (done_fp) {
+    iohdlc_sys_unlock_isr();
+    hdlcReleaseFrame(drv->fpp, done_fp);
+    iohdlc_sys_lock_isr();
+  }
+#else
+  if (done_fp)
+    hdlcReleaseFrame(drv->fpp, done_fp);
+#endif
 }
 
 /*===========================================================================*/

@@ -43,7 +43,8 @@ static void port_stop(void *ctx);
 static int32_t port_tx_submit_frame(void *ctx, iohdlc_frame_t *fp);
 static bool port_tx_submit(void *ctx, const uint8_t *ptr, size_t len, void *framep);
 static bool port_tx_busy(void *ctx);
-static bool port_rx_submit(void *ctx, uint8_t *ptr, size_t len);
+static bool port_rx_submit(void *ctx, uint8_t *ptr, size_t len,
+                           iohdlc_rx_mode_t mode);
 static void port_rx_cancel(void *ctx);
 
 /*===========================================================================*/
@@ -233,12 +234,14 @@ static bool port_tx_busy(void *ctx) {
   return false;
 }
 
-static bool port_rx_submit(void *ctx, uint8_t *ptr, size_t len) {
+static bool port_rx_submit(void *ctx, uint8_t *ptr, size_t len,
+                           iohdlc_rx_mode_t mode) {
   mock_stream_adapter_t *adapter = (mock_stream_adapter_t *)ctx;
 
   IOHDLC_ASSERT(adapter != NULL, "mock rx_submit: null adapter");
   IOHDLC_ASSERT(ptr != NULL, "mock rx_submit: null ptr");
   IOHDLC_ASSERT(len > 0U, "mock rx_submit: zero length");
+  (void)mode;
   
   iohdlc_mutex_lock(&adapter->rx_lock);
   adapter->rx_buf = ptr;

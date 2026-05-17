@@ -45,8 +45,8 @@ static void print_usage(const char *progname) {
   printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
   printf("  --reply-timeout=N   Reply timeout in ms (default: 0=library default %u)\n",
          (unsigned)IOHDLC_REPLY_TIMEOUT_MS_DEFAULT);
-  printf("  --poll-retry-max=N  Max poll retries before link down (default: 0=library default %u)\n",
-         (unsigned)IOHDLC_POLL_RETRY_MAX_DEFAULT);
+  printf("  --poll-retry-max=N  Max poll retries 0-%u (default: 0=auto around 25s total)\n",
+         (unsigned)TEST_POLL_RETRY_MAX_LIMIT);
   printf("  --progress-interval=ms  Progress update interval in ms (default: 1000)\n");
   printf("  --watermark-delay=N Reader delay every 256 packets in ms (default: 0=disabled)\n");
   printf("  --krs=N             Window size (ks=kr=N, 1..modmask; default: modmask)\n");
@@ -75,7 +75,9 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
   cfg->error_rate = 0;  /* Disabled by default */
   cfg->reply_timeout_ms = 0;  /* Use default (100ms) */
-  cfg->poll_retry_max = 0;  /* Use default (8) */
+  cfg->poll_retry_max = 0;  /* Auto from reply-timeout */
+  cfg->poll_retry_max_auto = false;
+  cfg->poll_retry_total_timeout_ms = 0;
   cfg->progress_interval_ms = 1000;  /* 1 second by default */
   cfg->watermark_delay_ms = 0;  /* Disabled by default */
   cfg->krs = 0;                 /* Use modmask default */
@@ -219,9 +221,16 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         cfg->reply_timeout_ms = atoi(optarg);
         break;
         
-      case 'R':  /* --poll-retry-max */
-        cfg->poll_retry_max = atoi(optarg);
+      case 'R': {  /* --poll-retry-max */
+        int retries = atoi(optarg);
+        if (retries < 0 || retries > (int)TEST_POLL_RETRY_MAX_LIMIT) {
+          fprintf(stderr, "Error: Invalid poll retry max (must be 0-%u)\n",
+                  (unsigned)TEST_POLL_RETRY_MAX_LIMIT);
+          return false;
+        }
+        cfg->poll_retry_max = (uint8_t)retries;
         break;
+      }
         
       case 'w':  /* --watermark-delay */
         cfg->watermark_delay_ms = atoi(optarg);

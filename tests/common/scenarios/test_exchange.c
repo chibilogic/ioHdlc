@@ -48,6 +48,7 @@ static iohdlc_station_peer_t *s_pri_peer, *s_sec_peer;
 #define PRIMARY_ADDR    0x01
 #define SECONDARY_ADDR  0x02
 #define WINDOW_SIZE     7
+#define RETRY_TOTAL_TIMEOUT_TARGET_MS 25000U
 #ifndef EXCHANGE_ARENA_SIZE
 #define EXCHANGE_ARENA_SIZE 32768
 #endif
@@ -98,21 +99,89 @@ static void s_exchange_abort_peer(iohdlc_station_peer_t *peer) {
   iohdlc_mutex_unlock(&peer->state_mutex);
 }
 
+static uint32_t s_exchange_last_retry_timeout_ms(uint32_t t1_ms) {
+  uint64_t tmo;
+
+  tmo = (uint64_t)t1_ms * IOHDLC_LAST_RETRY_T1_RATIO;
+  if (tmo < IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS)
+    tmo = IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS;
+
+  if (tmo > ~(uint32_t)0U)
+    return ~(uint32_t)0U;
+
+  return (uint32_t)tmo;
+}
+
+static uint32_t s_exchange_retry_total_timeout_ms(uint32_t t1_ms,
+                                                  uint8_t retry_max) {
+  uint64_t total;
+
+  if (retry_max >= 32U)
+    return ~(uint32_t)0U;
+
+  total = (uint64_t)t1_ms * (((uint64_t)1U << retry_max) - 1U);
+  total += s_exchange_last_retry_timeout_ms(t1_ms);
+  if (total > ~(uint32_t)0U)
+    return ~(uint32_t)0U;
+
+  return (uint32_t)total;
+}
+
+static uint8_t s_exchange_auto_poll_retry_max(uint32_t t1_ms) {
+  uint8_t best_n2 = 1U;
+  uint64_t best_diff = ~(uint64_t)0U;
+
+  for (uint8_t n2 = 1U; n2 <= TEST_POLL_RETRY_MAX_LIMIT; n2++) {
+    uint64_t total = s_exchange_retry_total_timeout_ms(t1_ms, n2);
+    uint64_t diff = total > RETRY_TOTAL_TIMEOUT_TARGET_MS ?
+        total - RETRY_TOTAL_TIMEOUT_TARGET_MS :
+        RETRY_TOTAL_TIMEOUT_TARGET_MS - total;
+
+    if (diff < best_diff) {
+      best_diff = diff;
+      best_n2 = n2;
+    }
+
+    if (total > RETRY_TOTAL_TIMEOUT_TARGET_MS && diff > best_diff)
+      break;
+  }
+
+  return best_n2;
+}
+
+static void s_exchange_resolve_retry_config(test_config_t *config) {
+  uint32_t t1_ms;
+
+  IOHDLC_ASSERT(config != NULL, "s_exchange_resolve_retry_config: null config");
+
+  t1_ms = config->reply_timeout_ms != 0U ?
+      config->reply_timeout_ms :
+      IOHDLC_REPLY_TIMEOUT_MS_DEFAULT;
+
+  if (config->poll_retry_max == 0U) {
+    config->poll_retry_max = s_exchange_auto_poll_retry_max(t1_ms);
+    config->poll_retry_max_auto = true;
+  } else {
+    config->poll_retry_max_auto = false;
+  }
+
+  config->poll_retry_total_timeout_ms =
+      s_exchange_retry_total_timeout_ms(t1_ms, config->poll_retry_max);
+}
+
 static uint32_t s_exchange_io_timeout_ms(const iohdlc_station_t *station,
                                          const iohdlc_station_peer_t *peer) {
   uint32_t t1_ms;
-  uint8_t n2;
+  uint32_t total_ms;
 
   IOHDLC_ASSERT(station != NULL, "s_exchange_io_timeout_ms: null station");
   IOHDLC_ASSERT(peer != NULL, "s_exchange_io_timeout_ms: null peer");
 
-  /* With exponential backoff and link-down on retry_count >= N2, the total
-     wait budget is T1 * 2^N2. */
   t1_ms = station->reply_timeout_ms;
-  n2 = peer->poll_retry_max;
-  if (n2 >= 32U || t1_ms > (~(uint32_t)0U >> n2))
+  total_ms = s_exchange_retry_total_timeout_ms(t1_ms, peer->poll_retry_max);
+  if (total_ms > (~(uint32_t)0U - 1000U))
     return ~(uint32_t)0U;
-  return (t1_ms << n2) + 1000;
+  return total_ms + 1000U;
 }
 
 /**
@@ -242,7 +311,7 @@ static void *reader_thread(void *arg) {
       test_validate_packet(ctx->buffer, received, &ctx->seq, ctx->stats);
       iohdlc_mutex_unlock(ctx->stats_mutex);
     } else if (received > 0) {
-      test_printf("Warning: received short packet (%zd bytes)\r\n", received);
+      test_printf("Warning: received short packet (%d bytes)\r\n", (int)received);
     } else if (received == 0) {
       test_printf("Reader %u zero read!\r\n", ctx->station->addr);
       test_running = false;  /* No data received, assume test end */
@@ -395,6 +464,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       return 1;
     }
   }
+
+  s_exchange_resolve_retry_config(&config);
 
   /* Enable HDLC logging if compiled in */
 #if IOHDLC_LOG_LEVEL > 0

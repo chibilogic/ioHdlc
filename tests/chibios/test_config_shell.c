@@ -64,8 +64,8 @@ static void print_usage(void) {
   test_printf("  --endpoint=EP      Local endpoint: both|a|b (aliases: primary|secondary)\r\n");
   test_printf("  --reply-timeout=N   Reply timeout in ms (default: 0=library default %u)\r\n",
               (unsigned)IOHDLC_REPLY_TIMEOUT_MS_DEFAULT);
-  test_printf("  --poll-retry-max=N  Max poll retries (default: 0=library default %u)\r\n",
-              (unsigned)IOHDLC_POLL_RETRY_MAX_DEFAULT);
+  test_printf("  --poll-retry-max=N  Max poll retries 0-%u (default: 0=auto around 25s total)\r\n",
+              (unsigned)TEST_POLL_RETRY_MAX_LIMIT);
   test_printf("  --mode=MODE         Mode: nrm|abm (default: nrm)\r\n");
   test_printf("  --twa               Use Two-Way Alternate\r\n");
   test_printf("  --tws               Use Two-Way Simultaneous\r\n");
@@ -107,7 +107,9 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
   cfg->error_rate = 0;
   cfg->reply_timeout_ms = 0;        /* Use library default (100ms) */
-  cfg->poll_retry_max = 0;          /* Use library default (8) */
+  cfg->poll_retry_max = 0;          /* Auto from reply-timeout */
+  cfg->poll_retry_max_auto = false;
+  cfg->poll_retry_total_timeout_ms = 0;
   cfg->progress_interval_ms = 1000; /* Progress update default: 1000ms */
   cfg->watermark_delay_ms = 0;      /* Watermark delay disabled by default */
   cfg->krs = 0;                     /* Use modmask default */
@@ -301,8 +303,12 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
       value = get_arg_value(arg);
       if (value) {
         int retries = atoi(value);
-        if (retries >= 0) {
-          cfg->poll_retry_max = retries;
+        if (retries >= 0 && retries <= (int)TEST_POLL_RETRY_MAX_LIMIT) {
+          cfg->poll_retry_max = (uint8_t)retries;
+        } else {
+          test_printf("Error: Invalid poll retry max (0-%u)\r\n",
+                      (unsigned)TEST_POLL_RETRY_MAX_LIMIT);
+          return false;
         }
       }
     }

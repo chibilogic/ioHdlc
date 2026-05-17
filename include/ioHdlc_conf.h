@@ -48,10 +48,28 @@
 /**
  * @brief   Default maximum number of poll retries per peer.
  * @details Reply-timeout recovery uses exponential backoff on T1, so the
- *          cumulative wait grows geometrically as this value increases.
+ *          cumulative wait grows geometrically as this value increases. The
+ *          final retry uses the capped timeout policy below instead of another
+ *          exponential backoff slot.
  */
 #ifndef IOHDLC_POLL_RETRY_MAX_DEFAULT
 #define IOHDLC_POLL_RETRY_MAX_DEFAULT 8U
+#endif
+
+/**
+ * @brief   T1 multiplier used after the final poll retry.
+ * @details The last configured retry is given a bounded response window rather
+ *          than the next exponential backoff value.
+ */
+#ifndef IOHDLC_LAST_RETRY_T1_RATIO
+#define IOHDLC_LAST_RETRY_T1_RATIO 5U
+#endif
+
+/**
+ * @brief   Minimum response window after the final poll retry.
+ */
+#ifndef IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS
+#define IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS 100U
 #endif
 
 /**

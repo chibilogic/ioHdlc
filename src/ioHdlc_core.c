@@ -56,9 +56,33 @@ static uint32_t stashIFrameSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *f
 /* Module local definitions.                                                 */
 /*===========================================================================*/
 
-/* Exponential backoff for reply timer */
-#define IOHDLC_TIMER_BACKOFF(s,p) \
-          (s->reply_timeout_ms << (p)->poll_retry_count)
+static uint32_t lastRetryReplyTimeoutMs(const iohdlc_station_t *s) {
+  uint64_t tmo;
+
+  tmo = (uint64_t)s->reply_timeout_ms * IOHDLC_LAST_RETRY_T1_RATIO;
+  if (tmo < IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS)
+    tmo = IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS;
+
+  if (tmo > ~(uint32_t)0U)
+    return ~(uint32_t)0U;
+
+  return (uint32_t)tmo;
+}
+
+static uint32_t replyTimerTimeoutMs(const iohdlc_station_t *s,
+                                    const iohdlc_station_peer_t *p) {
+  uint8_t retry_count;
+
+  retry_count = p->poll_retry_count;
+  if (retry_count > 0U && retry_count >= p->poll_retry_max)
+    return lastRetryReplyTimeoutMs(s);
+
+  if (retry_count >= 32U ||
+      s->reply_timeout_ms > (~(uint32_t)0U >> retry_count))
+    return ~(uint32_t)0U;
+
+  return s->reply_timeout_ms << retry_count;
+}
 
 /*===========================================================================*/
 /* Module exported variables.                                                */
@@ -222,16 +246,15 @@ static void abortPeerLink(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
 
 /**
  * @brief   Handle timeout retry logic and declare link down if needed.
- * @details Increments retry counter and checks against max limit.
- *          If limit exceeded, declares link down, stops timers, resets state,
- *          and marks peer as disconnected.
+ * @details Allows up to poll_retry_max retry attempts after the original poll.
+ *          The timeout following the last retry is the terminal response
+ *          window; if it expires, the peer is declared down.
  * 
  * @param[in] s     Station descriptor
  * @param[in] p     Peer descriptor
- * @return  true to retry (counter < max), false if link down (max retries exceeded)
+ * @return  true to retry, false if link down
  */
 static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
-  p->poll_retry_count++;
 #if defined(IOHDLC_ENABLE_STATISTICS)
   p->stats.timeouts++;
 #endif
@@ -245,6 +268,8 @@ static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
 
     return false;  /* Link down, do not retry. */
   }
+
+  p->poll_retry_count++;
   
   return true;  /* Retry allowed. */
 }
@@ -910,7 +935,7 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
       if (!IOHDLC_F_ISRCVED(s)) {
         /* Only restart if we're still waiting for F (P is outstanding). */
         ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_REPLY,
-                                    IOHDLC_TIMER_BACKOFF(s, p));
+                                    replyTimerTimeoutMs(s, p));
       }
     }
   }
@@ -1559,7 +1584,7 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
 
     /* If sending command with P (poll), start the T1 timer and stop the T3. */
     if (set_pf && is_command) {
-      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, IOHDLC_TIMER_BACKOFF(s, p));
+      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, replyTimerTimeoutMs(s, p));
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
     }
   }
@@ -1774,7 +1799,7 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
     /* If sending command with P (poll), start the T1 timer and stop the T3. */
     if (set_pf && is_command) {
-      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, IOHDLC_TIMER_BACKOFF(s, p));
+      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, replyTimerTimeoutMs(s, p));
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
     }
 
@@ -1972,7 +1997,7 @@ void ioHdlcTxEntry(void *stationp) {
         }
         
         ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY,
-                                  IOHDLC_TIMER_BACKOFF(s, p));
+                                  replyTimerTimeoutMs(s, p));
         p->um_state |= IOHDLC_UM_SENT;
         IOHDLC_ACK_F(s);                  /* ack F  */
       } else {

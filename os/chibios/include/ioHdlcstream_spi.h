@@ -19,7 +19,8 @@
  *
  * @details Provides the SPI-backed @ref ioHdlcStreamPort context used by the
  *          software HDLC driver.  TX and RX DMA operations are mutually
- *          exclusive.
+ *          exclusive. DATA_READY is part of the SPI physical protocol: masters
+ *          wait for the slave notification before clocking RX data.
  *
  * @note    The caller must configure @p SPIConfig with a @p NULL end_cb; the
  *          adapter installs its own @p end_cb at start time.
@@ -56,16 +57,22 @@ typedef struct ioHdlcStreamChibiosSpi {
   bool                          tx_active;  /**< DMA TX in progress             */
 
   /* RX state */
-  uint8_t                      *rx_ptr;     /**< Buffer armed by rx_submit      */
-  size_t                        rx_n;       /**< Length of armed RX buffer      */
+  uint8_t                      *rx_ptr;     /**< Buffer saved by rx_submit      */
+  size_t                        rx_n;       /**< Length of saved RX buffer      */
+  iohdlc_rx_mode_t              rx_mode;    /**< Physical RX packet position    */
+  iohdlc_rx_mode_t              rx_active_mode; /**< Mode of active RX DMA       */
   bool                          rx_active;  /**< DMA RX in progress             */
+  bool                          rx_allowed; /**< Master can clock current packet */
   bool                          slave_tx_needs_prepare; /**< RX->TX boundary flag */
+  virtual_timer_t               slave_watchdog_vt; /**< Slave RX/TX guard        */
 
-  /* DATA_READY GPIO line (optional, see IOHDLC_SPI_USE_DR).                    */
+  /* DATA_READY GPIO line.                                                     */
   /* Master: input monitored via PAL event; slave: output asserted on TX send.  */
-  /* Set to PAL_NOLINE if DATA_READY signalling is not used.                    */
   ioline_t                      dr_line;    /**< DATA_READY GPIO line           */
-  bool                          dr_armed;   /**< true = next DR edge starts RX  */
+  /* Master only: DATA_READY edge state. */
+  bool                          dr_epoch_active; /**< DATA_READY physical epoch */
+  bool                          dr_captured; /**< Unconsumed DATA_READY edge     */
+  bool                          dr_collision; /**< DR seen while master was TX   */
 } ioHdlcStreamChibiosSpi;
 
 /**
@@ -78,21 +85,18 @@ typedef struct ioHdlcStreamChibiosSpi {
  *                        the adapter at start time
  * @param[in]  is_master  true if this node drives the SPI clock
  */
-void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort        *port,
-                                          ioHdlcStreamChibiosSpi  *obj,
-                                          SPIDriver               *spip,
-                                          SPIConfig               *cfgp,
-                                          bool                     is_master,
-                                          ioline_t                 dr_line);
+void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
+                                          ioHdlcStreamChibiosSpi *obj,
+                                          SPIDriver *spip, SPIConfig *cfgp,
+                                          bool is_master, ioline_t dr_line);
 
-#if defined(IOHDLC_SPI_USE_DR)
 /**
- * @brief   Called from a PAL event callback when the slave DATA_READY line
- *          goes high.  Disarms the edge interrupt and starts SPI DMA receive.
+ * @brief   Called from a PAL event callback on DATA_READY edges.
  * @note    Must be called from ISR context (PAL callback).
  * @param[in] ctx  master SPI context registered for this DATA_READY line.
  */
 void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx);
-#endif
+
+void ioHdlcStreamSpiSlaveOverrunI(ioHdlcStreamChibiosSpi *ctx);
 
 #endif /* IOHDLCSTREAM_SPI_H */

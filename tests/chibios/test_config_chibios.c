@@ -113,10 +113,14 @@
 #endif
 
 /**
- * @brief   Max poll retries (0 = use default 8)
+ * @brief   Max poll retries (0 = auto from reply-timeout)
  */
 #ifndef TEST_POLL_RETRY_MAX
 #define TEST_POLL_RETRY_MAX 0
+#endif
+
+#if (TEST_POLL_RETRY_MAX < 0) || (TEST_POLL_RETRY_MAX > TEST_POLL_RETRY_MAX_LIMIT)
+#error "TEST_POLL_RETRY_MAX must be 0..31"
 #endif
 
 /**
@@ -163,6 +167,8 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->error_rate = TEST_ERROR_RATE;
   cfg->reply_timeout_ms = TEST_REPLY_TIMEOUT;
   cfg->poll_retry_max = TEST_POLL_RETRY_MAX;
+  cfg->poll_retry_max_auto = false;
+  cfg->poll_retry_total_timeout_ms = 0;
   cfg->progress_interval_ms = TEST_PROGRESS_INTERVAL;
   cfg->watermark_delay_ms = 0;  /* Disabled by default */
   cfg->test_name = TEST_NAME;

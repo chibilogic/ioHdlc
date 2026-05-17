@@ -47,7 +47,7 @@ Unless noted otherwise, the semantics are identical on Linux and in the shell. T
 | `--endpoint=EP` | both | Local endpoint selection: `both`, `a`, `b` (aliases: `primary`, `secondary`) |
 | `--error-rate=N` | 0 | Error injection rate 0-100% (mock adapter only) |
 | `--reply-timeout=N` | `0` (`IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`) | HDLC reply timeout in ms |
-| `--poll-retry-max=N` | `0` (`IOHDLC_POLL_RETRY_MAX_DEFAULT`) | Max poll retries before link failure |
+| `--poll-retry-max=N` | `0` (auto) | Max poll retries before link failure, range 0-31; `0` auto-calculates it from `--reply-timeout` for about 25 s cumulative retry timeout |
 | `--krs=N` | modmask | Window size (`ks = kr = N`) |
 | `--progress-interval=N` | 1000 | Progress report interval in ms |
 | `--watermark-delay=N` | 0 | Reader delay every 256 packets in ms (0=disabled) |
@@ -119,8 +119,8 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 ### Protocol Tuning
 
 - `--reply-timeout`: time the protocol waits for a response before retransmitting. Lower values increase retransmission aggressiveness. `0` uses `IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`.
-- `--poll-retry-max`: maximum retransmission attempts before declaring link failure. `0` uses `IOHDLC_POLL_RETRY_MAX_DEFAULT`.
-- `--reply-timeout` and `--poll-retry-max` interact geometrically, not linearly: reply-timeout recovery doubles T1 at each expiry, so large values can push total detection time into the tens of seconds.
+- `--poll-retry-max`: maximum retransmission attempts before declaring link failure. `0` makes the exchange tool choose the value from `--reply-timeout`.
+- `--reply-timeout` and `--poll-retry-max` interact geometrically, not linearly: reply-timeout recovery doubles T1 before each retry. After the last retry, the response window is bounded to `max(IOHDLC_LAST_RETRY_T1_RATIO * reply_timeout, IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS)`. With `--poll-retry-max=0`, the tool chooses N2 so the cumulative timeout stays close to 25 s. An explicit non-zero value bypasses this auto calculation.
 - `--krs`: sets both `ks` and `kr`. The value must be at least 1 and no larger than the modmask of the selected modulo (`7` for modulo 8, `127` for modulo 128).
 
 ## Platform-Specific Defaults

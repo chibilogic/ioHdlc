@@ -544,7 +544,8 @@ frame loss.
 
 **Start**: When checkpoint sent (I-frame with P=1)
 **Stop**: When response with F=1 received
-**Expiry**: Force poll (set need_p), increment retry counter (N2). If N2 exceeded → link down.
+**Expiry**: Force poll (set need_p) while retry budget remains. If the response
+window following the last retry expires → link down.
 
 **Configuration:**
 ```c
@@ -552,12 +553,18 @@ config.reply_timeout_ms = 100;   // IOHDLC_REPLY_TIMEOUT_MS_DEFAULT
 config.poll_retry_max = 8;       // IOHDLC_POLL_RETRY_MAX_DEFAULT
 ```
 
-`reply_timeout_ms` is the base T1 value. On each reply-timeout expiry, the
-next T1 window is doubled using the current retry count. In other words, the
-recovery wait is not linear:
+`reply_timeout_ms` is the base T1 value. Retry windows use exponential backoff,
+so the recovery wait is not linear:
 
 ```
 T1(n) = reply_timeout_ms << n
+```
+
+The last retry does not open another exponential slot. Its response window is:
+
+```
+T1_final = max(IOHDLC_LAST_RETRY_T1_RATIO * reply_timeout_ms,
+               IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS)
 ```
 
 This makes large `poll_retry_max` values expensive very quickly. Even moderate
@@ -758,6 +765,9 @@ Single byte:  0xFF = 11111111 (all-stations)
 reply_timeout_ms = 100;      // T1: IOHDLC_REPLY_TIMEOUT_MS_DEFAULT
 poll_retry_max = 8;          // IOHDLC_POLL_RETRY_MAX_DEFAULT
 ```
+
+The final retry window uses `IOHDLC_LAST_RETRY_T1_RATIO` (default 5) and
+`IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS` (default 100 ms).
 
 **Platform-Specific:**
 - Linux: POSIX timers (timer_create)

@@ -17,22 +17,19 @@
  *
  * @param[in] ctx       SPI stream context
  */
-static inline void ioHdlcStreamSpiPlatformQuickCancelSlaveRxI(
-    ioHdlcStreamChibiosSpi *ctx) {
-  unsigned i;
-
+static inline void ioHdlcStreamSpiPlatformQuickCancelSlaveRxI(ioHdlcStreamChibiosSpi *ctx) {
   dmaStreamDisable(ctx->spip->dmatx);
   dmaStreamDisable(ctx->spip->dmarx);
 
-  for (i = 0U; i < 4U; i++) {
-    if ((ctx->spip->spi->SR & SPI_SR_RXNE) == 0U) {
+  (void)ctx->spip->spi->DR;
+  for (unsigned i = 0U; i < 4U; i++) {
+    if ((ctx->spip->spi->SR & SPI_SR_RXNE) == 0U)
       break;
-    }
     (void)ctx->spip->spi->DR;
   }
   (void)ctx->spip->spi->SR;
 
-  ctx->spip->spi->CR2 |= SPI_CR2_TXDMAEN;
+  ctx->spip->spi->CR2 |= SPI_CR2_ERRIE | SPI_CR2_TXDMAEN;
   ctx->spip->state = SPI_READY;
 }
 
@@ -41,10 +38,25 @@ static inline void ioHdlcStreamSpiPlatformQuickCancelSlaveRxI(
  *
  * @param[in] ctx       SPI stream context
  */
-static inline void ioHdlcStreamSpiPlatformPrepareSlaveRxI(
-    ioHdlcStreamChibiosSpi *ctx) {
+static inline void ioHdlcStreamSpiPlatformPrepareSlaveRxI(ioHdlcStreamChibiosSpi *ctx) {
+  ctx->spip->spi->CR2 = (ctx->spip->spi->CR2 | SPI_CR2_ERRIE) & ~SPI_CR2_TXDMAEN;
+}
 
-  ctx->spip->spi->CR2 &= ~SPI_CR2_TXDMAEN;
+/**
+ * @brief   Prepares slave RX after a completed slave TX transfer.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+static inline void ioHdlcStreamSpiPlatformPrepareSlaveRxAfterTxI(ioHdlcStreamChibiosSpi *ctx) {
+  (void)ctx->spip->spi->DR;
+  for (unsigned i = 0U; i < 4U; i++) {
+    if ((ctx->spip->spi->SR & SPI_SR_RXNE) == 0U)
+      break;
+    (void)ctx->spip->spi->DR;
+  }
+  (void)ctx->spip->spi->SR;
+
+  ioHdlcStreamSpiPlatformPrepareSlaveRxI(ctx);
 }
 
 /**
@@ -52,10 +64,8 @@ static inline void ioHdlcStreamSpiPlatformPrepareSlaveRxI(
  *
  * @param[in] ctx       SPI stream context
  */
-static inline void ioHdlcStreamSpiPlatformPrepareSlaveTx(
-    ioHdlcStreamChibiosSpi *ctx) {
-
-  ioHdlcStreamSpiPlatformQuickCancelSlaveRxI(ctx);
+static inline void ioHdlcStreamSpiPlatformPrepareSlaveTx(ioHdlcStreamChibiosSpi *ctx) {
+  ctx->spip->spi->CR2 |= SPI_CR2_ERRIE | SPI_CR2_TXDMAEN;
 }
 
 /**
@@ -64,9 +74,7 @@ static inline void ioHdlcStreamSpiPlatformPrepareSlaveTx(
  * @param[in] ctx       SPI stream context
  * @return              true if the platform handled the cancellation
  */
-static inline bool ioHdlcStreamSpiPlatformCancelSlaveRxI(
-    ioHdlcStreamChibiosSpi *ctx) {
-
+static inline bool ioHdlcStreamSpiPlatformCancelSlaveRxI(ioHdlcStreamChibiosSpi *ctx) {
   ioHdlcStreamSpiPlatformQuickCancelSlaveRxI(ctx);
 
   return true;

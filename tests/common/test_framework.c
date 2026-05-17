@@ -125,6 +125,12 @@ bool test_validate_packet(const uint8_t *buffer, size_t len,
 /*===========================================================================*/
 
 void test_print_config(const test_config_t *cfg) {
+  uint32_t reply_timeout_ms;
+
+  reply_timeout_ms = cfg->reply_timeout_ms == 0U ?
+      IOHDLC_REPLY_TIMEOUT_MS_DEFAULT :
+      cfg->reply_timeout_ms;
+
   test_printf("\n");
   test_printf("Test Configuration:\n");
   test_printf("===================\n");
@@ -189,12 +195,20 @@ void test_print_config(const test_config_t *cfg) {
               cfg->error_rate == 0 ? "(disabled)" : "(enabled)");
   
   /* Protocol parameters */
-  test_printf("Reply timeout: %u ms %s\n", 
-              cfg->reply_timeout_ms == 0 ? IOHDLC_REPLY_TIMEOUT_MS_DEFAULT : cfg->reply_timeout_ms,
-              cfg->reply_timeout_ms == 0 ? "(default)" : "");
-  test_printf("Poll retry max: %u %s\n",
-              cfg->poll_retry_max == 0 ? IOHDLC_POLL_RETRY_MAX_DEFAULT : cfg->poll_retry_max,
-              cfg->poll_retry_max == 0 ? "(default)" : "");
+  if (cfg->reply_timeout_ms == 0U) {
+    test_printf("Reply timeout: %u ms (default)\n", reply_timeout_ms);
+  } else {
+    test_printf("Reply timeout: %u ms\n", reply_timeout_ms);
+  }
+  if (cfg->poll_retry_max_auto) {
+    test_printf("Poll retry max: %u (auto, total timeout ~%u ms)\n",
+                cfg->poll_retry_max,
+                cfg->poll_retry_total_timeout_ms);
+  } else {
+    test_printf("Poll retry max: %u (total timeout ~%u ms)\n",
+                cfg->poll_retry_max,
+                cfg->poll_retry_total_timeout_ms);
+  }
   
   /* Watermark testing */
   if (cfg->watermark_delay_ms > 0) {

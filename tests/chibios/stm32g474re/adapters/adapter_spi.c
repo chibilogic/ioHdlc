@@ -36,7 +36,7 @@
 #include "ioHdlcstream_spi.h"
 
 #if defined(TEST_SPI_USE_CS)
-/* Hardware NSS: master drives PA4 as GPIO select, slave listens on PB12 */
+/* Hardware NSS: master drives PA4 as GPIO select, slave listens on PB12. */
 #define TEST_SPI_ADAPTER_CFG_A_CR1  (SPI_CR1_BR_2 /*| SPI_CR1_BR_1 | SPI_CR1_BR_0*/)
 #define TEST_SPI_ADAPTER_CFG_B_CR1  0
 #else
@@ -88,7 +88,6 @@ static ioHdlcStreamPort port_b;
 /* Adapter implementation                                                    */
 /*===========================================================================*/
 
-#if defined(IOHDLC_SPI_USE_DR)
 static void spi_dr_callback(void *arg) {
   /* Called from PAL/EXTI ISR when slave asserts DATA_READY.
    * I-class functions inside DataReadyI require the system lock. */
@@ -96,49 +95,39 @@ static void spi_dr_callback(void *arg) {
   ioHdlcStreamSpiDataReadyI((ioHdlcStreamChibiosSpi *)arg);
   chSysUnlockFromISR();
 }
-#endif
 
 static void adapter_spi_init(void) {
-  /* Endpoint A: SPI master */
-  ioHdlcStreamPortChibiosSpiObjectInit(&port_a,
-                                       &spi_endpoint_a_obj,
-                                       &TEST_SPI_ENDPOINT_A,
-                                       &spi_cfg_a,
-                                       true,              /* is_master */
-#if defined(IOHDLC_SPI_USE_DR)
-                                       TEST_SPI_DR_LINE_A /* DR input  */
-#else
-                                       PAL_NOLINE
+#if defined(STM32G474xx)
+  palClearLine(PAL_LINE(GPIOC, 8U));
+  palSetLineMode(PAL_LINE(GPIOC, 8U),
+                 PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_MID1);
+  palClearLine(PAL_LINE(GPIOC, 9U));
+  palSetLineMode(PAL_LINE(GPIOC, 9U),
+                 PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_MID1);
+  palClearLine(PAL_LINE(GPIOC, 6U));
+  palSetLineMode(PAL_LINE(GPIOC, 6U),
+                 PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_MID1);
 #endif
-                                       );
+
+  /* Endpoint A: SPI master */
+  ioHdlcStreamPortChibiosSpiObjectInit(&port_a, &spi_endpoint_a_obj,
+                                       &TEST_SPI_ENDPOINT_A, &spi_cfg_a,
+                                       true, TEST_SPI_DR_LINE_A);
 
   /* Endpoint B: SPI slave */
-  ioHdlcStreamPortChibiosSpiObjectInit(&port_b,
-                                       &spi_endpoint_b_obj,
-                                       &TEST_SPI_ENDPOINT_B,
-                                       &spi_cfg_b,
-                                       false,             /* is_slave  */
-#if defined(IOHDLC_SPI_USE_DR)
-                                       TEST_SPI_DR_LINE_B /* DR output */
-#else
-                                       PAL_NOLINE
-#endif
-                                       );
+  ioHdlcStreamPortChibiosSpiObjectInit(&port_b, &spi_endpoint_b_obj,
+                                       &TEST_SPI_ENDPOINT_B, &spi_cfg_b,
+                                       false, TEST_SPI_DR_LINE_B);
 
-#if defined(IOHDLC_SPI_USE_DR)
-  /* Register DATA_READY callback and keep EXTI permanently armed.
-   * The driver uses dr_armed flag to gate the callback — no
-   * palDisableLineEventI/palEnableLineEventI calls are made, so the
-   * PAL _pal_events entry is never cleared by _pal_clear_event(). */
+  /* Register DATA_READY callback and keep EXTI permanently enabled.  Both
+   * edges delimit the physical slave-packet epoch. */
   palSetLineCallback(TEST_SPI_DR_LINE_A, spi_dr_callback, &spi_endpoint_a_obj);
-  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_RISING_EDGE);
-#endif
+  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_BOTH_EDGES);
+
 }
 
 static void adapter_spi_deinit(void) {
-#if defined(IOHDLC_SPI_USE_DR)
   palDisableLineEvent(TEST_SPI_DR_LINE_A);
-#endif
 }
 
 static ioHdlcStreamPort adapter_spi_get_port_a(void) {
