@@ -403,8 +403,8 @@
                                      PIN_OSPEED_HIGH(GPIOA_ARD_D12) |       \
                                      PIN_OSPEED_HIGH(GPIOA_ARD_D11) |       \
                                      PIN_OSPEED_HIGH(GPIOA_SPI_DR_A) |      \
-                                     PIN_OSPEED_MEDIUM(GPIOA_USART1_TX) |   \
-                                     PIN_OSPEED_MEDIUM(GPIOA_USART1_RX) |   \
+                                     PIN_OSPEED_LOW(GPIOA_USART1_TX) |      \
+                                     PIN_OSPEED_LOW(GPIOA_USART1_RX) |      \
                                      PIN_OSPEED_HIGH(GPIOA_OTG_FS_DM) |     \
                                      PIN_OSPEED_HIGH(GPIOA_OTG_FS_DP) |     \
                                      PIN_OSPEED_HIGH(GPIOA_SWDIO) |         \
@@ -634,8 +634,8 @@
                                      PIN_OSPEED_HIGH(GPIOC_PIN3) |          \
                                      PIN_OSPEED_HIGH(GPIOC_PIN4) |          \
                                      PIN_OSPEED_HIGH(GPIOC_PIN5) |          \
-                                     PIN_OSPEED_MEDIUM(GPIOC_USART6_TX) |   \
-                                     PIN_OSPEED_MEDIUM(GPIOC_USART6_RX) |   \
+                                     PIN_OSPEED_LOW(GPIOC_USART6_TX) |      \
+                                     PIN_OSPEED_LOW(GPIOC_USART6_RX) |      \
                                      PIN_OSPEED_HIGH(GPIOC_PIN8) |          \
                                      PIN_OSPEED_HIGH(GPIOC_PIN9) |          \
                                      PIN_OSPEED_HIGH(GPIOC_PIN10) |         \

@@ -1153,9 +1153,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
                   (iohdlc_time_now_ms() + timeout_ms);
   
   iohdlc_mutex_lock(&peer->state_mutex);
-  ioHdlcBroadcastFlags(s, IOHDLC_EVT_PF_RECVD);
   peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
-  IOHDLC_SET_NEED_P(s, peer);
   
   /* Greedy consumption loop: drain buffered data until count, EOF, terminal
      error, or timeout. The stream predicate is evaluated only while holding

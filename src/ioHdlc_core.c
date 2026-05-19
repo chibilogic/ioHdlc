@@ -447,13 +447,15 @@ static bool sendOpportunity(iohdlc_station_t *s) {
  *          turn-closing marker and is therefore delayed to the last I-response.
  */
 static bool responseShouldSetF(iohdlc_station_t *s, bool is_i_frame, bool is_last_frame) {
+  (void)is_i_frame;
+
   if (!IOHDLC_P_ISRCVED(s))
     return false;
 
   if (IOHDLC_IS_ABM(s) || IOHDLC_IS_ARM(s))
     return true;
 
-  return !is_i_frame || !IOHDLC_USE_TWA(s) || is_last_frame;
+  return is_last_frame;
 }
 
 /*===========================================================================*/
@@ -1093,7 +1095,6 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       /* Peer not ready: set busy flag. */
       p->ss_state |= IOHDLC_SS_BUSY;
       *broadcast_flags_out |= IOHDLC_EVT_RNR_RECVD;
-      IOHDLC_SET_NEED_P(s, p);
       break;
       
     case IOHDLC_S_REJ:
@@ -1138,7 +1139,6 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         p->stats.rej_received++;
 #endif
         *broadcast_flags_out |= IOHDLC_EVT_xREJ_RECVD;
-        IOHDLC_SET_NEED_P(s, p);
       }
       break;
       
@@ -1238,8 +1238,9 @@ static void commonRx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
   /* Branch by frame type for specific handling. */
   if (IOHDLC_IS_I_FRM(ctrl)) {
-    IOHDLC_SET_NEED_P(s, p);
     frame_accepted = handleIFrame(s, p, fp, pf, &broadcast_flags);
+    if (frame_accepted && IOHDLC_IS_NRM(s) && IOHDLC_IS_PRI(s))
+      IOHDLC_SET_NEED_P(s, p);
   } else {
     handleSFrame(s, p, fp, pf, &broadcast_flags);
   }
@@ -1766,8 +1767,6 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
 
     const uint8_t tx_addr = is_command ? p->addr : s->addr;
-    if (is_command)
-      IOHDLC_SET_NEED_P(s, p);
 
     /* Determine if P/F bit should be set in this I-frame.
        If local busy, never set P/F on I-frames. */
