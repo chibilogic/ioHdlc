@@ -44,6 +44,14 @@
 #include <errno.h>
 #include <string.h>
 
+#if defined(IOHDLC_TMO_RECOVERY_TRACE_LINE)
+#define IOHDLC_TRACE_TMO_RECOVERY_SET()   palSetLine(IOHDLC_TMO_RECOVERY_TRACE_LINE)
+#define IOHDLC_TRACE_TMO_RECOVERY_CLEAR() palClearLine(IOHDLC_TMO_RECOVERY_TRACE_LINE)
+#else
+#define IOHDLC_TRACE_TMO_RECOVERY_SET()   ((void)0)
+#define IOHDLC_TRACE_TMO_RECOVERY_CLEAR() ((void)0)
+#endif
+
 /* Forward declarations for U-frame handler */
 static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
 static void stashTxSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
@@ -316,11 +324,11 @@ static void setFrmrCondition(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
 /**
  * @brief   Build FRMR response frame with information field.
- * @details Encodes the rejected control field, current V(S)/V(R), C/R bit,
- *          and W/X/Y/Z reason bits per ISO 13239, 5.5.3.1.
+ * @details Encodes the rejected control field, highest V(S)/current V(R),
+ *          C/R bit, and W/X/Y/Z reason bits per ISO 13239, 5.5.3.1.
  *
  * @param[in] s       Station descriptor.
- * @param[in] p       Peer state (V(S), V(R) taken at TX time).
+ * @param[in] p       Peer state (V(S) high-water, V(R) taken at TX time).
  * @param[in] fp      Frame to build into.
  * @param[in] set_pf  true to set the P/F bit.
  */
@@ -345,7 +353,7 @@ static void buildFrmrResponse(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        Byte 1: [V(S) bits 2-0] [C/R] [V(R) bits 2-0] [0]
        Byte 2: [0] [0] [0] [0] [W] [X] [Y] [Z] */
     info[0] = p->frmr_rejected_ctrl[0];
-    info[1] = (uint8_t)(((p->vs & 0x07) << 1) |
+    info[1] = (uint8_t)(((p->vs_highest & 0x07) << 1) |
                          (p->frmr_cr ? 0x10 : 0) |
                          ((p->vr & 0x07) << 5));
     info[2] = p->frmr_reason;
@@ -358,7 +366,7 @@ static void buildFrmrResponse(iohdlc_station_t *s, iohdlc_station_peer_t *p,
        Byte 4:   [0] [0] [0] [0] [W] [X] [Y] [Z] */
     info[0] = p->frmr_rejected_ctrl[0];
     info[1] = p->frmr_rejected_ctrl[1];
-    info[2] = (uint8_t)((p->vs & 0x7F) << 1);
+    info[2] = (uint8_t)((p->vs_highest & 0x7F) << 1);
     info[3] = (uint8_t)(((p->vr & 0x7F) << 1) | (p->frmr_cr ? 0x01 : 0));
     info[4] = p->frmr_reason;
     info_len = 5;
@@ -890,8 +898,9 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
   if (!isNRValid(s, p, nr)) {
     /* Protocol error: invalid N(R) received.
        Send FRMR with Y bit set (invalid N(R)).*/
-    IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "Invalid N(R) %u, V(S)=%u, N(R)=%u",
-                  nr, p->vs, p->nr);
+    IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr,
+                    "Invalid N(R)=%u, nr=%u, vs=%u, vs_highest=%u",
+                    nr, p->nr, p->vs, p->vs_highest);
     return false;
   }
 
@@ -916,6 +925,8 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
     if (!is_command) {
       /* Received F=1 (response to our poll): acknowledge and stop timer. */
       s->pf_state |= IOHDLC_F_RCVED;
+      IOHDLC_CLR_TMO_RECOVERY(p);
+      IOHDLC_TRACE_TMO_RECOVERY_CLEAR();
       p->poll_retry_count = 0;
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
       ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3,
@@ -1552,11 +1563,12 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
   const uint32_t outstanding = (p->vs - p->nr) & s->framing.modmask;
   const bool window_full = outstanding >= p->ks;
   const bool no_i_frame = ioHdlc_frameq_isempty(&p->i_trans_q) || window_full;
+  const bool tmo_recovery_poll = IOHDLC_TMO_RECOVERY(p) && IOHDLC_NEED_P(p);
   bool set_pf = is_command ?
-    (IOHDLC_USE_TWA(s) ?
+    (tmo_recovery_poll || (IOHDLC_USE_TWA(s) ?
       (IOHDLC_F_ISRCVED(s) &&
        (no_i_frame || (IOHDLC_PEER_BUSY(p) && IOHDLC_NEED_P(p)))) :
-      IOHDLC_F_ISRCVED(s)) :
+      IOHDLC_F_ISRCVED(s))) :
     (IOHDLC_P_ISRCVED(s) && (no_i_frame || IOHDLC_PEER_BUSY(p)));
 
   iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
@@ -1618,8 +1630,10 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         return cm_flags;
       }
       
-      /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
-      IOHDLC_SET_NEED_P(s, p);
+      /* Timeout recovery opens a status-inquiry cycle before any I-frame retry. */
+      p->ss_state |= IOHDLC_SS_NEED_P;
+      IOHDLC_SET_TMO_RECOVERY(p);
+      IOHDLC_TRACE_TMO_RECOVERY_SET();
       s->pf_state |= IOHDLC_F_RCVED;
       p->rej_actioned = 0;  /* Clear REJ exception on timeout retry */
     }
@@ -1669,6 +1683,11 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   while (true) {
     /* Lock to check window and dequeue frame atomically */
     iohdlc_mutex_lock(&p->state_mutex);
+
+    if (IOHDLC_TMO_RECOVERY(p)) {
+      iohdlc_mutex_unlock(&p->state_mutex);
+      break;
+    }
     
     /* Check if queue is empty */
     if (ioHdlc_frameq_isempty(&p->i_trans_q)) {
@@ -1852,8 +1871,10 @@ skip_i_frames:
   
   /* If no frame was sent, or prepared to, but we have the opportunity/need
      to respond, prepare to send an opportunistic S-frame (RR or RNR). */
-  if (sframe_to_send == NULL && !i_frame_sent && (IOHDLC_P_ISRCVED(s) ||
-        (IOHDLC_F_ISRCVED(s) && IOHDLC_NEED_P(p)))) {
+  if (sframe_to_send == NULL && !i_frame_sent &&
+      ((IOHDLC_TMO_RECOVERY(p) && IOHDLC_NEED_P(p)) ||
+       IOHDLC_P_ISRCVED(s) ||
+       (IOHDLC_F_ISRCVED(s) && IOHDLC_NEED_P(p)))) {
     /* In TWA, if we still have permission on the link but didn't send I-frames,
        we should send an S-frame to acknowledge and cede the link.
        In TWS, we may also want to send periodic acknowledgments. */

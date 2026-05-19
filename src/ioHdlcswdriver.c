@@ -35,6 +35,14 @@
 #include <errno.h>
 #include <string.h>
 
+#if defined(IOHDLC_SWDRIVER_SHADOW_TRACE_PC8)
+#define IOHDLC_TRACE_SHADOW_PATH() palToggleLine(PAL_LINE(GPIOC, 8U))
+#elif defined(IOHDLC_SWDRIVER_SHADOW_TRACE_LINE)
+#define IOHDLC_TRACE_SHADOW_PATH() palToggleLine(IOHDLC_SWDRIVER_SHADOW_TRACE_LINE)
+#else
+#define IOHDLC_TRACE_SHADOW_PATH() ((void)0)
+#endif
+
 /*===========================================================================*/
 /* Forward declarations                                                      */
 /*===========================================================================*/
@@ -756,7 +764,9 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
    */
   iohdlc_sys_lock();
 
-  if (!drv->port.handle.ops->tx_busy(drv->port.handle.ctx)) {
+  bool tx_busy = drv->port.handle.ops->tx_busy(drv->port.handle.ctx);
+
+  if (!tx_busy && ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
     /* TX idle: kickstart directly (don't enqueue). */
     if (plan_ready && drv->port.tx_materialize_plan) {
       prep_ret = s_apply_tx_plan(nfp, &plan);
@@ -779,6 +789,8 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
     /* First queueing, or the same frame is re-queued while still inflight. */
     if (plan_ready && drv->port.tx_materialize_plan) {
       if (drv->tx.inflight_fp == nfp) {
+        IOHDLC_TRACE_SHADOW_PATH();
+#if 1
         const uint8_t prefix_len = plan.prefix_len;
         const uint8_t suffix_len = plan.suffix_len;
         const size_t trailer_len = plan.wire_len - (size_t)nfp->elen;
@@ -800,7 +812,9 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
           memcpy(drv->tx.shadow_suffix, plan.suffix, suffix_len);
 
         ioHdlc_txs_set_trailer_len(&nfp->tx_snapshot, (uint8_t)trailer_len);
+#endif
         prep_ret = 0;
+
       } else {
         prep_ret = s_apply_tx_plan(nfp, &plan);
       }
@@ -825,6 +839,22 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
     }
     ioHdlc_frameq_move_tail(&drv->tx.raw_q, &nfp->q_aux);
     hdlcReleaseFrame(drv->fpp, nfp);
+  }
+
+  if (!tx_busy && drv->tx.inflight_fp == NULL &&
+      !ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
+    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->tx.raw_q);
+    iohdlc_frame_t *next_fp = IOHDLC_FRAME_FROM_Q_AUX(qh);
+
+    next_fp->q_aux.next = NULL;
+    next_fp->q_aux.prev = NULL;
+    next_fp->openingflag = IOHDLC_FLAG;
+    drv->tx.inflight_fp = next_fp;
+    prep_ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, next_fp);
+    if (prep_ret != 0) {
+      drv->tx.inflight_fp = NULL;
+      IOHDLC_ASSERT(false, "drv_send_frame: queued TX submit failed while idle");
+    }
   }
   iohdlc_sys_unlock();
 #endif

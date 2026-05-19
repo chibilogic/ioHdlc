@@ -115,7 +115,9 @@ static uint32_t s_link_api_timeout_ms(const iohdlc_station_t *s,
   if (last < IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS)
     last = IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS;
 
-  total += last + t1_ms;
+  /* Include an extra T1-sized margin for TX-thread scheduling before the
+     first command actually arms the protocol reply timer. */
+  total += last + ((uint64_t)t1_ms * 2U);
   if (total > ~(uint32_t)0U)
     return ~(uint32_t)0U;
 

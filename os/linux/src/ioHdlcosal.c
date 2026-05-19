@@ -219,8 +219,8 @@ msg_t iohdlc_condvar_wait(iohdlc_condvar_t *cvp, iohdlc_mutex_t *mtxp) {
 /**
  * @brief   Wait on condition variable with timeout.
  * @pre     Caller must hold the associated mutex locked.
- * @post    Mutex is re-acquired before return (even on timeout).
- * @note    Maps to chCondWaitTimeout() in ChibiOS.
+ * @post    Mutex is re-acquired before return on signal/broadcast.
+ *          On timeout the mutex ownership is lost, matching ChibiOS.
  *
  * @param[in] cvp       Condition variable
  * @param[in] mtxp      Associated mutex (must be locked by caller)
@@ -248,9 +248,12 @@ msg_t iohdlc_condvar_wait_timeout(iohdlc_condvar_t *cvp,
     ts.tv_nsec -= 1000000000L;
   }
   
-  /* Wait with timeout */
   int ret = pthread_cond_timedwait(&cvp->cond, &mtxp->mtx, &ts);
-  return (ret == ETIMEDOUT) ? MSG_TIMEOUT : MSG_OK;
+  if (ret == ETIMEDOUT) {
+    pthread_mutex_unlock(&mtxp->mtx);
+    return MSG_TIMEOUT;
+  }
+  return MSG_OK;
 }
 
 /**
