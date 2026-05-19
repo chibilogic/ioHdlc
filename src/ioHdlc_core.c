@@ -440,6 +440,22 @@ static bool sendOpportunity(iohdlc_station_t *s) {
   return IOHDLC_IS_NRM(s) ? nrmSendOpportunity(s) : abmSendOpportunity(s);
 }
 
+/**
+ * @brief   Decide whether the next response frame shall carry F.
+ * @details In ARM/ABM, ISO 13239 5.4.3.2.3 requires the earliest possible
+ *          response after a received P to carry F. In NRM/TWA, F remains the
+ *          turn-closing marker and is therefore delayed to the last I-response.
+ */
+static bool responseShouldSetF(iohdlc_station_t *s, bool is_i_frame, bool is_last_frame) {
+  if (!IOHDLC_P_ISRCVED(s))
+    return false;
+
+  if (IOHDLC_IS_ABM(s) || IOHDLC_IS_ARM(s))
+    return true;
+
+  return !is_i_frame || !IOHDLC_USE_TWA(s) || is_last_frame;
+}
+
 /*===========================================================================*/
 /* Module exported functions.                                                */
 /*===========================================================================*/
@@ -1151,7 +1167,6 @@ static void handleSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 static void commonRx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
                      iohdlc_frame_t *fp, bool is_command) {
 
-  const uint32_t addr = IOHDLC_FRAME_ADDR(s, fp);
   const uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   const bool pf = IOHDLC_FRAME_GET_PF(s, fp);
   const uint32_t nr = extractNR(s, fp);
@@ -1214,7 +1229,7 @@ static void commonRx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       uint8_t rejected_ctrl[2];
       rejected_ctrl[0] = IOHDLC_FRAME_CTRL(s, fp, 0);
       rejected_ctrl[1] = (s->framing.ctrl_size > 1) ? IOHDLC_FRAME_CTRL(s, fp, 1) : 0;
-      setFrmrCondition(s, p, rejected_ctrl, s->framing.ctrl_size, (addr != s->addr), IOHDLC_FRMR_Y);
+      setFrmrCondition(s, p, rejected_ctrl, s->framing.ctrl_size, is_command, IOHDLC_FRMR_Y);
     }
     iohdlc_mutex_unlock(&p->state_mutex);
     hdlcReleaseFrame(&s->frame_pool, fp);
@@ -1569,7 +1584,7 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
       (IOHDLC_F_ISRCVED(s) &&
        (no_i_frame || (IOHDLC_PEER_BUSY(p) && IOHDLC_NEED_P(p)))) :
       IOHDLC_F_ISRCVED(s))) :
-    (IOHDLC_P_ISRCVED(s) && (no_i_frame || IOHDLC_PEER_BUSY(p)));
+    responseShouldSetF(s, false, true);
 
   iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
   if (fp != NULL) {
@@ -1587,8 +1602,12 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
     if (set_pf) {
       if (is_command || !IOHDLC_IS_ABM(s) || IOHDLC_F_ISRCVED(s))
         p->vs_atlast_pf = p->vs;
-      is_command ? IOHDLC_ACK_F(s) : IOHDLC_ACK_P(s);
-      IOHDLC_CLR_NEED_P(p);
+      if (is_command) {
+        IOHDLC_ACK_F(s);
+        IOHDLC_CLR_NEED_P(p);
+      } else {
+        IOHDLC_ACK_P(s);
+      }
     }
 
     IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun,
@@ -1738,7 +1757,6 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       break;  /* Safety check. */
     }
 
-    IOHDLC_SET_NEED_P(s, p);
     bool set_pf = false;
 
     /* In NRM, command/response is fixed by role. In ABM, it depends on
@@ -1748,6 +1766,8 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
 
     const uint8_t tx_addr = is_command ? p->addr : s->addr;
+    if (is_command)
+      IOHDLC_SET_NEED_P(s, p);
 
     /* Determine if P/F bit should be set in this I-frame.
        If local busy, never set P/F on I-frames. */
@@ -1767,12 +1787,9 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
           TWS: set P as soon as possible (if no P in flight). */
         set_pf = IOHDLC_USE_TWA(s) ? is_last_frame : IOHDLC_F_ISRCVED(s);
       } else {
-        /* Response: set F when we have a P to respond to.
-           NRM secondary (TWA or TWS): F on last frame.
-           ABM TWA: F on last frame (hold the line until done).
-           ABM TWS: F on first frame (ISO 13239 5.4.3.2.3: earliest possible). */
-        set_pf = IOHDLC_P_ISRCVED(s) &&
-                 (IOHDLC_IS_ABM(s) && !IOHDLC_USE_TWA(s) ? true : is_last_frame);
+        /* Response: NRM/TWA keeps F on the last I-frame, while ARM/ABM must
+           put F on the earliest response after a received P. */
+        set_pf = responseShouldSetF(s, true, is_last_frame);
       }
     }
     /* Read vr for N(R) field */
@@ -1796,7 +1813,12 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     if (set_pf) {
       if (is_command || !IOHDLC_IS_ABM(s) || IOHDLC_F_ISRCVED(s))
         p->vs_atlast_pf = p->vs;
-      is_command ? IOHDLC_ACK_F(s) : IOHDLC_ACK_P(s);
+      if (is_command) {
+        IOHDLC_ACK_F(s);
+        IOHDLC_CLR_NEED_P(p);
+      } else {
+        IOHDLC_ACK_P(s);
+      }
     }
     
 #if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
