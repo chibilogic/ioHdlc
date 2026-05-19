@@ -27,7 +27,6 @@ OSAL_IRQ_HANDLER(VectorD0) {
   OSAL_IRQ_PROLOGUE();
 
   if ((SPI2->SR & SPI_SR_OVR) != 0U) {
-    palToggleLine(PAL_LINE(GPIOC, 8U));
     if (ctx != NULL && ctx->started)
       ioHdlcStreamSpiSlaveOverrunI(ctx);
     else {

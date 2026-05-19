@@ -538,12 +538,6 @@ static int32_t chb_spi_tx_submit_frame(void *vctx, iohdlc_frame_t *fp) {
   chDbgAssert(fp != NULL, "spi tx_submit_frame: null frame");
   chDbgAssert(ctx->cbs != NULL, "spi tx_submit_frame: callbacks not set");
 
-  if (ctx->is_master && chb_spi_master_tx_blocked_i(ctx))
-    return EAGAIN;
-
-  if (ctx->tx_active)
-    return EAGAIN;
-
   if (fp->openingflag == IOHDLC_FLAG) {
     ptr = &fp->openingflag;
     len += 1U;
@@ -560,7 +554,7 @@ static bool chb_spi_tx_busy(void *vctx) {
     return false;
 
   if (ctx->is_master)
-    return ctx->tx_active || ctx->dr_epoch_active;
+    return chb_spi_master_tx_blocked_i(ctx);
 
   return ctx->tx_active;
 }

@@ -211,6 +211,7 @@
 #define IOHDLC_SS_NEED_P       0x08  /**< Primary-side hint that the next suitable S-frame should carry P. */
 #define IOHDLC_SS_TERM_ORDERLY 0x10  /**< Peer has been closed orderly; buffered RX data remains readable. */
 #define IOHDLC_SS_TERM_ABORTED 0x20  /**< Peer has terminated abnormally; buffered RX data is stale. */
+#define IOHDLC_SS_TMO_RECOVERY 0x40  /**< Reply timeout recovery: I-frames wait for a status response. */
 #define IOHDLC_SS_ST_CONN      0x80  /**< Peer is currently connected. */
 
 /* helper macros */
@@ -274,6 +275,12 @@
 #define IOHDLC_SET_NEED_P(s,p)  (IOHDLC_IS_PRI(s) ? ((p)->ss_state |= IOHDLC_SS_NEED_P) : 0)
 /** @brief Clear the pending-need-P state. */
 #define IOHDLC_CLR_NEED_P(p)  ((p)->ss_state &= ~IOHDLC_SS_NEED_P)
+/** @brief Test whether reply-timeout recovery is active. */
+#define IOHDLC_TMO_RECOVERY(p)      ((p)->ss_state & IOHDLC_SS_TMO_RECOVERY)
+/** @brief Mark reply-timeout recovery active. */
+#define IOHDLC_SET_TMO_RECOVERY(p)  ((p)->ss_state |= IOHDLC_SS_TMO_RECOVERY)
+/** @brief Clear reply-timeout recovery state. */
+#define IOHDLC_CLR_TMO_RECOVERY(p)  ((p)->ss_state &= ~IOHDLC_SS_TMO_RECOVERY)
 
 /**
  * @name    System-defined parameters

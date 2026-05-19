@@ -903,10 +903,18 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   }
 
   test_printf("\r\nStopping threads...\r\n");
+  test_printf("join A writer...\r\n");
   iohdlc_thread_join(thread_pri_writer);
+  test_printf("join A writer done\r\n");
+  test_printf("join A reader...\r\n");
   iohdlc_thread_join(thread_pri_reader);
+  test_printf("join A reader done\r\n");
+  test_printf("join B writer...\r\n");
   iohdlc_thread_join(thread_sec_writer);
+  test_printf("join B writer done\r\n");
+  test_printf("join B reader...\r\n");
   iohdlc_thread_join(thread_sec_reader);
+  test_printf("join B reader done\r\n");
 
   if (!test_failed_global && endpoint_a_active &&
       station_primary.c_peer != NULL &&

@@ -115,7 +115,9 @@ static uint32_t s_link_api_timeout_ms(const iohdlc_station_t *s,
   if (last < IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS)
     last = IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS;
 
-  total += last + t1_ms;
+  /* Include an extra T1-sized margin for TX-thread scheduling before the
+     first command actually arms the protocol reply timer. */
+  total += last + ((uint64_t)t1_ms * 2U);
   if (total > ~(uint32_t)0U)
     return ~(uint32_t)0U;
 
@@ -1151,9 +1153,7 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
                   (iohdlc_time_now_ms() + timeout_ms);
   
   iohdlc_mutex_lock(&peer->state_mutex);
-  ioHdlcBroadcastFlags(s, IOHDLC_EVT_PF_RECVD);
   peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
-  IOHDLC_SET_NEED_P(s, peer);
   
   /* Greedy consumption loop: drain buffered data until count, EOF, terminal
      error, or timeout. The stream predicate is evaluated only while holding
