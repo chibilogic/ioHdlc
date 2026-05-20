@@ -142,10 +142,9 @@ typedef struct ioHdlcStreamPortOps {
   /**
    * @brief Submit a frame send request.
    * @details The adapter executes the current frame submission selected by the
-   *          driver. The frame carries the per-send header snapshot in
-   *          @p fp->tx_snapshot and may also carry a contiguous wire image
-   *          prepared by the driver. Backends may use the frame storage
-   *          directly or query @ref ioHdlcStreamDriverOps::build_tx_plan.
+   *          driver. The frame may carry a contiguous wire image prepared by
+   *          the driver. Backends may use the frame storage directly or query
+   *          @ref ioHdlcStreamDriverOps::build_tx_plan.
    *          Backends that advertise TX FCS offload may leave the FCS deferred
    *          in the plan only for sizes listed in @p get_caps()->tx_fcs_offload_sizes.
    * @return 0 on success, errno-compatible error code otherwise.

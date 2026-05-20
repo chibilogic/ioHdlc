@@ -22,7 +22,7 @@ participant Hardware as Hw
 App -> Core: ioHdlcWrite(peer, data, len)
 Core -> Tx: signal TX work
 Tx -> Core: take frame from pool
-Tx -> Core: encode HDLC fields and tx_snapshot
+Tx -> Core: update HDLC fields under TX gate
 Tx -> Drv: hdlcSendFrame(fp)
 Drv -> Port: tx_submit_frame(fp)
 Port -> Hw: start TX

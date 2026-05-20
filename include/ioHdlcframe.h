@@ -34,7 +34,7 @@
 #define IOHDLCFRAME_H_
 
 #include "ioHdlctypes.h"
-#include "ioHdlctx.h"
+#include "ioHdlcosal.h"
 
 #define HDLC_BASIC_MIN_L  4  /**< Minimum serialized frame length without frame-format field. */
 #define HDLC_FRFMT_MIN_L  5  /**< Minimum serialized frame length when a frame-format field is present. */
@@ -68,11 +68,13 @@ struct iohdlc_frame_q {
 struct iohdlc_frame {
   iohdlc_frame_q_t  q;            /* Primary queue link (protocol queues: i_retrans_q, etc) */
   iohdlc_frame_q_t  q_aux;        /* Auxiliary queue link (driver use: TX queue, etc) */
-  iohdlc_tx_snapshot_t tx_snapshot; /* Embedded per-send TX snapshot. */
+  iohdlc_frame_txgate_t tx_gate;  /* Serializes header updates with TX queue/in-flight ownership. */
 
   uint16_t elen;                  /* Effective length of the frame, excluding
                                      FLAG and FCS. */
+  uint16_t tx_len;                /* Physical TX length prepared by the driver. */
   uint8_t  refs;                  /* Number of references to this frame. */
+  uint8_t  tx_ctrl_len;           /* Control field length for TX formatting. */
   uint8_t  openingflag;           /* Optional opening flag. */
   uint8_t  frame[];
 };
@@ -224,6 +226,30 @@ struct iohdlc_frame {
     ((IOHDLC_FRAME_CTRL(s, fp, (s)->framing.pfoctet) & IOHDLC_PFx_BIT) != 0))
 
 /** @} */
+
+/*===========================================================================*/
+/* Module inline functions.                                                  */
+/*===========================================================================*/
+
+static inline void ioHdlcFrameTxGateInit(iohdlc_frame_t *fp) {
+  iohdlc_frame_txgate_init(&fp->tx_gate);
+}
+
+static inline msg_t ioHdlcFrameTxGateWait(iohdlc_frame_t *fp) {
+  return iohdlc_frame_txgate_wait(&fp->tx_gate);
+}
+
+static inline msg_t ioHdlcFrameTxGateTryWait(iohdlc_frame_t *fp) {
+  return iohdlc_frame_txgate_trywait(&fp->tx_gate);
+}
+
+static inline void ioHdlcFrameTxGateRelease(iohdlc_frame_t *fp) {
+  iohdlc_frame_txgate_signal(&fp->tx_gate);
+}
+
+static inline void ioHdlcFrameTxGateReleaseI(iohdlc_frame_t *fp) {
+  iohdlc_frame_txgate_signal_i(&fp->tx_gate);
+}
 
 #endif /* IOHDLCFRAME_H_ */
 

@@ -54,9 +54,8 @@ static iohdlc_frame_t * take(void *ip) {
     fp->refs = 1;
     fp->q_aux.next = NULL;
     fp->q_aux.prev = NULL;
-    fp->tx_snapshot.addr = 0;
-    memset(fp->tx_snapshot.ctrl, 0, sizeof fp->tx_snapshot.ctrl);
-    fp->tx_snapshot.lens = 0;
+    fp->tx_len = 0;
+    fp->tx_ctrl_len = 0;
     fp->openingflag = 0;
     fmpp->allocated++;
     
@@ -142,6 +141,8 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
   n = arenasize / es;
 
   /* Initialize and load the pool.*/
+  for (uint32_t i = 0; i < n; ++i)
+    ioHdlcFrameTxGateInit((iohdlc_frame_t *)(p + (i * es)));
   chPoolObjectInit(&fmpp->mp, es, NULL);
   chPoolLoadArray(&fmpp->mp, p, n);
 

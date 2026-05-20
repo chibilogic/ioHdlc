@@ -16,10 +16,10 @@
 /**
  * @file    include/ioHdlctx.h
  * @brief   Shared transmit types for core/driver/adapter.
- * @details Defines the common data structures used to describe transmit
- *          snapshots, transport assists, and driver-generated transmit
- *          plans. These types are intentionally policy-free: they do not by
- *          themselves decide queuing, ownership, or backend strategy.
+ * @details Defines the common data structures used to describe transport
+ *          assists and driver-generated transmit plans. These types are
+ *          intentionally policy-free: they do not by themselves decide
+ *          queuing, ownership, or backend strategy.
  *
  * @addtogroup ioHdlc_tx
  * @{
@@ -37,42 +37,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/**
- * @brief   Per-send mutable fields owned by protocol logic.
- * @details Stored in the frame so adapters can queue pending sends without
- *          dynamic allocation. The immutable identity of the frame (payload, N(S),
- *          frame kind) remains outside this structure.
- */
-#define IOHDLC_TXS_INLINE_CTRL_MAX 2U
-
-typedef struct {
-  uint8_t  addr;            /**< Address octet selected by the core. */
-  uint8_t  ctrl[IOHDLC_TXS_INLINE_CTRL_MAX]; /**< Inline control snapshot for modulo-8/128 paths. */
-  uint8_t  lens;            /**< Low nibble: ctrl_len, high nibble: trailer_len past elen. */
-} iohdlc_tx_snapshot_t;
-
-#define IOHDLC_TXS_CTRL_LEN_MASK   0x0FU
-#define IOHDLC_TXS_TRAILER_SHIFT   4U
-#define IOHDLC_TXS_TRAILER_MASK    0xF0U
-
-static inline uint8_t ioHdlc_txs_get_ctrl_len(const iohdlc_tx_snapshot_t *txs) {
-  return txs->lens & IOHDLC_TXS_CTRL_LEN_MASK;
-}
-
-static inline void ioHdlc_txs_set_ctrl_len(iohdlc_tx_snapshot_t *txs, uint8_t ctrl_len) {
-  txs->lens = (uint8_t)((txs->lens & IOHDLC_TXS_TRAILER_MASK) |
-                        (ctrl_len & IOHDLC_TXS_CTRL_LEN_MASK));
-}
-
-static inline uint8_t ioHdlc_txs_get_trailer_len(const iohdlc_tx_snapshot_t *txs) {
-  return (uint8_t)((txs->lens >> IOHDLC_TXS_TRAILER_SHIFT) & IOHDLC_TXS_CTRL_LEN_MASK);
-}
-
-static inline void ioHdlc_txs_set_trailer_len(iohdlc_tx_snapshot_t *txs, uint8_t trailer_len) {
-  txs->lens = (uint8_t)((txs->lens & IOHDLC_TXS_CTRL_LEN_MASK) |
-                        ((trailer_len & IOHDLC_TXS_CTRL_LEN_MASK) << IOHDLC_TXS_TRAILER_SHIFT));
-}
 
 /**
  * @brief   One segment of a transmit plan.

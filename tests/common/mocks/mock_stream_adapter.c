@@ -193,7 +193,7 @@ static void port_stop(void *ctx) {
 
 static int32_t port_tx_submit_frame(void *ctx, iohdlc_frame_t *fp) {
   const uint8_t *ptr = fp->frame;
-  size_t len = (size_t)fp->elen + ioHdlc_txs_get_trailer_len(&fp->tx_snapshot);
+  size_t len = fp->tx_len;
 
   IOHDLC_ASSERT(ctx != NULL, "mock tx_submit_frame: null adapter");
   IOHDLC_ASSERT(fp != NULL, "mock tx_submit_frame: null frame");

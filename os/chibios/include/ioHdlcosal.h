@@ -76,6 +76,7 @@ typedef struct {
 
 typedef semaphore_t iohdlc_sem_t;
 typedef binary_semaphore_t iohdlc_binary_semaphore_t;
+typedef binary_semaphore_t iohdlc_frame_txgate_t;
 typedef memory_pool_t iohdlc_memory_pool_t;
 
 /* Mutex type */
@@ -136,6 +137,26 @@ static inline void iohdlc_bsem_signal(iohdlc_binary_semaphore_t *bsp) {
 
 static inline void iohdlc_bsem_signal_i(iohdlc_binary_semaphore_t *bsp) {
   chBSemSignalI(bsp);
+}
+
+static inline void iohdlc_frame_txgate_init(iohdlc_frame_txgate_t *gp) {
+  chBSemObjectInit(gp, false);
+}
+
+static inline msg_t iohdlc_frame_txgate_wait(iohdlc_frame_txgate_t *gp) {
+  return chBSemWaitTimeout(gp, TIME_INFINITE);
+}
+
+static inline msg_t iohdlc_frame_txgate_trywait(iohdlc_frame_txgate_t *gp) {
+  return chBSemWaitTimeout(gp, TIME_IMMEDIATE);
+}
+
+static inline void iohdlc_frame_txgate_signal(iohdlc_frame_txgate_t *gp) {
+  chBSemSignal(gp);
+}
+
+static inline void iohdlc_frame_txgate_signal_i(iohdlc_frame_txgate_t *gp) {
+  chBSemSignalI(gp);
 }
 
 /*===========================================================================*/
@@ -200,6 +221,10 @@ static inline void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp) {
     chVTResetI(&vtp->vt);
   vtp->expired = false;
   chSysUnlock();
+}
+
+static inline void iohdlc_vt_deinit(iohdlc_virtual_timer_t *vtp) {
+  iohdlc_vt_reset(vtp);
 }
 
 /*===========================================================================*/

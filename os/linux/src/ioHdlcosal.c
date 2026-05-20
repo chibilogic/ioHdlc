@@ -340,8 +340,29 @@ void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp,
     timer_create(CLOCK_REALTIME, &sev, &vtp->timer_id);
   }
   
+  vtp->initialized = true;
   vtp->armed = false;
   vtp->expired = false;
+}
+
+void iohdlc_vt_deinit(iohdlc_virtual_timer_t *vtp) {
+  struct itimerspec its;
+
+  if (!vtp->initialized)
+    return;
+
+  pthread_mutex_lock(&vtp->lock);
+  memset(&its, 0, sizeof its);
+  timer_settime(vtp->timer_id, 0, &its, NULL);
+  timer_delete(vtp->timer_id);
+  vtp->callback = NULL;
+  vtp->par = NULL;
+  vtp->esp = NULL;
+  vtp->armed = false;
+  vtp->expired = false;
+  vtp->initialized = false;
+  pthread_mutex_unlock(&vtp->lock);
+  pthread_mutex_destroy(&vtp->lock);
 }
 
 void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp, uint32_t delay_ms,

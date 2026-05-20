@@ -104,13 +104,8 @@ typedef struct {
 
 #ifndef IOHDLC_USE_MOCK_ADAPTER
 typedef struct {
-  iohdlc_frame_q_t raw_q;    /* Driver-owned logical TX queue. */
+  iohdlc_frame_q_t raw_q;    /* Committed TX queue; frames are protected by tx_gate. */
   iohdlc_frame_t *inflight_fp;
-  iohdlc_frame_t *shadow_fp; /* Staged resend image for the inflight frame. */
-  uint8_t shadow_prefix[IOHDLC_TXPLAN_PREFIX_MAX];
-  uint8_t shadow_suffix[IOHDLC_TXPLAN_SUFFIX_MAX];
-  uint8_t shadow_prefix_len;
-  uint8_t shadow_suffix_len;
 } ioHdlcSwDriverTxState;
 #endif
 

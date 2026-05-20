@@ -27,7 +27,7 @@ digraph iohdlc_tx_data_flow {
   App [label="Application\nioHdlcWrite(...)"];
   Station [label="Station API\nvalidate and enqueue"];
   TxThread [label="TX runner entry\nioHdlcTxEntry()"];
-  Frame [label="Frame preparation\nbuild fields + tx_snapshot"];
+  Frame [label="Frame preparation\nupdate fields under TX gate"];
   Policy [label="Software driver\nframing + TX queue"];
   Driver [label="Physical submission\ntx_submit_frame(fp)"];
   Backend [label="Stream adapter\ncurrent transfer only"];

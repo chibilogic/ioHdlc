@@ -23,3 +23,34 @@ The estimated RTT should be filtered, for example with an EWMA, and then used to
 derive `T1` with explicit lower and upper clamps plus a safety margin. All
 updates must stay outside ISR paths; ISR code should remain limited to the
 minimum timestamp/callback work required by the backend.
+
+## Checkpoint and REJ Recovery Semantics
+
+The interaction between P/F checkpoint recovery and REJ recovery should be made
+more explicit and closer to ISO 13239 sections 5.6.2.1 and 5.6.2.2.
+
+The current implementation intentionally behaves as Go-Back-N because SREJ is
+not implemented and the effective receive window is one. Under this constraint,
+after `N(R)` processing it is acceptable for checkpoint or REJ recovery to move
+the whole retransmission queue back to the transmit queue.
+
+The part to refine is the mutual inhibition logic:
+
+- A REJ received after checkpoint retransmission should be inhibited only when
+  it would start retransmission from the same particular I-frame already
+  selected by checkpoint recovery, identified by the same `N(S)` in the same
+  numbering cycle.
+- Conversely, checkpoint recovery should be inhibited only when an already
+  actioned received REJ covers the same particular I-frame.
+- The local `rej_actioned` state currently describes a sent REJ exception on the
+  receive side. It should not be confused with the state needed to remember a
+  received REJ that has already been actioned on the transmit side.
+- `chkpt_actioned` should remain precise enough to represent the first I-frame
+  selected by checkpoint recovery; REJ inhibition should compare against that
+  value instead of treating any non-zero checkpoint state as a global inhibitor.
+- Comments around `checkpointRetransmit()` and the `IOHDLC_S_REJ` handling
+  should be updated once the state model is clarified.
+
+Validation should include traces with overlapping checkpoint and REJ recovery,
+checking for each REJ the requested `N(S)`, the first matching retransmission,
+and the frames emitted before that retransmission.
