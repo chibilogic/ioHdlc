@@ -94,6 +94,7 @@ typedef struct iohdlc_virtual_timer {
   void *par;                    /**< User parameter */
   volatile bool armed;          /**< Timer is armed/running (volatile for consistency) */
   volatile bool expired;        /**< Timer expired flag (volatile for consistency) */
+  bool initialized;             /**< Timer backend resources are valid. */
   pthread_mutex_t lock;         /**< Protect state */
   
   /* Event broadcasting (for unified runner) */
@@ -189,6 +190,7 @@ typedef struct {
 /* Alias for compatibility */
 /** @brief Compatibility alias for the binary semaphore type. */
 typedef iohdlc_bsem_t iohdlc_binary_semaphore_t;
+typedef iohdlc_bsem_t iohdlc_frame_txgate_t;
 
 /*===========================================================================*/
 /* Mutex (forward declaration needed by condvar)                            */
@@ -229,6 +231,27 @@ static inline void iohdlc_bsem_reset(iohdlc_bsem_t *bsem, bool taken) {
   pthread_mutex_lock(&bsem->mutex);
   bsem->signaled = !taken;
   pthread_mutex_unlock(&bsem->mutex);
+}
+
+static inline void iohdlc_frame_txgate_init(iohdlc_frame_txgate_t *gp) {
+  iohdlc_bsem_init(gp, false);
+}
+
+static inline msg_t iohdlc_frame_txgate_wait(iohdlc_frame_txgate_t *gp) {
+  return (iohdlc_bsem_wait_timeout(gp, IOHDLC_TIME_INFINITE) == 0) ?
+      MSG_OK : MSG_TIMEOUT;
+}
+
+static inline msg_t iohdlc_frame_txgate_trywait(iohdlc_frame_txgate_t *gp) {
+  return (iohdlc_bsem_wait_timeout(gp, 0U) == 0) ? MSG_OK : MSG_TIMEOUT;
+}
+
+static inline void iohdlc_frame_txgate_signal(iohdlc_frame_txgate_t *gp) {
+  iohdlc_bsem_signal(gp);
+}
+
+static inline void iohdlc_frame_txgate_signal_i(iohdlc_frame_txgate_t *gp) {
+  iohdlc_bsem_signal(gp);
 }
 
 /*===========================================================================*/
@@ -524,6 +547,12 @@ static inline void iohdlc_thread_yield(void) { sched_yield(); }
 void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp,
                     iohdlc_event_source_t *esp,
                     uint32_t evt_flag);
+
+/**
+ * @brief   Deinitialize a virtual timer.
+ * @param[in] vtp   Timer object to disarm and destroy.
+ */
+void iohdlc_vt_deinit(iohdlc_virtual_timer_t *vtp);
 
 /**
  * @brief   Arm or re-arm a virtual timer.

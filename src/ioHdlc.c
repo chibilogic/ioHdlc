@@ -492,6 +492,8 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
  * @return                0 on success, -1 on invalid argument
  */
 int32_t ioHdlcStationDeinit(iohdlc_station_t *ioHdlcsp) {
+  iohdlc_station_peer_t *p;
+
   if (ioHdlcsp == NULL) {
     iohdlc_errno = EINVAL;
     return -1;
@@ -503,6 +505,15 @@ int32_t ioHdlcStationDeinit(iohdlc_station_t *ioHdlcsp) {
 
   if (ioHdlcsp->driver != NULL) {
     hdlcStop(ioHdlcsp->driver);
+  }
+
+  if (ioHdlcsp->peers.next != NULL && ioHdlcsp->peers.prev != NULL) {
+    for (p = ioHdlcsp->peers.next;
+         p != (iohdlc_station_peer_t *)&ioHdlcsp->peers;
+         p = p->next) {
+      iohdlc_vt_deinit(&p->reply_tmr);
+      iohdlc_vt_deinit(&p->t3_tmr);
+    }
   }
 
   ioHdlcsp->stop_requested = false;
@@ -969,7 +980,8 @@ static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
  * @retval -1            Error occurred (check iohdlc_errno)
  * 
  * @note Blocks if i_pending_count >= 2*ks OR pool is LOW_WATER.
- * @note Sets address, N(S), frame ID; N(R) and P/F set during TX.
+ * @note Sets initial address and I-frame ID; N(S), N(R), P/F and ABM address
+ *       selection are finalized during TX.
  * @note Automatically fragments data if count > mifls.
  * @note Multiple threads can call Write concurrently on same peer.
  *       Flow control is thread-safe, but frame transmission ORDER is not guaranteed

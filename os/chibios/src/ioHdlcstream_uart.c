@@ -123,7 +123,7 @@ static void chb_stop(void *vctx) {
 static int32_t chb_tx_submit_frame(void *vctx, iohdlc_frame_t *fp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   const uint8_t *ptr = fp->frame;
-  size_t len = (size_t)fp->elen + ioHdlc_txs_get_trailer_len(&fp->tx_snapshot);
+  size_t len = fp->tx_len;
 
   chDbgAssert(ctx != NULL, "uart tx_submit: null ctx");
   chDbgAssert(fp != NULL, "uart tx_submit: null frame");

@@ -148,17 +148,19 @@ typedef struct ioHdlcStreamCallbacks {
 | `rx_cancel` | Driver → Backend | Cancel the currently armed RX transfer |
 
 `tx_submit_frame()` receives the `iohdlc_frame_t` selected by the software
-driver. The frame contains the per-send `tx_snapshot` prepared by the core and,
-for contiguous adapters, a driver-materialized wire image. UART, SPI, and the
-mock adapter currently consume that contiguous image directly. More capable
-adapters may use `ioHdlcStreamDriverOps::build_tx_plan()` to obtain a
-scatter/gather description or FCS-offload metadata for the same frame.
+driver. The core updates the per-send protocol fields while holding the frame
+TX gate; the software driver then commits the frame to its TX pipeline. For
+contiguous adapters, the driver materializes a wire image in the frame
+(`tx_len`, plus optional `openingflag`). UART, SPI, and the mock adapter
+currently consume that contiguous image directly. More capable adapters may use
+`ioHdlcStreamDriverOps::build_tx_plan()` to obtain a scatter/gather description
+or FCS-offload metadata for the same frame.
 
 **Driver services exposed to adapters:**
 
 | Operation | Direction | Description |
 |---|---|---|
-| `build_tx_plan` | Backend → Driver | Build a non-transparent TX plan for the supplied frame, using the frame snapshot and adapter-selected options |
+| `build_tx_plan` | Backend → Driver | Build a non-transparent TX plan for the supplied frame, using the frame protocol fields and adapter-selected options |
 
 **Port capabilities:**
 
@@ -195,7 +197,8 @@ The public FCS capability remains unified at driver level:
 
 **Responsibilities:**
 - `ioHdlcSwDriver` implements the framed HDLC driver on top of a stream port.
-- `ioHdlcSwDriver` owns the logical TX queue and the ordering policy.
+- `ioHdlcSwDriver` owns the logical TX queue, TX gate ownership while frames
+  are queued/in-flight, and the ordering policy.
 - `ioHdlcStreamPortOps` are provided by the backend and called by the driver.
 - `ioHdlcStreamCallbacks` are registered by the driver and invoked by the backend.
 - The stream adapter executes the current physical submission only.
@@ -205,10 +208,12 @@ The public FCS capability remains unified at driver level:
 **Flow direction:**
 1. Station initialization reads port capabilities through `get_caps()`.
 2. The software driver starts the backend and passes callbacks plus driver services.
-3. The core prepares per-send mutable fields in `fp->tx_snapshot`.
-4. The software driver serializes or queues the frame, then calls `tx_submit_frame()`.
+3. The core prepares per-send mutable fields while holding the frame TX gate.
+4. The software driver takes the TX gate, serializes or queues the frame, then
+   calls `tx_submit_frame()`.
 5. The backend starts the physical transfer and reports completion through `on_tx_done`.
-6. On TX completion, the driver may immediately submit the next queued frame from its own TX queue.
+6. On TX completion, the driver releases the completed frame TX gate and may
+   immediately submit the next queued frame from its own TX queue.
 7. RX callbacks feed the software deframer, which completes frame-oriented interactions for the core.
 
 The callback-oriented interaction is captured in the following sequence diagram.
@@ -288,9 +293,10 @@ The core is OS-agnostic but calls concrete functions defined in `src/ioHdlc_runn
 
 Application calls `ioHdlcWriteTmo()` → data is enqueued and
 `IOHDLC_EVT_TX_IFRM_ENQ` is broadcast → the TX thread wakes and builds an
-I-frame → the core stores the per-send mutable fields in `fp->tx_snapshot` →
-the software driver serializes the frame or places it in its driver-owned TX
-queue → the stream adapter receives `tx_submit_frame(fp)` for the current
+I-frame → the core updates the per-send mutable protocol fields under the
+frame TX gate → the software driver serializes the frame or places it in its
+driver-owned TX queue while holding the gate → the stream adapter receives
+`tx_submit_frame(fp)` for the current
 physical submission → the backend transmits the bytes over the physical
 transport and reports completion with `on_tx_done`.
 

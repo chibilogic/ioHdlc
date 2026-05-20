@@ -35,14 +35,6 @@
 #include <errno.h>
 #include <string.h>
 
-#if defined(IOHDLC_SWDRIVER_SHADOW_TRACE_PC8)
-#define IOHDLC_TRACE_SHADOW_PATH() palToggleLine(PAL_LINE(GPIOC, 8U))
-#elif defined(IOHDLC_SWDRIVER_SHADOW_TRACE_LINE)
-#define IOHDLC_TRACE_SHADOW_PATH() palToggleLine(IOHDLC_SWDRIVER_SHADOW_TRACE_LINE)
-#else
-#define IOHDLC_TRACE_SHADOW_PATH() ((void)0)
-#endif
-
 /*===========================================================================*/
 /* Forward declarations                                                      */
 /*===========================================================================*/
@@ -291,9 +283,6 @@ void ioHdlcSwDriverInit(ioHdlcSwDriver *drv, const ioHdlcSwDriverInitConfig *con
 #ifndef IOHDLC_USE_MOCK_ADAPTER
   ioHdlc_frameq_init(&drv->tx.raw_q);
   drv->tx.inflight_fp = NULL;
-  drv->tx.shadow_fp = NULL;
-  drv->tx.shadow_prefix_len = 0U;
-  drv->tx.shadow_suffix_len = 0U;
 #endif
   s_resolve_fcs_caps(drv);
   drv->config.fcs_size = drv->caps.fcs.default_size;
@@ -345,9 +334,6 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   
 #ifndef IOHDLC_USE_MOCK_ADAPTER
   drv->tx.inflight_fp = NULL;
-  drv->tx.shadow_fp = NULL;
-  drv->tx.shadow_prefix_len = 0U;
-  drv->tx.shadow_suffix_len = 0U;
 #endif
   drv->runtime.started = true;
 }
@@ -362,6 +348,12 @@ static void drv_stop(void *instance) {
   if (drv->port.handle.ops && drv->port.handle.ops->stop) {
     drv->port.handle.ops->stop(drv->port.handle.ctx);
   }
+
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+  iohdlc_sys_lock();
+  s_on_tx_error_i(drv, NULL, 0U);
+  iohdlc_sys_unlock();
+#endif
   
   if (drv->rx.stagep) {
     iohdlc_dma_free(drv->rx.stagep);
@@ -475,7 +467,6 @@ static int32_t s_build_tx_plan(void *cb_ctx, const iohdlc_frame_t *fp,
   uint8_t body_seg_idx = IOHDLC_TXPLAN_SEG_NONE;
   uint8_t prefix_cov_off = 0;
   uint8_t prefix_cov_len = 0;
-  const uint8_t *ctrl_src = NULL;
   uint8_t ctrl_len = 0;
 
   IOHDLC_ASSERT(drv != NULL, "s_build_tx_plan: null driver");
@@ -503,17 +494,15 @@ static int32_t s_build_tx_plan(void *cb_ctx, const iohdlc_frame_t *fp,
     plan->prefix[prefix_len++] = IOHDLC_FLAG;
   }
 
-  /* Derive the frame geometry from the TX snapshot currently bound to fp. */
-  ctrl_len = ioHdlc_txs_get_ctrl_len(&fp->tx_snapshot);
+  ctrl_len = fp->tx_ctrl_len;
 
-  IOHDLC_ASSERT(ctrl_len != 0U, "s_build_tx_plan: missing control snapshot");
-  if (ctrl_len > IOHDLC_TXS_INLINE_CTRL_MAX)
+  IOHDLC_ASSERT(ctrl_len != 0U, "s_build_tx_plan: missing control length");
+  if (ctrl_len > 2U)
     return ENOTSUP;
 
   info_off = drv->config.frame_format_size + 1U + ctrl_len;
   IOHDLC_ASSERT(fp->elen >= info_off, "s_build_tx_plan: frame shorter than header geometry");
   body_len = fp->elen - info_off;
-  ctrl_src = fp->tx_snapshot.ctrl;
 
   /* Materialize the non-transparent prefix: optional FFF, address, control. */
   if (drv->config.frame_format_size != 0U) {
@@ -528,8 +517,9 @@ static int32_t s_build_tx_plan(void *cb_ctx, const iohdlc_frame_t *fp,
 
   IOHDLC_ASSERT((size_t)prefix_len + 1U + ctrl_len <= IOHDLC_TXPLAN_PREFIX_MAX,
                 "s_build_tx_plan: prefix overflow on address/control");
-  plan->prefix[prefix_len++] = fp->tx_snapshot.addr;
-  memcpy(&plan->prefix[prefix_len], ctrl_src, ctrl_len);
+  plan->prefix[prefix_len++] = fp->frame[drv->config.frame_format_size];
+  memcpy(&plan->prefix[prefix_len],
+         &fp->frame[drv->config.frame_format_size + 1U], ctrl_len);
   prefix_len += ctrl_len;
   prefix_cov_off = eff_opts->prepend_opening_flag ? 1U : 0U;
   prefix_cov_len = (prefix_len > prefix_cov_off) ?
@@ -621,47 +611,37 @@ static int32_t s_build_tx_plan(void *cb_ctx, const iohdlc_frame_t *fp,
   return 0;
 }
 
-/**
- * @brief   Materialize the queued TX snapshot header into the frame wire image.
- * @details Copies the address and control octets stored in @p tx_snapshot into the
- *          serialized frame buffer so contiguous transmit paths can consume
- *          the frame directly.
- */
-static int32_t s_apply_tx_snapshot_header(const ioHdlcSwDriver *drv,
-                                          iohdlc_frame_t *fp) {
-  const uint8_t ctrl_len = ioHdlc_txs_get_ctrl_len(&fp->tx_snapshot);
-  const size_t info_off = (size_t)drv->config.frame_format_size + 1U + ctrl_len;
-  IOHDLC_ASSERT(drv != NULL, "s_apply_tx_snapshot_header: null driver");
-  IOHDLC_ASSERT(fp != NULL, "s_apply_tx_snapshot_header: null frame");
-  IOHDLC_ASSERT(ctrl_len != 0U, "s_apply_tx_snapshot_header: missing control snapshot");
-  IOHDLC_ASSERT(ctrl_len <= IOHDLC_TXS_INLINE_CTRL_MAX,
-                "s_apply_tx_snapshot_header: control field exceeds inline snapshot");
-  IOHDLC_ASSERT(fp->elen >= info_off,
-                "s_apply_tx_snapshot_header: frame shorter than header geometry");
+static int32_t s_materialize_tx_frame(ioHdlcSwDriver *drv, iohdlc_frame_t *fp) {
+  size_t wire_len = fp->elen;
 
-  fp->frame[drv->config.frame_format_size] = fp->tx_snapshot.addr;
-  memcpy(&fp->frame[drv->config.frame_format_size + 1U], fp->tx_snapshot.ctrl, ctrl_len);
-  return 0;
-}
+  IOHDLC_ASSERT(drv != NULL, "s_materialize_tx_frame: null driver");
+  IOHDLC_ASSERT(fp != NULL, "s_materialize_tx_frame: null frame");
+  IOHDLC_ASSERT(fp->tx_ctrl_len != 0U, "s_materialize_tx_frame: missing control length");
 
-static int32_t s_apply_tx_plan(iohdlc_frame_t *fp, const iohdlc_tx_plan_t *plan) {
-  const uint8_t prefix_len = plan->prefix_len;
-  const uint8_t suffix_len = plan->suffix_len;
-  const size_t trailer_len = plan->wire_len - (size_t)fp->elen;
+  if (drv->config.frame_format_size != 0U) {
+    size_t fff_len = 0U;
+    int32_t ret = s_emit_fff(drv, fp->elen - drv->config.frame_format_size,
+                             fp->frame, &fff_len);
+    if (ret != 0)
+      return ret;
+    IOHDLC_ASSERT(fff_len == drv->config.frame_format_size,
+                  "s_materialize_tx_frame: unexpected FFF length");
+  }
 
-  IOHDLC_ASSERT(fp != NULL, "s_apply_tx_plan: null frame");
-  IOHDLC_ASSERT(plan != NULL, "s_apply_tx_plan: null plan");
-  IOHDLC_ASSERT(plan->wire_len >= fp->elen, "s_apply_tx_plan: wire length shorter than frame");
-  IOHDLC_ASSERT(plan->fcs.size == 0U || plan->fcs.emitted != 0U,
-                "s_apply_tx_plan: contiguous path requires emitted FCS");
-  IOHDLC_ASSERT(trailer_len <= 0x0FU, "s_apply_tx_plan: trailer length exceeds snapshot encoding");
+  if (drv->config.fcs_size > 0U) {
+    const iohdlc_tx_seg_t seg = {
+      .ptr = fp->frame,
+      .len = wire_len,
+    };
 
-  if (prefix_len > 0U)
-    memcpy(fp->frame, plan->prefix, prefix_len);
-  if (suffix_len > 0U)
-    memcpy(&fp->frame[fp->elen], plan->suffix, suffix_len);
+    IOHDLC_ASSERT(drv->fcs.tx_compute_fn != NULL,
+                  "s_materialize_tx_frame: missing TX FCS compute hook");
+    drv->fcs.tx_compute_fn(drv, &seg, 1U, &fp->frame[wire_len]);
+    wire_len += drv->config.fcs_size;
+  }
 
-  ioHdlc_txs_set_trailer_len(&fp->tx_snapshot, (uint8_t)trailer_len);
+  fp->frame[wire_len++] = IOHDLC_FLAG;
+  fp->tx_len = (uint16_t)wire_len;
   return 0;
 }
 
@@ -671,79 +651,78 @@ static int32_t s_apply_tx_plan(iohdlc_frame_t *fp, const iohdlc_tx_plan_t *plan)
 
 static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)instance;
-  iohdlc_tx_plan_t plan;
   iohdlc_frame_t *nfp = fp;
-  size_t payload_len = fp->elen;  /* Core semantics: no FCS */
-  size_t wire_len = payload_len;
-  uint8_t trailer_len = 1U;
-  bool plan_ready = false;
+  iohdlc_frame_t *failed_fp = NULL;
   int32_t prep_ret = 0;
 
-  if (payload_len > 0U) {
-    /* Stage the next physical submission according to the configured framing. */
-    if (drv->config.apply_transparency) {
-      prep_ret = s_apply_tx_snapshot_header(drv, fp);
-      if (prep_ret != 0)
-        return prep_ret;
+  IOHDLC_ASSERT(drv != NULL, "drv_send_frame: null driver");
+  IOHDLC_ASSERT(fp != NULL, "drv_send_frame: null frame");
 
-      if (drv->config.frame_format_size != 0U) {
-        uint16_t total_wire_len = payload_len + drv->config.fcs_size;
-
-        if (drv->config.frame_format_size == 1U) {
-          fp->frame[0] = (uint8_t)total_wire_len;
-        } else if (drv->config.frame_format_size == 2U) {
-          fp->frame[0] = 0x80U | ((total_wire_len >> 8) & 0x0FU);
-          fp->frame[1] = (uint8_t)(total_wire_len & 0xFFU);
-        } else {
-          IOHDLC_ASSERT(false, "drv_send_frame: unsupported configured FFF size");
-          return EINVAL;
-        }
-      }
-
-      if (drv->config.fcs_size > 0U) {
-        const iohdlc_tx_seg_t seg = {
-          .ptr = fp->frame,
-          .len = payload_len,
-        };
-
-        IOHDLC_ASSERT(drv->fcs.tx_compute_fn != NULL,
-                      "drv_send_frame: missing transparent TX FCS compute hook");
-        drv->fcs.tx_compute_fn(drv, &seg, 1U, &fp->frame[payload_len]);
-        wire_len = payload_len + drv->config.fcs_size;
-        trailer_len = (uint8_t)(drv->config.fcs_size + 1U);
-      }
-
-      nfp = hdlcTakeFrame(drv->fpp);
-      if (nfp == NULL)
-        return ENOMEM;  /* No memory (errno-compatible) */
-      (void)ioHdlcFrameTransparentEncode(nfp, fp);
-      wire_len = nfp->elen;
-      trailer_len = 1U;
-    } else {
-      prep_ret = s_build_tx_plan(drv, fp, NULL, &plan);
-      if (prep_ret != 0)
-        return prep_ret;
-      plan_ready = true;
-      wire_len = plan.wire_len;
-      trailer_len = (uint8_t)(wire_len - payload_len);
-      hdlcAddRef(drv->fpp, nfp);
-    }
+  if (ioHdlcFrameTxGateTryWait(fp) != MSG_OK) {
+    IOHDLC_ASSERT(false, "drv_send_frame: frame already committed to TX");
+    return EBUSY;
   }
 
   if (drv->config.apply_transparency) {
-    nfp->frame[wire_len++] = IOHDLC_FLAG;
-    ioHdlc_txs_set_trailer_len(&nfp->tx_snapshot, trailer_len);
+    const size_t payload_len = fp->elen;
+    size_t wire_len = payload_len;
+
+    if (drv->config.frame_format_size != 0U) {
+      size_t fff_len = 0U;
+
+      prep_ret = s_emit_fff(drv, payload_len - drv->config.frame_format_size,
+                            fp->frame, &fff_len);
+      if (prep_ret != 0) {
+        ioHdlcFrameTxGateRelease(fp);
+        return prep_ret;
+      }
+      IOHDLC_ASSERT(fff_len == drv->config.frame_format_size,
+                    "drv_send_frame: unexpected FFF length");
+    }
+
+    if (drv->config.fcs_size > 0U) {
+      const iohdlc_tx_seg_t seg = {
+        .ptr = fp->frame,
+        .len = wire_len,
+      };
+
+      IOHDLC_ASSERT(drv->fcs.tx_compute_fn != NULL,
+                    "drv_send_frame: missing transparent TX FCS compute hook");
+      drv->fcs.tx_compute_fn(drv, &seg, 1U, &fp->frame[wire_len]);
+      wire_len += drv->config.fcs_size;
+    }
+
+    fp->elen = (uint16_t)wire_len;
+    nfp = hdlcTakeFrame(drv->fpp);
+    if (nfp == NULL) {
+      fp->elen = (uint16_t)payload_len;
+      ioHdlcFrameTxGateRelease(fp);
+      return ENOMEM;
+    }
+
+    (void)ioHdlcFrameTransparentEncode(nfp, fp);
+    fp->elen = (uint16_t)payload_len;
+    ioHdlcFrameTxGateRelease(fp);
+
+    if (ioHdlcFrameTxGateTryWait(nfp) != MSG_OK) {
+      IOHDLC_ASSERT(false, "drv_send_frame: encoded frame TX gate busy");
+      hdlcReleaseFrame(drv->fpp, nfp);
+      return EBUSY;
+    }
+
+    nfp->frame[nfp->elen] = IOHDLC_FLAG;
+    nfp->tx_len = (uint16_t)(nfp->elen + 1U);
+  } else {
+    prep_ret = s_materialize_tx_frame(drv, fp);
+    if (prep_ret != 0) {
+      ioHdlcFrameTxGateRelease(fp);
+      return prep_ret;
+    }
+    hdlcAddRef(drv->fpp, fp);
   }
 
 #ifdef IOHDLC_USE_MOCK_ADAPTER
   /* Mock adapter: submit synchronously through the adapter wrapper. */
-  if (plan_ready && drv->port.tx_materialize_plan) {
-    prep_ret = s_apply_tx_plan(nfp, &plan);
-    if (prep_ret != 0) {
-      hdlcReleaseFrame(drv->fpp, nfp);
-      return prep_ret;
-    }
-  }
   nfp->openingflag = 0;
   if (drv->port.handle.ops && drv->port.handle.ops->tx_busy &&
       !drv->port.handle.ops->tx_busy(drv->port.handle.ctx)) {
@@ -752,93 +731,38 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
   if (drv->port.handle.ops && drv->port.handle.ops->tx_submit_frame) {
     int32_t ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, nfp);
     if (ret != 0) {
+      ioHdlcFrameTxGateRelease(nfp);
       hdlcReleaseFrame(drv->fpp, nfp);
       return ret;
     }
   }
 #else
-  /*
-   * The swdriver owns the only logical TX queue. Backends execute the current
-   * submission and, at most, keep the next resend image shadowed for the same
-   * inflight frame.
-   */
+  /* The swdriver owns the TX pipeline; committed frames are protected by tx_gate. */
   iohdlc_sys_lock();
 
   bool tx_busy = drv->port.handle.ops->tx_busy(drv->port.handle.ctx);
 
   if (!tx_busy && ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
     /* TX idle: kickstart directly (don't enqueue). */
-    if (plan_ready && drv->port.tx_materialize_plan) {
-      prep_ret = s_apply_tx_plan(nfp, &plan);
-      if (prep_ret != 0) {
-        iohdlc_sys_unlock();
-        hdlcReleaseFrame(drv->fpp, nfp);
-        return prep_ret;
-      }
-    }
     nfp->openingflag = IOHDLC_FLAG;
     drv->tx.inflight_fp = nfp;
     prep_ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, nfp);
     if (prep_ret != 0) {
       drv->tx.inflight_fp = NULL;
       iohdlc_sys_unlock();
+      ioHdlcFrameTxGateRelease(nfp);
       hdlcReleaseFrame(drv->fpp, nfp);
       return prep_ret;
     }
   } else if (nfp->q_aux.next == NULL) {
-    /* First queueing, or the same frame is re-queued while still inflight. */
-    if (plan_ready && drv->port.tx_materialize_plan) {
-      if (drv->tx.inflight_fp == nfp) {
-        IOHDLC_TRACE_SHADOW_PATH();
-#if 1
-        const uint8_t prefix_len = plan.prefix_len;
-        const uint8_t suffix_len = plan.suffix_len;
-        const size_t trailer_len = plan.wire_len - (size_t)nfp->elen;
-
-        IOHDLC_ASSERT(plan.wire_len >= nfp->elen,
-                      "drv_send_frame: shadow wire length shorter than frame");
-        IOHDLC_ASSERT(plan.fcs.size == 0U || plan.fcs.emitted != 0U,
-                      "drv_send_frame: shadow path requires emitted FCS");
-        IOHDLC_ASSERT(trailer_len <= 0x0FU,
-                      "drv_send_frame: trailer length exceeds snapshot encoding");
-
-        drv->tx.shadow_fp = nfp;
-        drv->tx.shadow_prefix_len = prefix_len;
-        drv->tx.shadow_suffix_len = suffix_len;
-
-        if (prefix_len > 0U)
-          memcpy(drv->tx.shadow_prefix, plan.prefix, prefix_len);
-        if (suffix_len > 0U)
-          memcpy(drv->tx.shadow_suffix, plan.suffix, suffix_len);
-
-        ioHdlc_txs_set_trailer_len(&nfp->tx_snapshot, (uint8_t)trailer_len);
-#endif
-        prep_ret = 0;
-
-      } else {
-        prep_ret = s_apply_tx_plan(nfp, &plan);
-      }
-
-      if (prep_ret != 0) {
-        iohdlc_sys_unlock();
-        hdlcReleaseFrame(drv->fpp, nfp);
-        return prep_ret;
-      }
-    }
     nfp->openingflag = 0;
     ioHdlc_frameq_insert(&drv->tx.raw_q, &nfp->q_aux);
   } else {
-    /* Already queued: refresh ordering without changing the active wire image. */
-    if (plan_ready && drv->port.tx_materialize_plan) {
-      prep_ret = s_apply_tx_plan(nfp, &plan);
-      if (prep_ret != 0) {
-        iohdlc_sys_unlock();
-        hdlcReleaseFrame(drv->fpp, nfp);
-        return prep_ret;
-      }
-    }
-    ioHdlc_frameq_move_tail(&drv->tx.raw_q, &nfp->q_aux);
+    IOHDLC_ASSERT(false, "drv_send_frame: frame already queued in TX pipeline");
+    iohdlc_sys_unlock();
+    ioHdlcFrameTxGateRelease(nfp);
     hdlcReleaseFrame(drv->fpp, nfp);
+    return EBUSY;
   }
 
   if (!tx_busy && drv->tx.inflight_fp == NULL &&
@@ -853,10 +777,15 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
     prep_ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, next_fp);
     if (prep_ret != 0) {
       drv->tx.inflight_fp = NULL;
+      ioHdlcFrameTxGateReleaseI(next_fp);
+      failed_fp = next_fp;
       IOHDLC_ASSERT(false, "drv_send_frame: queued TX submit failed while idle");
     }
   }
   iohdlc_sys_unlock();
+
+  if (failed_fp != NULL)
+    hdlcReleaseFrame(drv->fpp, failed_fp);
 #endif
 
   return 0;
@@ -1113,22 +1042,6 @@ static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo) {
   return fp;
 }
 
-#ifndef IOHDLC_USE_MOCK_ADAPTER
-static void s_restore_tx_shadow(ioHdlcSwDriver *drv, iohdlc_frame_t *fp) {
-  if (fp == NULL || drv->tx.shadow_fp != fp)
-    return;
-
-  if (drv->tx.shadow_prefix_len > 0U)
-    memcpy(fp->frame, drv->tx.shadow_prefix, drv->tx.shadow_prefix_len);
-  if (drv->tx.shadow_suffix_len > 0U)
-    memcpy(&fp->frame[fp->elen], drv->tx.shadow_suffix, drv->tx.shadow_suffix_len);
-
-  drv->tx.shadow_fp = NULL;
-  drv->tx.shadow_prefix_len = 0U;
-  drv->tx.shadow_suffix_len = 0U;
-}
-#endif
-
 /**
  * @brief   Frame sender callback: TX complete.
  * @details Releases the completed frame and, on non-mock backends, kicks the
@@ -1138,6 +1051,7 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
   iohdlc_frame_t *done_fp = (iohdlc_frame_t *)framep;
   iohdlc_frame_t *next_fp = NULL;
+  iohdlc_frame_t *failed_fp = NULL;
 
 #ifndef IOHDLC_USE_MOCK_ADAPTER
   /* Swdriver-owned TX queue callback path. */
@@ -1145,7 +1059,8 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
   if (drv->tx.inflight_fp == done_fp)
     drv->tx.inflight_fp = NULL;
 
-  s_restore_tx_shadow(drv, done_fp);
+  if (done_fp != NULL)
+    ioHdlcFrameTxGateReleaseI(done_fp);
 
   if (!ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
     iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->tx.raw_q);
@@ -1160,14 +1075,20 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
     int32_t ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, next_fp);
     if (ret != 0) {
       drv->tx.inflight_fp = NULL;
-      done_fp = next_fp;
+      ioHdlcFrameTxGateReleaseI(next_fp);
+      failed_fp = next_fp;
     }
   }
   iohdlc_sys_unlock_isr();
+#else
+  if (done_fp != NULL)
+    ioHdlcFrameTxGateRelease(done_fp);
 #endif
 
   if (done_fp)
     hdlcReleaseFrame(drv->fpp, done_fp);
+  if (failed_fp)
+    hdlcReleaseFrame(drv->fpp, failed_fp);
 }
 
 /**
@@ -1186,7 +1107,8 @@ static void s_on_tx_error_i(void *cb_ctx, void *framep, uint32_t errmask) {
   if (done_fp == NULL)
     done_fp = drv->tx.inflight_fp;
   drv->tx.inflight_fp = NULL;
-  s_restore_tx_shadow(drv, done_fp);
+  if (done_fp != NULL)
+    ioHdlcFrameTxGateReleaseI(done_fp);
 
   while (!ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
     iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->tx.raw_q);
@@ -1194,13 +1116,11 @@ static void s_on_tx_error_i(void *cb_ctx, void *framep, uint32_t errmask) {
 
     queued_fp->q_aux.next = NULL;
     queued_fp->q_aux.prev = NULL;
-    s_restore_tx_shadow(drv, queued_fp);
+    ioHdlcFrameTxGateReleaseI(queued_fp);
     iohdlc_sys_unlock_isr();
     hdlcReleaseFrame(drv->fpp, queued_fp);
     iohdlc_sys_lock_isr();
   }
-
-  s_restore_tx_shadow(drv, drv->tx.shadow_fp);
 #endif
 
 #ifndef IOHDLC_USE_MOCK_ADAPTER

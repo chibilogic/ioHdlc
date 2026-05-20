@@ -86,6 +86,26 @@ static int send_and_check(iohdlc_station_peer_t *tx_peer,
   return 0;
 }
 
+static bool wait_sender_receiver_state(iohdlc_station_peer_t *tx_peer,
+                                       iohdlc_station_peer_t *rx_peer,
+                                       uint32_t expected, uint32_t timeout_ms) {
+  uint32_t elapsed_ms = 0;
+
+  do {
+    if (tx_peer->vs == expected && tx_peer->nr == expected &&
+        rx_peer->vr == expected) {
+      return true;
+    }
+
+    ioHdlc_sleep_ms(1);
+    ++elapsed_ms;
+  } while (elapsed_ms < timeout_ms);
+
+  test_printf("State wait timeout: expected=%u, tx V(S)=%u, tx N(R)=%u, rx V(R)=%u\r\n",
+              expected, tx_peer->vs, tx_peer->nr, rx_peer->vr);
+  return false;
+}
+
 /*===========================================================================*/
 /* Test: Modulo 128 ABM/TWS                                                  */
 /*===========================================================================*/
@@ -171,23 +191,17 @@ bool test_abm_mod128_wraparound(const test_adapter_t *adapter) {
                      "A -> B transfer failed before wrap");
   }
 
-  ioHdlc_sleep_ms(50);
-  TEST_ASSERT_GOTO(peer_at_a.vs == 0, "A sender V(S) should wrap to 0 after 128 frames");
-  TEST_ASSERT_GOTO(peer_at_a.nr == 0, "A sender N(R) should wrap to 0 after 128 frames");
-  TEST_ASSERT_GOTO(peer_at_b.vr == 0, "B receiver V(R) should wrap to 0 after 128 frames");
+  TEST_ASSERT_GOTO(wait_sender_receiver_state(&peer_at_a, &peer_at_b, 0U, 500U),
+                   "A/B state should wrap to 0 after 128 frames");
 
   for (seq = MOD128_WRAP_COUNT; seq < MOD128_TOTAL_COUNT; ++seq) {
     TEST_ASSERT_GOTO(send_and_check(&peer_at_a, &peer_at_b, seq) == 0,
                      "A -> B transfer failed after wrap");
   }
 
-  ioHdlc_sleep_ms(50);
-  TEST_ASSERT_GOTO(peer_at_a.vs == MOD128_EXTRA_COUNT,
-                   "A sender V(S) should advance past wrap");
-  TEST_ASSERT_GOTO(peer_at_a.nr == MOD128_EXTRA_COUNT,
-                   "A sender N(R) should advance past wrap");
-  TEST_ASSERT_GOTO(peer_at_b.vr == MOD128_EXTRA_COUNT,
-                   "B receiver V(R) should advance past wrap");
+  TEST_ASSERT_GOTO(wait_sender_receiver_state(&peer_at_a, &peer_at_b,
+                                              MOD128_EXTRA_COUNT, 500U),
+                   "A/B state should advance past wrap");
 
   test_printf("Sending %u packets B -> A...\r\n", MOD128_TOTAL_COUNT);
   for (seq = 0; seq < MOD128_WRAP_COUNT; ++seq) {
@@ -195,23 +209,17 @@ bool test_abm_mod128_wraparound(const test_adapter_t *adapter) {
                      "B -> A transfer failed before wrap");
   }
 
-  ioHdlc_sleep_ms(50);
-  TEST_ASSERT_GOTO(peer_at_b.vs == 0, "B sender V(S) should wrap to 0 after 128 frames");
-  TEST_ASSERT_GOTO(peer_at_b.nr == 0, "B sender N(R) should wrap to 0 after 128 frames");
-  TEST_ASSERT_GOTO(peer_at_a.vr == 0, "A receiver V(R) should wrap to 0 after 128 frames");
+  TEST_ASSERT_GOTO(wait_sender_receiver_state(&peer_at_b, &peer_at_a, 0U, 500U),
+                   "B/A state should wrap to 0 after 128 frames");
 
   for (seq = MOD128_WRAP_COUNT; seq < MOD128_TOTAL_COUNT; ++seq) {
     TEST_ASSERT_GOTO(send_and_check(&peer_at_b, &peer_at_a, seq) == 0,
                      "B -> A transfer failed after wrap");
   }
 
-  ioHdlc_sleep_ms(50);
-  TEST_ASSERT_GOTO(peer_at_b.vs == MOD128_EXTRA_COUNT,
-                   "B sender V(S) should advance past wrap");
-  TEST_ASSERT_GOTO(peer_at_b.nr == MOD128_EXTRA_COUNT,
-                   "B sender N(R) should advance past wrap");
-  TEST_ASSERT_GOTO(peer_at_a.vr == MOD128_EXTRA_COUNT,
-                   "A receiver V(R) should advance past wrap");
+  TEST_ASSERT_GOTO(wait_sender_receiver_state(&peer_at_b, &peer_at_a,
+                                              MOD128_EXTRA_COUNT, 500U),
+                   "B/A state should advance past wrap");
 
   result = ioHdlcStationLinkDown(&station_a, STATION_B_ADDR);
   TEST_ASSERT_GOTO(result == 0, "LinkDown failed");

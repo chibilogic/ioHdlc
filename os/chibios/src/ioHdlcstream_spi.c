@@ -532,7 +532,7 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
 static int32_t chb_spi_tx_submit_frame(void *vctx, iohdlc_frame_t *fp) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
   const uint8_t *ptr = fp->frame;
-  size_t len = (size_t)fp->elen + ioHdlc_txs_get_trailer_len(&fp->tx_snapshot);
+  size_t len = fp->tx_len;
 
   chDbgAssert(ctx != NULL, "spi tx_submit_frame: null ctx");
   chDbgAssert(fp != NULL, "spi tx_submit_frame: null frame");

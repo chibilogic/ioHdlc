@@ -54,11 +54,6 @@
 
 /* Forward declarations for U-frame handler */
 static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
-static void stashTxSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
-                                  uint8_t ctrl_len);
-static uint32_t stashIFrameSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
-                                          uint8_t addr, uint32_t ns_seed,
-                                          uint32_t nr, bool set_pf);
 
 /*===========================================================================*/
 /* Module local definitions.                                                 */
@@ -105,14 +100,6 @@ static uint32_t replyTimerTimeoutMs(const iohdlc_station_t *s,
 /*===========================================================================*/
 
 static void applyModeState(iohdlc_station_t *s, uint8_t mode);
-
-static uint32_t extractNSFromCtrl(iohdlc_station_t *s, const uint8_t *ctrl) {
-  if (s->framing.modmask == 7) {
-    return (ctrl[0] >> 1) & 0x07;
-  }
-
-  return (ctrl[0] >> 1) & 0x7F;
-}
 
 static void setNSInCtrl(iohdlc_station_t *s, uint8_t *ctrl, uint32_t ns) {
   if (s->framing.modmask == 7) {
@@ -374,7 +361,7 @@ static void buildFrmrResponse(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
   /* elen: FFF + addr(1) + ctrl(1) + info */
   fp->elen = (uint16_t)(s->framing.frame_offset + 2 + info_len);
-  stashTxSnapshotHeader(s, fp, 1U);
+  fp->tx_ctrl_len = 1U;
 }
 
 /**
@@ -1411,9 +1398,7 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint8_t *end = fp->frame + s->framing.frame_offset;
   end += 2;  /* ADDR(1) + CTRL(1) - U-frame control is always 1 byte */
   fp->elen = (uint16_t)(end - fp->frame);
-  
-  /* FFF will be valorized by driver (driver knows FCS size) */
-  stashTxSnapshotHeader(s, fp, 1U);
+  fp->tx_ctrl_len = 1U;
 }
 
 /**
@@ -1438,57 +1423,29 @@ static void buildUFrameWithInfo(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   fp->elen = (uint16_t)(fp->elen + info_len);
 }
 
-/**
- * @brief   Snapshot the mutable I-frame header into the per-frame snapshot slot.
- * @details Keeps N(S) stable across retransmissions and refreshes only the
- *          per-send fields that may change while the frame remains queued.
- */
-static uint32_t stashIFrameSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
-                                          uint8_t addr, uint32_t ns_seed,
-                                          uint32_t nr, bool set_pf) {
+static uint32_t prepareIFrameHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
+                                    uint8_t addr, uint32_t ns_seed,
+                                    uint32_t nr, bool set_pf) {
   const uint8_t ctrl_len = s->framing.ctrl_size;
+  uint8_t *ctrl = &IOHDLC_FRAME_CTRL(s, fp, 0);
   uint32_t ns;
-  IOHDLC_ASSERT(ctrl_len <= IOHDLC_TXS_INLINE_CTRL_MAX,
-                "stashIFrameSnapshotHeader: control field exceeds "
-                "TX snapshot contract");
 
-  if (ioHdlc_txs_get_ctrl_len(&fp->tx_snapshot) != ctrl_len ||
-      !IOHDLC_IS_I_FRM(fp->tx_snapshot.ctrl[0])) {
-    fp->tx_snapshot.ctrl[0] = IOHDLC_I_ID;
+  IOHDLC_ASSERT(ctrl_len <= 2U, "prepareIFrameHeader: unsupported control size");
+
+  if (fp->tx_ctrl_len != ctrl_len || !IOHDLC_IS_I_FRM(ctrl[0])) {
+    ctrl[0] = IOHDLC_I_ID;
     if (ctrl_len > 1U)
-      fp->tx_snapshot.ctrl[1] = 0U;
-    setNSInCtrl(s, fp->tx_snapshot.ctrl, ns_seed);
-    ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
+      ctrl[1] = 0U;
+    setNSInCtrl(s, ctrl, ns_seed);
+    fp->tx_ctrl_len = ctrl_len;
   }
 
-  ns = extractNSFromCtrl(s, fp->tx_snapshot.ctrl);
-  setNRInCtrl(s, fp->tx_snapshot.ctrl, nr);
-  setPFInCtrl(s, fp->tx_snapshot.ctrl, set_pf);
+  ns = extractNS(s, fp);
+  setNRInCtrl(s, ctrl, nr);
+  setPFInCtrl(s, ctrl, set_pf);
+  IOHDLC_FRAME_ADDR(s, fp) = addr;
 
-  fp->tx_snapshot.addr = addr;
-  ioHdlc_txs_set_trailer_len(&fp->tx_snapshot, 0U);
   return ns;
-}
-
-/**
- * @brief   Snapshot TX header bytes into the per-frame snapshot slot.
- * @details Not strictly needed for U/S frames, but convenient to keep
- *          a uniform TX contract and avoid forcing drivers to discriminate
- *          on frame type.
- */
-static void stashTxSnapshotHeader(iohdlc_station_t *s, iohdlc_frame_t *fp,
-                                  uint8_t ctrl_len) {
-  const uint8_t inline_len =
-      (ctrl_len <= IOHDLC_TXS_INLINE_CTRL_MAX) ? ctrl_len : IOHDLC_TXS_INLINE_CTRL_MAX;
-
-  fp->tx_snapshot.addr = IOHDLC_FRAME_ADDR(s, fp);
-  if (inline_len > 0U) {
-    fp->tx_snapshot.ctrl[0] = IOHDLC_FRAME_CTRL(s, fp, 0);
-    if (inline_len > 1U)
-      fp->tx_snapshot.ctrl[1] = IOHDLC_FRAME_CTRL(s, fp, 1);
-  }
-  ioHdlc_txs_set_ctrl_len(&fp->tx_snapshot, ctrl_len);
-  ioHdlc_txs_set_trailer_len(&fp->tx_snapshot, 0U);
 }
 
 /**
@@ -1549,9 +1506,7 @@ static void buildSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
   uint8_t *end = fp->frame + s->framing.frame_offset;
   end += 1 + s->framing.ctrl_size;  /* ADDR(1) + CTRL(1,2,4,8) */
   fp->elen = (uint16_t)(end - fp->frame);
-  
-  /* FFF will be valorized by driver (driver knows FCS size) */
-  stashTxSnapshotHeader(s, fp, s->framing.ctrl_size);
+  fp->tx_ctrl_len = s->framing.ctrl_size;
 }
 
 /**
@@ -1758,6 +1713,9 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       break;  /* Safety check. */
     }
 
+    msg_t gate_msg = ioHdlcFrameTxGateWait(fp);
+    IOHDLC_ASSERT(gate_msg == MSG_OK, "ioHdlcConnectedTx: frame TX gate wait failed");
+
     bool set_pf = false;
 
     /* In NRM, command/response is fixed by role. In ABM, it depends on
@@ -1794,12 +1752,12 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Read vr for N(R) field */
     uint32_t nr_value = p->vr;
     
+    const uint32_t tx_ns = prepareIFrameHeader(s, fp, tx_addr, p->vs,
+                                               nr_value, set_pf);
+    (void)tx_ns;
+
     /* Move frame to retransmission queue. */
     ioHdlc_frameq_insert(&p->i_retrans_q, &fp->q);
-
-    const uint32_t tx_ns = stashIFrameSnapshotHeader(s, fp, tx_addr, p->vs,
-                                                     nr_value, set_pf);
-    (void)tx_ns;
 
     /* Advance V(S) over the frame just queued for TX/retransmission. */
     if (p->vs == p->vs_highest)
@@ -1825,7 +1783,7 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     size_t info_len = fp->elen - (s->framing.frame_offset + 1 + s->framing.ctrl_size);
     uint32_t log_ns = tx_ns;
     uint32_t log_nr = nr_value;
-    uint8_t log_addr = fp->tx_snapshot.addr;
+    uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
     uint8_t fflags = 0;
 #endif
 
@@ -1833,6 +1791,8 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     IOHDLC_LOG_IFRAME(IOHDLC_LOG_TX, s->addr, log_addr,
                       log_ns, log_nr, set_pf, info_len,
                       p->i_pending_count, p->ks, fflags);
+
+    ioHdlcFrameTxGateRelease(fp);
 
     /* Send frame under lock to ensure state consistency */
     (void)hdlcSendFrame(s->driver, fp);
