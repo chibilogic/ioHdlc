@@ -44,19 +44,20 @@
 #include <errno.h>
 #include <string.h>
 
-#if defined(IOHDLC_TMO_RECOVERY_TRACE_LINE)
-#define IOHDLC_TRACE_TMO_RECOVERY_SET()   palSetLine(IOHDLC_TMO_RECOVERY_TRACE_LINE)
-#define IOHDLC_TRACE_TMO_RECOVERY_CLEAR() palClearLine(IOHDLC_TMO_RECOVERY_TRACE_LINE)
-#else
-#define IOHDLC_TRACE_TMO_RECOVERY_SET()   ((void)0)
-#define IOHDLC_TRACE_TMO_RECOVERY_CLEAR() ((void)0)
-#endif
-
-/* Forward declarations for U-frame handler */
-static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp);
-
 /*===========================================================================*/
 /* Module local definitions.                                                 */
+/*===========================================================================*/
+
+/*===========================================================================*/
+/* Module exported variables.                                                */
+/*===========================================================================*/
+
+/*===========================================================================*/
+/* Module local variables and types.                                         */
+/*===========================================================================*/
+
+/*===========================================================================*/
+/* Module local functions.                                                   */
 /*===========================================================================*/
 
 static uint32_t lastRetryReplyTimeoutMs(const iohdlc_station_t *s) {
@@ -87,19 +88,13 @@ static uint32_t replyTimerTimeoutMs(const iohdlc_station_t *s,
   return s->reply_timeout_ms << retry_count;
 }
 
-/*===========================================================================*/
-/* Module exported variables.                                                */
-/*===========================================================================*/
+static uint32_t iFrameReplyTimeoutMs(const iohdlc_station_t *s) {
+  return s->reply_timeout_ms * IOHDLC_DFL_T3_T1_RATIO;
+}
 
-/*===========================================================================*/
-/* Module local variables and types.                                         */
-/*===========================================================================*/
-
-/*===========================================================================*/
-/* Module local functions.                                                   */
-/*===========================================================================*/
-
-static void applyModeState(iohdlc_station_t *s, uint8_t mode);
+static bool iFrameReplyTimerUsed(const iohdlc_station_t *s) {
+  return IOHDLC_IS_ARM(s) || IOHDLC_IS_ABM(s);
+}
 
 static void setNSInCtrl(iohdlc_station_t *s, uint8_t *ctrl, uint32_t ns) {
   if (s->framing.modmask == 7) {
@@ -206,6 +201,7 @@ static void resetPeerProtocolState(iohdlc_station_peer_t *p) {
   ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
   ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
   p->nr = p->vr = p->vs = p->vs_highest = 0;
+  p->t3_expected_nr = 0;
   p->ss_state &= (uint8_t)(IOHDLC_SS_ST_CONN |
                            IOHDLC_SS_TERM_ORDERLY |
                            IOHDLC_SS_TERM_ABORTED);
@@ -215,6 +211,24 @@ static void resetPeerProtocolState(iohdlc_station_peer_t *p) {
   p->ui_tx_pending = false;
   p->ui_rx_pending = false;
   resetPeerUm(p);
+}
+
+/**
+ * @brief   Apply mode-specific runtime state on the station object.
+ * @param[in] s      Station descriptor.
+ * @param[in] mode   Operating mode to apply.
+ */
+static void applyModeState(iohdlc_station_t *s, uint8_t mode) {
+  if (mode == IOHDLC_OM_NRM) {
+    s->rx_fn = ioHdlcNrmRx;
+  } else if (mode == IOHDLC_OM_ABM) {
+    s->rx_fn = ioHdlcAbmRx;
+    s->flags |= IOHDLC_FLG_PRI;
+    s->pf_state |= IOHDLC_F_RCVED;  /* Combined station: free to poll. */
+  } else {
+    /* Disconnected and unsupported modes: no connected-mode RX handler. */
+    s->rx_fn = NULL;
+  }
 }
 
 static void closePeerOrderly(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
@@ -371,24 +385,6 @@ static void buildFrmrResponse(iohdlc_station_t *s, iohdlc_station_peer_t *p,
  */
 static bool isConnectionUCommand(uint8_t u_cmd) {
   return (u_cmd == IOHDLC_U_SNRM) || (u_cmd == IOHDLC_U_SABM);
-}
-
-/**
- * @brief   Apply mode-specific runtime state on the station object.
- * @param[in] s      Station descriptor.
- * @param[in] mode   Operating mode to apply.
- */
-static void applyModeState(iohdlc_station_t *s, uint8_t mode) {
-  if (mode == IOHDLC_OM_NRM) {
-    s->rx_fn = ioHdlcNrmRx;
-  } else if (mode == IOHDLC_OM_ABM) {
-    s->rx_fn = ioHdlcAbmRx;
-    s->flags |= IOHDLC_FLG_PRI;
-    s->pf_state |= IOHDLC_F_RCVED;  /* Combined station: free to poll. */
-  } else {
-    /* Disconnected and unsupported modes: no connected-mode RX handler. */
-    s->rx_fn = NULL;
-  }
 }
 
 /**
@@ -597,7 +593,6 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       ioHdlcSetConnected(p);
       ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_LINK_UP);
       p->um_rsp = IOHDLC_U_UA;
-      
     } else if (u_cmd == IOHDLC_U_DISC) {
       /* DISC command received. */
       if (IOHDLC_IS_DISC(s)) {
@@ -608,7 +603,6 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
            The TX will complete the disconnect operations. */
         p->um_rsp = IOHDLC_U_UA;
       }
-      
     } else {
       /* Unsupported or unimplemented command.
          Per 6.11.4.1.3: respond with DM. */
@@ -800,6 +794,9 @@ static bool processNR(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       p->vs_atlast_pf = (p->vs_atlast_pf + 1) & s->framing.modmask;
     }
   }
+
+  if (iFrameReplyTimerUsed(s) && p->nr == p->t3_expected_nr)
+    ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
   
   /* Returns true if the stakeholders should be notified.*/
   return released_frames;
@@ -923,6 +920,8 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
        do checkpoint normally on their respective P/F reception. */
     if (!(IOHDLC_IS_ABM(s) && is_command))
       *checkpoint_moved_out = checkpointRetransmit(s, p);
+    if (*checkpoint_moved_out && iFrameReplyTimerUsed(s))
+      ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
 
     /* Command/response P/F handling.
        is_command: received a command → P/F bit is a Poll → must respond with F.
@@ -930,12 +929,10 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
     if (!is_command) {
       /* Received F=1 (response to our poll): acknowledge and stop timer. */
       s->pf_state |= IOHDLC_F_RCVED;
-      IOHDLC_CLR_TMO_RECOVERY(p);
-      IOHDLC_TRACE_TMO_RECOVERY_CLEAR();
       p->poll_retry_count = 0;
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
-      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3,
-            s->reply_timeout_ms * IOHDLC_DFL_T3_T1_RATIO);
+      if (IOHDLC_IS_NRM(s))
+        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
     } else {
       /* Received P=1 (command): shall respond with F=1. */
       s->pf_state |= IOHDLC_P_RCVED;
@@ -946,8 +943,8 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
     /* pf == false */
     if (!is_command) {
       /* Received response with F=0: peer sent something but not final yet. */
-      ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3,
-        s->reply_timeout_ms * IOHDLC_DFL_T3_T1_RATIO);
+      if (IOHDLC_IS_NRM(s))
+        ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
       if (!IOHDLC_F_ISRCVED(s)) {
         /* Only restart if we're still waiting for F (P is outstanding). */
         ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_REPLY,
@@ -1517,29 +1514,23 @@ static void buildSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
  * @param[in] s       Station descriptor.
  * @param[in] p       Peer state.
  * @param[in] s_fun   Supervisory function code to emit.
+ * @param[in] is_command true to emit a command, false to emit a response.
  * @return  A prepared frame ready for @ref sendFrame, or NULL if none can be
  *          prepared at this time.
  */
 static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
-                       uint8_t s_fun) {
+                       uint8_t s_fun, bool is_command) {
   if (!sendOpportunity(s))
     return NULL;
-
-  /* Command/response: in NRM constant by role, in ABM it depends on whether
-     a received P is still pending. Per ISO 13239 4.2.2: command addr = peer,
-     response addr = station. */
-  const bool is_command = IOHDLC_IS_ABM(s) ?
-      !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
 
   const uint32_t outstanding = (p->vs - p->nr) & s->framing.modmask;
   const bool window_full = outstanding >= p->ks;
   const bool no_i_frame = ioHdlc_frameq_isempty(&p->i_trans_q) || window_full;
-  const bool tmo_recovery_poll = IOHDLC_TMO_RECOVERY(p) && IOHDLC_NEED_P(p);
   bool set_pf = is_command ?
-    (tmo_recovery_poll || (IOHDLC_USE_TWA(s) ?
+    (IOHDLC_USE_TWA(s) ?
       (IOHDLC_F_ISRCVED(s) &&
        (no_i_frame || (IOHDLC_PEER_BUSY(p) && IOHDLC_NEED_P(p)))) :
-      IOHDLC_F_ISRCVED(s))) :
+      IOHDLC_F_ISRCVED(s)) :
     responseShouldSetF(s, false, true);
 
   iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
@@ -1569,11 +1560,14 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
     IOHDLC_LOG_SFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun,
                       p->vr, set_pf, p->i_pending_count, log_flags);
 
-    /* If sending command with P (poll), start the T1 timer and stop the T3. */
-    if (set_pf && is_command) {
+    /* If sending command with P (poll), start the command reply timer.
+       In ARM/ABM TWA, non-I frames restart the I-frame reply timer only if
+       it is already armed. */
+    if (set_pf && is_command)
       ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, replyTimerTimeoutMs(s, p));
-      ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
-    }
+
+    if (iFrameReplyTimerUsed(s) && IOHDLC_USE_TWA(s))
+      ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
   }
   return fp;
 }
@@ -1605,10 +1599,8 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
         return cm_flags;
       }
       
-      /* Timeout recovery opens a status-inquiry cycle before any I-frame retry. */
+      /* Timeout recovery requests a new P/F checkpoint opportunity. */
       p->ss_state |= IOHDLC_SS_NEED_P;
-      IOHDLC_SET_TMO_RECOVERY(p);
-      IOHDLC_TRACE_TMO_RECOVERY_SET();
       s->pf_state |= IOHDLC_F_RCVED;
       p->rej_actioned = 0;  /* Clear REJ exception on timeout retry */
     }
@@ -1620,9 +1612,20 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
     if (ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_T3)) {
       IOHDLC_LOG_WARN(IOHDLC_LOG_TX, s->addr, "T3");
-      
-      /* Retry: force P bit to be sent on next I-frame or opportunistic S-frame. */
-      IOHDLC_SET_NEED_P(s, p);
+      ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
+
+      if (IOHDLC_IS_NRM(s)) {
+        /* NRM keeps the legacy idle-poll use of T3. */
+        IOHDLC_SET_NEED_P(s, p);
+      } else if (!ioHdlc_frameq_isempty(&p->i_retrans_q)) {
+        if (!handleTimeoutRetry(s, p)) {
+          iohdlc_mutex_unlock(&p->state_mutex);
+          return cm_flags;
+        }
+        p->ss_state |= IOHDLC_SS_NEED_P;
+        s->pf_state |= IOHDLC_F_RCVED;
+        p->rej_actioned = 0;
+      }
     }
   }
 
@@ -1637,12 +1640,16 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       buildUFrameWithInfo(s, p, fp, IOHDLC_U_UI, false, is_command,
                           &ui_value, sizeof ui_value);
       p->ui_tx_pending = false;
-      if (!sendFrame(s, fp))
+      bool sent = sendFrame(s, fp);
+      if (!sent)
         IOHDLC_LOG_WARN(IOHDLC_LOG_TX, s->addr, "UI send failed");
-      else
+      else {
         IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr,
                           is_command ? p->addr : s->addr,
                           IOHDLC_LOG_UI, false);
+        if (iFrameReplyTimerUsed(s) && IOHDLC_USE_TWA(s))
+          ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
+      }
     }
   }
 
@@ -1659,11 +1666,6 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Lock to check window and dequeue frame atomically */
     iohdlc_mutex_lock(&p->state_mutex);
 
-    if (IOHDLC_TMO_RECOVERY(p)) {
-      iohdlc_mutex_unlock(&p->state_mutex);
-      break;
-    }
-    
     /* Check if queue is empty */
     if (ioHdlc_frameq_isempty(&p->i_trans_q)) {
       iohdlc_mutex_unlock(&p->state_mutex);
@@ -1763,6 +1765,8 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     if (p->vs == p->vs_highest)
       p->vs_highest = (p->vs + 1) & s->framing.modmask;
     p->vs = (p->vs + 1) & s->framing.modmask;
+    if (iFrameReplyTimerUsed(s))
+      p->t3_expected_nr = p->vs;
 
     /* Update checkpoint reference and ACK P/F before sending.
        In ABM with crossed polls (sending F while own P outstanding),
@@ -1797,11 +1801,12 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
     /* Send frame under lock to ensure state consistency */
     (void)hdlcSendFrame(s->driver, fp);
 
-    /* If sending command with P (poll), start the T1 timer and stop the T3. */
-    if (set_pf && is_command) {
+    /* If sending command with P (poll), start the command reply timer. */
+    if (set_pf && is_command)
       ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, replyTimerTimeoutMs(s, p));
-      ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
-    }
+
+    if (iFrameReplyTimerUsed(s))
+      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
 
     /* Mark that we sent at least one I-frame. */
     i_frame_sent = true;
@@ -1831,9 +1836,12 @@ skip_i_frames:
   cm_flags |= iohdlc_evt_get_and_clear_flags(&s->cm_listener);
 
   iohdlc_frame_t *sframe_to_send = NULL;
+  const bool default_sframe_is_command = IOHDLC_IS_ABM(s) ?
+      !IOHDLC_P_ISRCVED(s) : IOHDLC_IS_PRI(s);
   if (p->ss_state & IOHDLC_SS_REJPEND) {
     cm_flags &= ~IOHDLC_EVT_REJ_ACTED;
-    if ((sframe_to_send = prepareSFrame(s, p, IOHDLC_S_REJ)) != NULL)
+    if ((sframe_to_send = prepareSFrame(s, p, IOHDLC_S_REJ,
+                                        default_sframe_is_command)) != NULL)
       p->ss_state &= ~IOHDLC_SS_REJPEND;
   }
 
@@ -1841,7 +1849,8 @@ skip_i_frames:
   if ((sframe_to_send == NULL) && IOHDLC_IS_BUSY(s) && 
       hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_NORMAL) {
 
-    sframe_to_send = prepareSFrame(s, p, IOHDLC_S_RR);
+    sframe_to_send = prepareSFrame(s, p, IOHDLC_S_RR,
+                                   default_sframe_is_command);
     if (sframe_to_send != NULL) {
       s->flags &= ~IOHDLC_FLG_BUSY;
 
@@ -1853,14 +1862,14 @@ skip_i_frames:
   /* If no frame was sent, or prepared to, but we have the opportunity/need
      to respond, prepare to send an opportunistic S-frame (RR or RNR). */
   if (sframe_to_send == NULL && !i_frame_sent &&
-      ((IOHDLC_TMO_RECOVERY(p) && IOHDLC_NEED_P(p)) ||
-       IOHDLC_P_ISRCVED(s) ||
+      (IOHDLC_P_ISRCVED(s) ||
        (IOHDLC_F_ISRCVED(s) && IOHDLC_NEED_P(p)))) {
     /* In TWA, if we still have permission on the link but didn't send I-frames,
        we should send an S-frame to acknowledge and cede the link.
        In TWS, we may also want to send periodic acknowledgments. */
-    sframe_to_send = prepareSFrame(s, p, 
-      IOHDLC_IS_BUSY(s) ? IOHDLC_S_RNR : IOHDLC_S_RR);
+    sframe_to_send = prepareSFrame(s, p,
+      IOHDLC_IS_BUSY(s) ? IOHDLC_S_RNR : IOHDLC_S_RR,
+      default_sframe_is_command);
   }
   
   cm_flags &= ~(IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RNR_RECVD|IOHDLC_EVT_POOL_ST_CHG|
@@ -1993,6 +2002,8 @@ void ioHdlcTxEntry(void *stationp) {
                                        (p->um_cmd == IOHDLC_U_DISC) ? IOHDLC_LOG_DISC : 0;
 #endif
           (void)sendFrame(s, fp);
+          if (iFrameReplyTimerUsed(s) && IOHDLC_USE_TWA(s))
+            ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
           
           /* Log U-frame transmission */
           IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, true);
@@ -2033,6 +2044,8 @@ void ioHdlcTxEntry(void *stationp) {
                                      (p->um_rsp == IOHDLC_U_FRMR) ? IOHDLC_LOG_FRMR : 0;
 #endif
         (void)sendFrame(s, fp);
+        if (iFrameReplyTimerUsed(s) && IOHDLC_USE_TWA(s))
+          ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
 
         /* Log U-frame transmission */
         IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, true);

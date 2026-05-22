@@ -108,14 +108,6 @@ static void chb_spi_start_receive_i(ioHdlcStreamChibiosSpi *ctx, size_t len,
     ioHdlcStreamSpiPlatformPrepareSlaveRxI(ctx);
   ctx->rx_active_mode = ctx->rx_mode;
   spiStartReceiveI(ctx->spip, len, ptr);
-#if defined(STM32G474xx)
-  if (!ctx->is_master) {
-    if (ctx->rx_mode == IOHDLC_RX_START_PACKET)
-      palSetLine(PAL_LINE(GPIOC, 6U));
-    else
-      palClearLine(PAL_LINE(GPIOC, 6U));
-  }
-#endif
 }
 
 static inline void *chb_spi_abort_master_tx_i(ioHdlcStreamChibiosSpi *ctx) {
@@ -221,9 +213,6 @@ static void chb_spi_data_cb(SPIDriver *spip) {
     /* ---- RX finished ---------------------------------------------------- */
     size_t rx_n = ctx->rx_n;
     iohdlc_dma_rx_complete(ctx->rx_ptr, ctx->rx_n);
-#if defined(STM32G474xx)
-    palToggleLine(PAL_LINE(GPIOC, 9U));
-#endif
     ctx->rx_active = false;
     ctx->rx_ptr    = NULL;
     ctx->rx_n      = 0;

@@ -97,18 +97,6 @@ static void spi_dr_callback(void *arg) {
 }
 
 static void adapter_spi_init(void) {
-#if defined(STM32G474xx)
-  palClearLine(PAL_LINE(GPIOC, 8U));
-  palSetLineMode(PAL_LINE(GPIOC, 8U),
-                 PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_MID1);
-  palClearLine(PAL_LINE(GPIOC, 9U));
-  palSetLineMode(PAL_LINE(GPIOC, 9U),
-                 PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_MID1);
-  palClearLine(PAL_LINE(GPIOC, 6U));
-  palSetLineMode(PAL_LINE(GPIOC, 6U),
-                 PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_MID1);
-#endif
-
   /* Endpoint A: SPI master */
   ioHdlcStreamPortChibiosSpiObjectInit(&port_a, &spi_endpoint_a_obj,
                                        &TEST_SPI_ENDPOINT_A, &spi_cfg_a,

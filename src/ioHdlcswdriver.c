@@ -326,9 +326,6 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
 
   drv->port.handle.ops->start(drv->port.handle.ctx, &drv->port.callbacks, &s_stream_drvops);
   iohdlc_sys_lock();
-#if defined(STM32G474xx)
-  palSetLine(PAL_LINE(GPIOC, 6U));
-#endif
   (void)drv->port.handle.ops->rx_submit(drv->port.handle.ctx, drv->rx.stagep, 1, IOHDLC_RX_START_PACKET);
   iohdlc_sys_unlock();
   
@@ -742,7 +739,8 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
 
   bool tx_busy = drv->port.handle.ops->tx_busy(drv->port.handle.ctx);
 
-  if (!tx_busy && ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
+  if (!tx_busy && drv->tx.inflight_fp == NULL &&
+      ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
     /* TX idle: kickstart directly (don't enqueue). */
     nfp->openingflag = IOHDLC_FLAG;
     drv->tx.inflight_fp = nfp;
