@@ -42,6 +42,18 @@
 #define IOHDLC_SPI_SLAVE_TX_WATCHDOG_DELAY_US  50000U
 #endif
 
+#if !defined(IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US)
+#define IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US  200U
+#endif
+
+#define IOHDLC_SPI_SLAVE_RX_WATCHDOG_TICKS \
+  ((IOHDLC_SPI_SLAVE_RX_WATCHDOG_DELAY_US + IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US - 1U) / \
+   IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US)
+
+#define IOHDLC_SPI_SLAVE_TX_WATCHDOG_TICKS \
+  ((IOHDLC_SPI_SLAVE_TX_WATCHDOG_DELAY_US + IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US - 1U) / \
+   IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US)
+
 /*===========================================================================*/
 /* Local callback implementations.                                           */
 /*===========================================================================*/
@@ -54,44 +66,67 @@ static void chb_spi_slave_watchdog_cb(virtual_timer_t *vtp, void *p) {
   void *tx_framep = NULL;
   bool rx_aborted = false;
   bool tx_aborted = false;
+  bool rearm = false;
 
   (void)vtp;
 
   chSysLockFromISR();
-  if (!ctx->is_master && ctx->started && ctx->tx_active) {
-    tx_framep = ctx->tx_framep;
-    if (!ioHdlcStreamSpiPlatformAbortSlaveI(ctx))
-      spiStopTransferI(ctx->spip, NULL);
+  if (!ctx->is_master && ctx->started) {
+    rearm = true;
+    if (ctx->tx_active) {
+      ctx->slave_tx_watchdog_ticks++;
+      ctx->slave_rx_watchdog_ticks = 0U;
+      if (ctx->slave_tx_watchdog_ticks >= IOHDLC_SPI_SLAVE_TX_WATCHDOG_TICKS) {
+        tx_framep = ctx->tx_framep;
+        if (!ioHdlcStreamSpiPlatformAbortSlaveI(ctx))
+          spiStopTransferI(ctx->spip, NULL);
 
-    ctx->tx_active = false;
-    ctx->tx_framep = NULL;
-    ctx->rx_active = false;
-    ctx->rx_ptr = NULL;
-    ctx->rx_n = 0;
-    ctx->rx_mode = IOHDLC_RX_START_PACKET;
-    ctx->rx_active_mode = IOHDLC_RX_START_PACKET;
-    ctx->slave_tx_needs_prepare = false;
-    palClearLine(ctx->dr_line);
-    tx_aborted = true;
-    rx_aborted = true;
-  } else if (!ctx->is_master && ctx->started &&
-             ctx->rx_active && ctx->rx_mode != IOHDLC_RX_START_PACKET) {
-    if (!ioHdlcStreamSpiPlatformAbortSlaveI(ctx))
-      spiStopTransferI(ctx->spip, NULL);
+        ctx->tx_active = false;
+        ctx->tx_framep = NULL;
+        ctx->rx_active = false;
+        ctx->rx_ptr = NULL;
+        ctx->rx_n = 0U;
+        ctx->rx_mode = IOHDLC_RX_START_PACKET;
+        ctx->slave_tx_needs_prepare = false;
+        ctx->slave_rx_watchdog_gate = false;
+        ctx->slave_rx_watchdog_ticks = 0U;
+        ctx->slave_tx_watchdog_ticks = 0U;
+        palClearLine(ctx->dr_line);
+        tx_aborted = true;
+        rx_aborted = true;
+      }
+    }
+    else if (ctx->rx_active && ctx->slave_rx_watchdog_gate) {
+      ctx->slave_rx_watchdog_ticks++;
+      ctx->slave_tx_watchdog_ticks = 0U;
+      if (ctx->slave_rx_watchdog_ticks >= IOHDLC_SPI_SLAVE_RX_WATCHDOG_TICKS) {
+        if (!ioHdlcStreamSpiPlatformAbortSlaveI(ctx))
+          spiStopTransferI(ctx->spip, NULL);
 
-    ctx->rx_active = false;
-    ctx->rx_ptr = NULL;
-    ctx->rx_n = 0;
-    ctx->rx_mode = IOHDLC_RX_START_PACKET;
-    ctx->rx_active_mode = IOHDLC_RX_START_PACKET;
-    ctx->slave_tx_needs_prepare = false;
-    rx_aborted = true;
+        ctx->rx_active = false;
+        ctx->rx_ptr = NULL;
+        ctx->rx_n = 0U;
+        ctx->rx_mode = IOHDLC_RX_START_PACKET;
+        ctx->slave_tx_needs_prepare = false;
+        ctx->slave_rx_watchdog_gate = false;
+        ctx->slave_rx_watchdog_ticks = 0U;
+        ctx->slave_tx_watchdog_ticks = 0U;
+        rx_aborted = true;
+      }
+    }
+    else {
+      ctx->slave_rx_watchdog_ticks = 0U;
+      ctx->slave_tx_watchdog_ticks = 0U;
+    }
   }
   if (tx_aborted) {
     chDbgAssert(ctx->cbs != NULL && ctx->cbs->on_tx_error_i != NULL,
                 "spi TX watchdog: missing TX error callback");
     ctx->cbs->on_tx_error_i(ctx->cbs->cb_ctx, tx_framep, IOHDLC_STREAM_ERR_TMO);
   }
+  if (rearm && ctx->started)
+    chVTSetI(&ctx->slave_watchdog_vt, TIME_US2I(IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US),
+             chb_spi_slave_watchdog_cb, ctx);
   chSysUnlockFromISR();
 
   if (rx_aborted) {
@@ -106,7 +141,6 @@ static void chb_spi_start_receive_i(ioHdlcStreamChibiosSpi *ctx, size_t len,
   iohdlc_dma_rx_prepare(ptr, len);
   if (!ctx->is_master)
     ioHdlcStreamSpiPlatformPrepareSlaveRxI(ctx);
-  ctx->rx_active_mode = ctx->rx_mode;
   spiStartReceiveI(ctx->spip, len, ptr);
 }
 
@@ -181,9 +215,7 @@ static void chb_spi_data_cb(SPIDriver *spip) {
 
     /* Slave: deassert DATA_READY before notifying upper layer. */
     if (!ctx->is_master) {
-      chSysLockFromISR();
-      chVTResetI(&ctx->slave_watchdog_vt);
-      chSysUnlockFromISR();
+      ctx->slave_tx_watchdog_ticks = 0U;
       palClearLine(ctx->dr_line);
     }
 
@@ -256,17 +288,14 @@ static void chb_spi_error_cb(SPIDriver *spip) {
   ctx->rx_ptr    = NULL;
   ctx->rx_n      = 0;
   ctx->rx_mode   = IOHDLC_RX_START_PACKET;
-  ctx->rx_active_mode = IOHDLC_RX_START_PACKET;
   ctx->rx_allowed = false;
   ctx->slave_tx_needs_prepare = false;
+  ctx->slave_rx_watchdog_gate = false;
+  ctx->slave_rx_watchdog_ticks = 0U;
+  ctx->slave_tx_watchdog_ticks = 0U;
   ctx->dr_epoch_active = false;
   ctx->dr_captured = false;
   ctx->dr_collision = false;
-  if (!ctx->is_master) {
-    chSysLockFromISR();
-    chVTResetI(&ctx->slave_watchdog_vt);
-    chSysUnlockFromISR();
-  }
 
   if (!ctx->is_master)
     palClearLine(ctx->dr_line);
@@ -312,13 +341,14 @@ void ioHdlcStreamSpiSlaveOverrunI(ioHdlcStreamChibiosSpi *ctx) {
     ctx->rx_ptr = NULL;
     ctx->rx_n = 0;
     ctx->rx_mode = IOHDLC_RX_START_PACKET;
-    ctx->rx_active_mode = IOHDLC_RX_START_PACKET;
     ctx->slave_tx_needs_prepare = false;
     ctx->rx_allowed = false;
+    ctx->slave_rx_watchdog_gate = false;
+    ctx->slave_rx_watchdog_ticks = 0U;
+    ctx->slave_tx_watchdog_ticks = 0U;
     ctx->dr_epoch_active = false;
     ctx->dr_captured = false;
     ctx->dr_collision = false;
-    chVTResetI(&ctx->slave_watchdog_vt);
     palClearLine(ctx->dr_line);
   }
   if (tx_aborted) {
@@ -366,10 +396,12 @@ static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
   ctx->rx_ptr    = NULL;
   ctx->rx_n      = 0;
   ctx->rx_mode   = IOHDLC_RX_START_PACKET;
-  ctx->rx_active_mode = IOHDLC_RX_START_PACKET;
   ctx->rx_active = false;
 
   ctx->slave_tx_needs_prepare = false;
+  ctx->slave_rx_watchdog_gate = false;
+  ctx->slave_rx_watchdog_ticks = 0U;
+  ctx->slave_tx_watchdog_ticks = 0U;
   ctx->rx_allowed = false;
   ctx->dr_epoch_active = false;
   ctx->dr_captured = false;
@@ -399,6 +431,9 @@ static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
   }
 #endif
   ctx->started = true;
+  if (!ctx->is_master)
+    chVTSet(&ctx->slave_watchdog_vt, TIME_US2I(IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US),
+            chb_spi_slave_watchdog_cb, ctx);
 }
 
 static void chb_spi_stop(void *vctx) {
@@ -418,8 +453,10 @@ static void chb_spi_stop(void *vctx) {
   ctx->rx_n      = 0;
   ctx->rx_active = false;
   ctx->rx_mode   = IOHDLC_RX_START_PACKET;
-  ctx->rx_active_mode = IOHDLC_RX_START_PACKET;
   ctx->slave_tx_needs_prepare = false;
+  ctx->slave_rx_watchdog_gate = false;
+  ctx->slave_rx_watchdog_ticks = 0U;
+  ctx->slave_tx_watchdog_ticks = 0U;
   ctx->rx_allowed = false;
   chVTResetI(&ctx->slave_watchdog_vt);
   if (!ctx->is_master)
@@ -507,11 +544,11 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
     spiSelectI(ctx->spip);
     spiStartSendI(ctx->spip, len, ptr);
   } else {
+    ctx->slave_rx_watchdog_gate = false;
+    ctx->slave_rx_watchdog_ticks = 0U;
+    ctx->slave_tx_watchdog_ticks = 0U;
     spiStartSendI(ctx->spip, len, ptr);
     /* Slave: assert DATA_READY to signal the master that TX data is ready. */
-    chVTResetI(&ctx->slave_watchdog_vt);
-    chVTSetI(&ctx->slave_watchdog_vt, TIME_US2I(IOHDLC_SPI_SLAVE_TX_WATCHDOG_DELAY_US),
-             chb_spi_slave_watchdog_cb, ctx);
     palSetLine(ctx->dr_line);
   }
 
@@ -557,7 +594,6 @@ static bool chb_spi_tx_busy(void *vctx) {
 static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len,
                               iohdlc_rx_mode_t mode) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
-  iohdlc_rx_mode_t old_mode;
 
   chDbgAssert(ctx != NULL, "spi rx_submit: null ctx");
   chDbgAssert(ptr != NULL, "spi rx_submit: null ptr");
@@ -565,16 +601,12 @@ static bool chb_spi_rx_submit(void *vctx, uint8_t *ptr, size_t len,
   if (!ctx->started) return false;
 
   /* Save the pending buffer (also used as "pending" signal in txend2). */
-  old_mode = ctx->rx_mode;
   ctx->rx_ptr = ptr;
   ctx->rx_n   = len;
   ctx->rx_mode = mode;
   if (!ctx->is_master) {
-    if (mode == IOHDLC_RX_START_PACKET)
-      chVTResetI(&ctx->slave_watchdog_vt);
-    else if (old_mode == IOHDLC_RX_START_PACKET)
-      chVTSetI(&ctx->slave_watchdog_vt, TIME_US2I(IOHDLC_SPI_SLAVE_RX_WATCHDOG_DELAY_US),
-               chb_spi_slave_watchdog_cb, ctx);
+    ctx->slave_rx_watchdog_gate = mode != IOHDLC_RX_START_PACKET;
+    ctx->slave_rx_watchdog_ticks = 0U;
   }
   if (ctx->is_master) {
     /* Master cannot start DMA without a valid DATA_READY epoch. */
@@ -603,13 +635,15 @@ static void chb_spi_rx_cancel(void *vctx) {
   ctx->rx_ptr = NULL;
   ctx->rx_n   = 0;
   ctx->rx_mode = IOHDLC_RX_START_PACKET;
-  ctx->rx_active_mode = IOHDLC_RX_START_PACKET;
   ctx->dr_epoch_active = false;
   ctx->dr_captured = false;
   ctx->dr_collision = false;
   ctx->rx_allowed = false;
-  if (!ctx->is_master)
-    chVTResetI(&ctx->slave_watchdog_vt);
+  if (!ctx->is_master) {
+    ctx->slave_rx_watchdog_gate = false;
+    ctx->slave_rx_watchdog_ticks = 0U;
+    ctx->slave_tx_watchdog_ticks = 0U;
+  }
 }
 
 /**
@@ -699,10 +733,12 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
   obj->rx_ptr    = NULL;
   obj->rx_n      = 0;
   obj->rx_mode   = IOHDLC_RX_START_PACKET;
-  obj->rx_active_mode = IOHDLC_RX_START_PACKET;
   obj->rx_active = !is_master;
   obj->rx_allowed = false;
   obj->slave_tx_needs_prepare = false;
+  obj->slave_rx_watchdog_gate = false;
+  obj->slave_rx_watchdog_ticks = 0U;
+  obj->slave_tx_watchdog_ticks = 0U;
   chVTObjectInit(&obj->slave_watchdog_vt);
 
   port->ctx = obj;

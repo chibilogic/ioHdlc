@@ -60,10 +60,12 @@ typedef struct ioHdlcStreamChibiosSpi {
   uint8_t                      *rx_ptr;     /**< Buffer saved by rx_submit      */
   size_t                        rx_n;       /**< Length of saved RX buffer      */
   iohdlc_rx_mode_t              rx_mode;    /**< Physical RX packet position    */
-  iohdlc_rx_mode_t              rx_active_mode; /**< Mode of active RX DMA       */
   bool                          rx_active;  /**< DMA RX in progress             */
   bool                          rx_allowed; /**< Master can clock current packet */
   bool                          slave_tx_needs_prepare; /**< RX->TX boundary flag */
+  bool                          slave_rx_watchdog_gate; /**< RX may timeout      */
+  uint16_t                      slave_rx_watchdog_ticks; /**< RX timeout ticks    */
+  uint16_t                      slave_tx_watchdog_ticks; /**< TX timeout ticks    */
   virtual_timer_t               slave_watchdog_vt; /**< Slave RX/TX guard        */
 
   /* DATA_READY GPIO line.                                                     */
