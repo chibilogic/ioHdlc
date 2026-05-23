@@ -72,6 +72,20 @@ static inline void ioHdlc_frameq_insert(iohdlc_frame_q_t *qp, iohdlc_frame_q_t *
 }
 
 /**
+ * @brief   Insert the frame queue header @p fqp at the head of @p qp.
+ * @param   qp   Queue head.
+ * @param   fqp  Queue header embedded in frame (e.g., &frame->q or &frame->q_aux).
+ * @note    The caller must ensure that @p fqp is not currently linked in
+ *          another queue.
+ */
+static inline void ioHdlc_frameq_insert_head(iohdlc_frame_q_t *qp, iohdlc_frame_q_t *fqp) {
+  fqp->next = qp->next;
+  fqp->prev = (iohdlc_frame_q_t *)qp;
+  fqp->next->prev = fqp;
+  qp->next = fqp;
+}
+
+/**
  * @brief   Remove a frame queue header from the @p qp queue in natural fifo order.
  * @return  Pointer to removed queue header (use IOHDLC_FRAME_FROM_Q or _Q_AUX to get frame).
  * @note    Calling this helper on an empty queue is invalid.

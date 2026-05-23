@@ -54,6 +54,12 @@ typedef struct {
    *          Clears TX/RX buffers without destroying threads/state.
    */
   void (*reset)(void);
+
+  /**
+   * @brief Configure adapter timing after test options have been resolved.
+   * @details Optional: If NULL, the adapter keeps its default timing.
+   */
+  void (*configure_timing)(uint32_t reply_timeout_ms);
   
   /**
    * @brief Get ioHdlcStreamPort for endpoint A (Primary station).

@@ -30,29 +30,54 @@
 #include "ioHdlcll.h"
 #include <errno.h>
 
-/*
- * Maximum time a SPI slave may stay inside a partial RX packet. The effective
- * delay is bounded by the system timer resolution and by CH_CFG_ST_TIMEDELTA.
- */
-#if !defined(IOHDLC_SPI_SLAVE_RX_WATCHDOG_DELAY_US)
-#define IOHDLC_SPI_SLAVE_RX_WATCHDOG_DELAY_US  50000U
+#define IOHDLC_SPI_ST_TICK_US \
+  ((1000000ULL + CH_CFG_ST_FREQUENCY - 1ULL) / CH_CFG_ST_FREQUENCY)
+
+#if CH_CFG_ST_TIMEDELTA > 0
+#define IOHDLC_SPI_ST_MIN_INTERVAL_US \
+  (CH_CFG_ST_TIMEDELTA * IOHDLC_SPI_ST_TICK_US)
+#else
+#define IOHDLC_SPI_ST_MIN_INTERVAL_US \
+  IOHDLC_SPI_ST_TICK_US
 #endif
 
-#if !defined(IOHDLC_SPI_SLAVE_TX_WATCHDOG_DELAY_US)
-#define IOHDLC_SPI_SLAVE_TX_WATCHDOG_DELAY_US  50000U
-#endif
-
+/* Period of the slave watchdog virtual timer. */
 #if !defined(IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US)
-#define IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US  200U
+#define IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US  (4U * IOHDLC_SPI_ST_MIN_INTERVAL_US)
 #endif
 
-#define IOHDLC_SPI_SLAVE_RX_WATCHDOG_TICKS \
-  ((IOHDLC_SPI_SLAVE_RX_WATCHDOG_DELAY_US + IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US - 1U) / \
-   IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US)
+/*
+ * Maximum time a SPI slave may stay in a stale RX or TX transaction. This
+ * value must be lower than the minimum HDLC T1 used on the SPI link.
+ */
+#if !defined(IOHDLC_SPI_SLAVE_WATCHDOG_DELAY_US)
+#define IOHDLC_SPI_SLAVE_WATCHDOG_DELAY_US  (3U * IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US)
+#endif
 
-#define IOHDLC_SPI_SLAVE_TX_WATCHDOG_TICKS \
-  ((IOHDLC_SPI_SLAVE_TX_WATCHDOG_DELAY_US + IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US - 1U) / \
-   IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US)
+#if IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US == 0U
+#error "IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US must be greater than zero"
+#endif
+
+#if IOHDLC_SPI_SLAVE_WATCHDOG_DELAY_US == 0U
+#error "IOHDLC_SPI_SLAVE_WATCHDOG_DELAY_US must be greater than zero"
+#endif
+
+#if IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US < IOHDLC_SPI_ST_MIN_INTERVAL_US
+#error "IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US is below the minimum ChibiOS interval"
+#endif
+
+static uint16_t chb_spi_slave_watchdog_ticks_from_us(uint32_t watchdog_us) {
+  uint64_t ticks;
+
+  ticks = ((uint64_t)watchdog_us + (uint64_t)IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US - 1ULL) /
+          (uint64_t)IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US;
+  if (ticks == 0ULL)
+    ticks = 1ULL;
+  if (ticks > 65535ULL)
+    ticks = 65535ULL;
+
+  return (uint16_t)ticks;
+}
 
 /*===========================================================================*/
 /* Local callback implementations.                                           */
@@ -76,7 +101,7 @@ static void chb_spi_slave_watchdog_cb(virtual_timer_t *vtp, void *p) {
     if (ctx->tx_active) {
       ctx->slave_tx_watchdog_ticks++;
       ctx->slave_rx_watchdog_ticks = 0U;
-      if (ctx->slave_tx_watchdog_ticks >= IOHDLC_SPI_SLAVE_TX_WATCHDOG_TICKS) {
+      if (ctx->slave_tx_watchdog_ticks >= ctx->slave_watchdog_limit_ticks) {
         tx_framep = ctx->tx_framep;
         if (!ioHdlcStreamSpiPlatformAbortSlaveI(ctx))
           spiStopTransferI(ctx->spip, NULL);
@@ -99,7 +124,7 @@ static void chb_spi_slave_watchdog_cb(virtual_timer_t *vtp, void *p) {
     else if (ctx->rx_active && ctx->slave_rx_watchdog_gate) {
       ctx->slave_rx_watchdog_ticks++;
       ctx->slave_tx_watchdog_ticks = 0U;
-      if (ctx->slave_rx_watchdog_ticks >= IOHDLC_SPI_SLAVE_RX_WATCHDOG_TICKS) {
+      if (ctx->slave_rx_watchdog_ticks >= ctx->slave_watchdog_limit_ticks) {
         if (!ioHdlcStreamSpiPlatformAbortSlaveI(ctx))
           spiStopTransferI(ctx->spip, NULL);
 
@@ -213,11 +238,8 @@ static void chb_spi_data_cb(SPIDriver *spip) {
       spiUnselectI(spip);
 #endif
 
-    /* Slave: deassert DATA_READY before notifying upper layer. */
-    if (!ctx->is_master) {
+    if (!ctx->is_master)
       ctx->slave_tx_watchdog_ticks = 0U;
-      palClearLine(ctx->dr_line);
-    }
 
     /* Notify the swdriver. on_tx_done() may synchronously submit the next
      * frame selected by the driver, setting tx_active = true again. */
@@ -238,8 +260,11 @@ static void chb_spi_data_cb(SPIDriver *spip) {
         ioHdlcStreamSpiPlatformPrepareSlaveRxAfterTxI(ctx);
         chb_spi_start_receive_i(ctx, ctx->rx_n, ctx->rx_ptr);
         chSysUnlockFromISR();
+        palClearLine(ctx->dr_line);
       }
     }
+    else if (!ctx->tx_active && !ctx->is_master)
+      palClearLine(ctx->dr_line);
 
   } else if (ctx->rx_active) {
     /* ---- RX finished ---------------------------------------------------- */
@@ -262,6 +287,8 @@ static void chb_spi_data_cb(SPIDriver *spip) {
 #endif
 
     ctx->cbs->on_rx(ctx->cbs->cb_ctx, 0);
+    if (ctx->is_master)
+      ctx->cbs->on_tx_ready_i(ctx->cbs->cb_ctx);
   }
 }
 
@@ -386,7 +413,7 @@ static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
   (void)drvops;
 
   chDbgAssert(cbs && cbs->on_rx && cbs->on_tx_done &&
-              cbs->on_tx_error_i && cbs->on_rx_error,
+              cbs->on_tx_error_i && cbs->on_tx_ready_i && cbs->on_rx_error,
               "spi start: invalid callbacks");
 
   ctx->cbs       = cbs;
@@ -547,6 +574,7 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
     ctx->slave_rx_watchdog_gate = false;
     ctx->slave_rx_watchdog_ticks = 0U;
     ctx->slave_tx_watchdog_ticks = 0U;
+    palClearLine(ctx->dr_line);
     spiStartSendI(ctx->spip, len, ptr);
     /* Slave: assert DATA_READY to signal the master that TX data is ready. */
     palSetLine(ctx->dr_line);
@@ -669,6 +697,7 @@ void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx) {
     ctx->dr_captured = false;
     ctx->dr_collision = false;
     ctx->rx_allowed = false;
+    ctx->cbs->on_tx_ready_i(ctx->cbs->cb_ctx);
     return;
   }
 
@@ -737,10 +766,20 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
   obj->rx_allowed = false;
   obj->slave_tx_needs_prepare = false;
   obj->slave_rx_watchdog_gate = false;
+  obj->slave_watchdog_limit_ticks =
+    chb_spi_slave_watchdog_ticks_from_us(IOHDLC_SPI_SLAVE_WATCHDOG_DELAY_US);
   obj->slave_rx_watchdog_ticks = 0U;
   obj->slave_tx_watchdog_ticks = 0U;
   chVTObjectInit(&obj->slave_watchdog_vt);
 
   port->ctx = obj;
   port->ops = &chibios_spi_ops;
+}
+
+void ioHdlcStreamSpiSetSlaveWatchdogDelay(ioHdlcStreamChibiosSpi *obj,
+                                          uint32_t delay_us) {
+  chDbgAssert(obj != NULL, "spi watchdog config: null object");
+
+  obj->slave_watchdog_limit_ticks =
+    chb_spi_slave_watchdog_ticks_from_us(delay_us);
 }

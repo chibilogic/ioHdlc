@@ -121,6 +121,7 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 - `--reply-timeout`: time the protocol waits for a response before retransmitting. Lower values increase retransmission aggressiveness. `0` uses `IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`.
 - `--poll-retry-max`: maximum retransmission attempts before declaring link failure. `0` makes the exchange tool choose the value from `--reply-timeout`.
 - `--reply-timeout` and `--poll-retry-max` interact geometrically, not linearly: reply-timeout recovery doubles T1 before each retry. After the last retry, the response window is bounded to `max(IOHDLC_LAST_RETRY_T1_RATIO * reply_timeout, IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS)`. With `--poll-retry-max=0`, the tool chooses N2 so the cumulative timeout stays close to 25 s. An explicit non-zero value bypasses this auto calculation.
+- Hardware adapters may also use the resolved `--reply-timeout` value to tune backend-local guard timings. For example, the ChibiOS SPI adapter derives its slave RX/TX watchdog from T1 so stale SPI transactions are recovered before the HDLC retry window expires.
 - `--krs`: sets both `ks` and `kr`. The value must be at least 1 and no larger than the modmask of the selected modulo (`7` for modulo 8, `127` for modulo 128).
 
 ## Platform-Specific Defaults
@@ -284,6 +285,10 @@ The global flag `test_running_global` coordinates shutdown: when any thread comp
 The tool checks adapter constraints before starting. If a SPI adapter is
 selected with TWS or ABM mode, the tool prints an error and exits. If the link
 type or mode is omitted, constrained adapters select their required defaults.
+
+Adapters may optionally implement a timing hook. Exchange calls it after
+configuration parsing and before station initialization, passing the effective
+reply timeout. The hook is adapter-local: it does not change protocol semantics.
 
 ## Platform-Specific Details
 

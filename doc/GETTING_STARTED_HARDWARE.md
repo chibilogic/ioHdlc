@@ -152,6 +152,12 @@ On the `G474RE`, the SPI peripheral's FIFO helps absorb short receive rearm
 latencies, but it does not remove the need for `DR`: the master still needs a
 deterministic indication that a slave frame is ready.
 
+The SPI slave backend also uses an RX/TX watchdog to recover stale DMA
+transactions. This is a transport-level guard: it does not change HDLC
+semantics. In the exchange test, the adapter derives the watchdog delay from
+the resolved `reply-timeout` value so the slave can recover before the protocol
+retry window expires.
+
 ### Building for SPI
 
 ```bash

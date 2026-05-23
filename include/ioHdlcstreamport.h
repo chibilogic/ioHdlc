@@ -80,6 +80,7 @@ extern "C" {
 typedef void (*ioHdlcStreamOnRx)(void *cb_ctx, uint32_t errmask);
 typedef void (*ioHdlcStreamOnTxDone)(void *cb_ctx, void *framep);
 typedef void (*ioHdlcStreamOnTxErrorI)(void *cb_ctx, void *framep, uint32_t errmask);
+typedef void (*ioHdlcStreamOnTxReadyI)(void *cb_ctx);
 typedef void (*ioHdlcStreamOnRxError)(void *cb_ctx, uint32_t errmask);
 
 /**
@@ -92,6 +93,7 @@ typedef struct ioHdlcStreamCallbacks {
   ioHdlcStreamOnRx       on_rx;         /**< RX byte ready or timeout notification */
   ioHdlcStreamOnTxDone   on_tx_done;    /**< TX buffer has been fully sent */
   ioHdlcStreamOnTxErrorI on_tx_error_i; /**< TX aborted, called from I-class context */
+  ioHdlcStreamOnTxReadyI on_tx_ready_i; /**< TX may be retried, called from I-class context */
   ioHdlcStreamOnRxError  on_rx_error;   /**< Stream/DMA error notification */
   void                  *cb_ctx;        /**< Opaque callback owner context passed back to all callbacks. */
 } ioHdlcStreamCallbacks;

@@ -408,6 +408,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   bool thread_create_failed = false;
   bool adapter_initialized = false;
   int return_code = 0;
+  uint32_t reply_timeout_ms;
 
   /* Reset global state for multiple runs */
   test_failed_global = false;
@@ -466,6 +467,9 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   }
 
   s_exchange_resolve_retry_config(&config);
+  reply_timeout_ms = config.reply_timeout_ms != 0U ?
+      config.reply_timeout_ms :
+      IOHDLC_REPLY_TIMEOUT_MS_DEFAULT;
 
   /* Enable HDLC logging if compiled in */
 #if IOHDLC_LOG_LEVEL > 0
@@ -507,6 +511,9 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     adapter->init();
     adapter_initialized = true;
   }
+
+  if (adapter->configure_timing)
+    adapter->configure_timing(reply_timeout_ms);
 
   test_printf("\r\n");
   test_printf("========================================\r\n");

@@ -118,6 +118,11 @@ static void adapter_spi_deinit(void) {
   palDisableLineEvent(TEST_SPI_DR_LINE_A);
 }
 
+static void adapter_spi_configure_timing(uint32_t reply_timeout_ms) {
+  ioHdlcStreamSpiSetSlaveWatchdogDelay(&spi_endpoint_b_obj,
+                                       reply_timeout_ms * 1000U / 2U);
+}
+
 static ioHdlcStreamPort adapter_spi_get_port_a(void) {
   return port_a;
 }
@@ -135,6 +140,7 @@ const test_adapter_t spi_adapter = {
   .init                    =  adapter_spi_init,
   .deinit                  =  adapter_spi_deinit,
   .reset                   =  NULL,
+  .configure_timing        =  adapter_spi_configure_timing,
   .get_port_a              =  adapter_spi_get_port_a,
   .get_port_b              =  adapter_spi_get_port_b,
   .configure_error_injection = NULL,

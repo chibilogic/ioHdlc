@@ -42,6 +42,7 @@
 static void s_on_rx(void *cb_ctx, uint32_t errmask);
 static void s_on_tx_done(void *cb_ctx, void *framep);
 static void s_on_tx_error_i(void *cb_ctx, void *framep, uint32_t errmask);
+static void s_on_tx_ready_i(void *cb_ctx);
 static const struct _iohdlc_driver_vmt s_vmt;
 static const ioHdlcStreamDriverOps s_stream_drvops;
 
@@ -316,6 +317,7 @@ static void drv_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrameP
   drv->port.callbacks.on_rx = s_on_rx;
   drv->port.callbacks.on_tx_done = s_on_tx_done;
   drv->port.callbacks.on_tx_error_i = s_on_tx_error_i;
+  drv->port.callbacks.on_tx_ready_i = s_on_tx_ready_i;
   drv->port.callbacks.on_rx_error = s_on_rx;
   drv->port.callbacks.cb_ctx = drv;
 
@@ -642,6 +644,50 @@ static int32_t s_materialize_tx_frame(ioHdlcSwDriver *drv, iohdlc_frame_t *fp) {
   return 0;
 }
 
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+/**
+ * @brief   Starts the next queued raw TX frame, if the backend is idle.
+ * @details Called with the system lock held.  The caller selects whether the
+ *          frame needs an opening flag or can reuse the previous closing flag
+ *          as separator.
+ * @return  NULL if nothing has to be released, otherwise the frame whose submit
+ *          failed after leaving the raw TX queue.
+ */
+static iohdlc_frame_t *s_try_start_next_tx_i(ioHdlcSwDriver *drv, bool prepend_opening_flag) {
+  iohdlc_frame_t *next_fp;
+  iohdlc_frame_q_t *qh;
+  int32_t ret;
+
+  IOHDLC_ASSERT(drv != NULL, "s_try_start_next_tx_i: null driver");
+
+  if (drv->tx.inflight_fp != NULL)
+    return NULL;
+  if (ioHdlc_frameq_isempty(&drv->tx.raw_q))
+    return NULL;
+  if (drv->port.handle.ops->tx_busy(drv->port.handle.ctx))
+    return NULL;
+
+  qh = ioHdlc_frameq_remove(&drv->tx.raw_q);
+  next_fp = IOHDLC_FRAME_FROM_Q_AUX(qh);
+  next_fp->q_aux.next = NULL;
+  next_fp->q_aux.prev = NULL;
+  next_fp->openingflag = prepend_opening_flag ? IOHDLC_FLAG : 0U;
+  drv->tx.inflight_fp = next_fp;
+  ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, next_fp);
+  if (ret == 0)
+    return NULL;
+
+  drv->tx.inflight_fp = NULL;
+  if (drv->port.handle.ops->tx_busy(drv->port.handle.ctx)) {
+    next_fp->openingflag = 0;
+    ioHdlc_frameq_insert_head(&drv->tx.raw_q, &next_fp->q_aux);
+    return NULL;
+  }
+  ioHdlcFrameTxGateReleaseI(next_fp);
+  return next_fp;
+}
+#endif
+
 /*===========================================================================*/
 /* TX Execution                                                              */
 /*===========================================================================*/
@@ -737,9 +783,8 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
   /* The swdriver owns the TX pipeline; committed frames are protected by tx_gate. */
   iohdlc_sys_lock();
 
-  bool tx_busy = drv->port.handle.ops->tx_busy(drv->port.handle.ctx);
-
-  if (!tx_busy && drv->tx.inflight_fp == NULL &&
+  if (!drv->port.handle.ops->tx_busy(drv->port.handle.ctx) &&
+      drv->tx.inflight_fp == NULL &&
       ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
     /* TX idle: kickstart directly (don't enqueue). */
     nfp->openingflag = IOHDLC_FLAG;
@@ -747,6 +792,12 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
     prep_ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, nfp);
     if (prep_ret != 0) {
       drv->tx.inflight_fp = NULL;
+      if (drv->port.handle.ops->tx_busy(drv->port.handle.ctx)) {
+        nfp->openingflag = 0;
+        ioHdlc_frameq_insert(&drv->tx.raw_q, &nfp->q_aux);
+        iohdlc_sys_unlock();
+        return 0;
+      }
       iohdlc_sys_unlock();
       ioHdlcFrameTxGateRelease(nfp);
       hdlcReleaseFrame(drv->fpp, nfp);
@@ -763,23 +814,8 @@ static int32_t drv_send_frame(void *instance, iohdlc_frame_t *fp) {
     return EBUSY;
   }
 
-  if (!tx_busy && drv->tx.inflight_fp == NULL &&
-      !ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
-    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->tx.raw_q);
-    iohdlc_frame_t *next_fp = IOHDLC_FRAME_FROM_Q_AUX(qh);
-
-    next_fp->q_aux.next = NULL;
-    next_fp->q_aux.prev = NULL;
-    next_fp->openingflag = IOHDLC_FLAG;
-    drv->tx.inflight_fp = next_fp;
-    prep_ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, next_fp);
-    if (prep_ret != 0) {
-      drv->tx.inflight_fp = NULL;
-      ioHdlcFrameTxGateReleaseI(next_fp);
-      failed_fp = next_fp;
-      IOHDLC_ASSERT(false, "drv_send_frame: queued TX submit failed while idle");
-    }
-  }
+  failed_fp = s_try_start_next_tx_i(drv, true);
+  IOHDLC_ASSERT(failed_fp == NULL, "drv_send_frame: queued TX submit failed while idle");
   iohdlc_sys_unlock();
 
   if (failed_fp != NULL)
@@ -1048,7 +1084,6 @@ static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo) {
 static void s_on_tx_done(void *cb_ctx, void *framep) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
   iohdlc_frame_t *done_fp = (iohdlc_frame_t *)framep;
-  iohdlc_frame_t *next_fp = NULL;
   iohdlc_frame_t *failed_fp = NULL;
 
 #ifndef IOHDLC_USE_MOCK_ADAPTER
@@ -1060,23 +1095,7 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
   if (done_fp != NULL)
     ioHdlcFrameTxGateReleaseI(done_fp);
 
-  if (!ioHdlc_frameq_isempty(&drv->tx.raw_q)) {
-    iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&drv->tx.raw_q);
-    next_fp = IOHDLC_FRAME_FROM_Q_AUX(qh);
-    /* The frame leaves the auxiliary TX queue before the next submit. */
-    next_fp->q_aux.next = NULL;
-    next_fp->q_aux.prev = NULL;
-  }
-
-  if (next_fp) {
-    drv->tx.inflight_fp = next_fp;
-    int32_t ret = drv->port.handle.ops->tx_submit_frame(drv->port.handle.ctx, next_fp);
-    if (ret != 0) {
-      drv->tx.inflight_fp = NULL;
-      ioHdlcFrameTxGateReleaseI(next_fp);
-      failed_fp = next_fp;
-    }
-  }
+  failed_fp = s_try_start_next_tx_i(drv, false);
   iohdlc_sys_unlock_isr();
 #else
   if (done_fp != NULL)
@@ -1087,6 +1106,28 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
     hdlcReleaseFrame(drv->fpp, done_fp);
   if (failed_fp)
     hdlcReleaseFrame(drv->fpp, failed_fp);
+}
+
+/**
+ * @brief   TX opportunity callback: transport can accept a queued frame.
+ * @details Unlike @ref s_on_tx_done, this callback does not complete an
+ *          in-flight frame. It only retries the swdriver raw TX queue after a
+ *          non-TX transport condition stopped blocking transmission.
+ */
+static void s_on_tx_ready_i(void *cb_ctx) {
+#ifndef IOHDLC_USE_MOCK_ADAPTER
+  ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
+  iohdlc_frame_t *failed_fp;
+
+  iohdlc_sys_lock_isr();
+  failed_fp = s_try_start_next_tx_i(drv, true);
+  iohdlc_sys_unlock_isr();
+
+  if (failed_fp)
+    hdlcReleaseFrame(drv->fpp, failed_fp);
+#else
+  (void)cb_ctx;
+#endif
 }
 
 /**

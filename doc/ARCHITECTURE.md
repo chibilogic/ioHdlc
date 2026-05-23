@@ -123,15 +123,18 @@ typedef struct ioHdlcStreamPortOps {
   void (*stop)(void *ctx);
   int32_t (*tx_submit_frame)(void *ctx, iohdlc_frame_t *fp);
   bool (*tx_busy)(void *ctx);
-  bool (*rx_submit)(void *ctx, uint8_t *ptr, size_t len);
+  bool (*rx_submit)(void *ctx, uint8_t *ptr, size_t len,
+                    iohdlc_rx_mode_t mode);
   void (*rx_cancel)(void *ctx);
 } ioHdlcStreamPortOps;
 
 typedef struct ioHdlcStreamCallbacks {
-  ioHdlcStreamOnRx      on_rx;
-  ioHdlcStreamOnTxDone  on_tx_done;
-  ioHdlcStreamOnRxError on_rx_error;
-  void                 *cb_ctx;
+  ioHdlcStreamOnRx       on_rx;
+  ioHdlcStreamOnTxDone   on_tx_done;
+  ioHdlcStreamOnTxErrorI on_tx_error_i;
+  ioHdlcStreamOnTxReadyI on_tx_ready_i;
+  ioHdlcStreamOnRxError  on_rx_error;
+  void                  *cb_ctx;
 } ioHdlcStreamCallbacks;
 ```
 
@@ -144,8 +147,15 @@ typedef struct ioHdlcStreamCallbacks {
 | `stop` | Driver → Backend | Shutdown the transport; release backend-owned resources |
 | `tx_submit_frame` | Driver → Backend | Submit the current frame selected by the driver; returns `0` or an errno-compatible status |
 | `tx_busy` | Driver → Backend | Query whether a TX transfer is currently in progress |
-| `rx_submit` | Driver → Backend | Arm a receive transfer of `len` bytes into `ptr` |
+| `rx_submit` | Driver → Backend | Arm a receive transfer of `len` bytes into `ptr`, declaring whether it starts or continues a physical packet |
 | `rx_cancel` | Driver → Backend | Cancel the currently armed RX transfer |
+
+The `rx_submit()` mode is a transport hint, not HDLC state:
+
+| Mode | Meaning |
+|---|---|
+| `IOHDLC_RX_START_PACKET` | The transfer must start from a new physical packet boundary |
+| `IOHDLC_RX_CONTINUE_PACKET` | The transfer continues the same physical packet |
 
 `tx_submit_frame()` receives the `iohdlc_frame_t` selected by the software
 driver. The core updates the per-send protocol fields while holding the frame
@@ -155,6 +165,16 @@ contiguous adapters, the driver materializes a wire image in the frame
 currently consume that contiguous image directly. More capable adapters may use
 `ioHdlcStreamDriverOps::build_tx_plan()` to obtain a scatter/gather description
 or FCS-offload metadata for the same frame.
+
+The software driver owns the raw TX queue and the in-flight frame reference.
+Backends may report completion, abort, or a later TX opportunity through the
+callback bundle, but they do not reorder frames and do not mutate protocol
+fields. The frame TX gate prevents the core from changing per-send protocol
+fields while a frame is queued or physically in-flight.
+
+`on_tx_error_i` and `on_tx_ready_i` are I-class callbacks. They are used by
+backends that can abort a physical TX or discover that a previously blocked TX
+opportunity has become available from interrupt context.
 
 **Driver services exposed to adapters:**
 

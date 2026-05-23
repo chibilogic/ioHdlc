@@ -28,7 +28,7 @@ The test system is organized in layers, each depending only on those below it:
 
 **Layer 2 -- Test Framework** (`test_framework.h`): Structures for parametrized testing: `test_config_t` (mode, duration, traffic direction, endpoint selection, error rate), `test_statistics_t` (latency, throughput, loss), `test_packet_t` (sequenced packets for validation). Used by `test_exchange.c`.
 
-**Layer 3 -- Adapter Abstraction** (`adapter_interface.h`): Decouples test scenarios from the stream backend. The `test_adapter_t` vtable provides `init`, `deinit`, `reset`, `get_port_a`, `get_port_b`, `configure_error_injection`, and a `constraints` bitmask that aliases `IOHDLC_PORT_CONSTR_*` from `ioHdlcStreamPort`. Primary constraint enforcement occurs inside the protocol core (at `ioHdlcStationInit` and `ioHdlcStationLinkUp`); test runners may additionally inspect `adapter->constraints` to skip scenarios incompatible with the physical backend. This allows the same scenario to run against `mock_adapter` (in-process loopback), `adapter_uart` (ChibiOS physical UART), or `adapter_spi` (ChibiOS SPI).
+**Layer 3 -- Adapter Abstraction** (`adapter_interface.h`): Decouples test scenarios from the stream backend. The `test_adapter_t` vtable provides `init`, `deinit`, `reset`, `configure_timing`, `get_port_a`, `get_port_b`, `configure_error_injection`, and a `constraints` bitmask that aliases `IOHDLC_PORT_CONSTR_*` from `ioHdlcStreamPort`. Primary constraint enforcement occurs inside the protocol core (at `ioHdlcStationInit` and `ioHdlcStationLinkUp`); test runners may additionally inspect `adapter->constraints` to skip scenarios incompatible with the physical backend. This allows the same scenario to run against `mock_adapter` (in-process loopback), `adapter_uart` (ChibiOS physical UART), or `adapter_spi` (ChibiOS SPI).
 
 **Layer 4 -- Mock Infrastructure** (`mock_stream.h`, `mock_stream_adapter.h`): `mock_stream` provides bidirectional byte streams with circular buffers, loopback mode, peer connection, and error injection via filter callbacks. `mock_stream_adapter` bridges `mock_stream` to the `ioHdlcStreamPort` interface, managing an RX thread for asynchronous frame reception.
 
@@ -47,6 +47,12 @@ The adapter layer exists so that **one scenario source file runs against any bac
 The `ADAPTER_CONSTRAINT_*` flags defined in `adapter_interface.h` are aliases of the `IOHDLC_PORT_CONSTR_*` flags on `ioHdlcStreamPort`. Backend implementations set `port.constraints` directly on their `ioHdlcStreamPort` instances; the protocol core validates these constraints during `ioHdlcStationInit` (TWA check) and `ioHdlcStationLinkUp` (NRM-only check). Test runners may additionally inspect `adapter->constraints` to skip scenarios that are incompatible with the physical backend.
 
 The error injection interface (`configure_error_injection`) is optional -- hardware adapters set it to `NULL`.
+
+The timing configuration interface (`configure_timing`) is optional. Exchange
+calls it after command-line or shell options have been resolved and before the
+stations are initialized. This gives hardware adapters access to the effective
+`reply_timeout_ms` value so they can derive backend-local guard timings without
+exposing transport details to the protocol core.
 
 The exchange scenario can instantiate both logical endpoints locally, or only
 endpoint A or B when a real peer runs on another process or target. This is a

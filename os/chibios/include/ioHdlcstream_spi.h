@@ -64,6 +64,7 @@ typedef struct ioHdlcStreamChibiosSpi {
   bool                          rx_allowed; /**< Master can clock current packet */
   bool                          slave_tx_needs_prepare; /**< RX->TX boundary flag */
   bool                          slave_rx_watchdog_gate; /**< RX may timeout      */
+  uint16_t                      slave_watchdog_limit_ticks; /**< RX/TX timeout limit */
   uint16_t                      slave_rx_watchdog_ticks; /**< RX timeout ticks    */
   uint16_t                      slave_tx_watchdog_ticks; /**< TX timeout ticks    */
   virtual_timer_t               slave_watchdog_vt; /**< Slave RX/TX guard        */
@@ -91,6 +92,16 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
                                           ioHdlcStreamChibiosSpi *obj,
                                           SPIDriver *spip, SPIConfig *cfgp,
                                           bool is_master, ioline_t dr_line);
+
+/**
+ * @brief   Configure the SPI slave RX/TX watchdog delay.
+ * @details If not called, the backend uses its compile-time default delay.
+ *
+ * @param[in,out] obj       SPI stream object
+ * @param[in]     delay_us  watchdog delay in microseconds
+ */
+void ioHdlcStreamSpiSetSlaveWatchdogDelay(ioHdlcStreamChibiosSpi *obj,
+                                          uint32_t delay_us);
 
 /**
  * @brief   Called from a PAL event callback on DATA_READY edges.

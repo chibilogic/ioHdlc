@@ -81,6 +81,7 @@ const test_adapter_t spi_adapter = {
   .init = adapter_spi_init,
   .deinit = adapter_spi_deinit,
   .reset = NULL,
+  .configure_timing = NULL,
   .get_port_a = adapter_spi_get_port_a,
   .get_port_b = adapter_spi_get_port_b,
   .configure_error_injection = NULL,

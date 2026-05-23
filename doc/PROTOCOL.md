@@ -617,18 +617,30 @@ T1 >= (7 × 1.28) + 0.1 + 2 + 5 = 16.06 ms  →  use T1 = 20 ms
 
 **Note**: This applies to **any** system with non-blocking transmission (DMA, ISR queues, etc.), not just queue-based implementations. The driver returns immediately after DMA start, but T1 must account for the physical transmission time.
 
-### T3 Timer (Idle Poll)
+### T3 Timer (Idle / I-frame Reply Timeout)
 
-**Purpose**: Detect prolonged idle periods; keep the link alive by forcing a poll when no activity occurs.
+**Purpose**: Provide the stack's additional reply-timer role. Depending on
+mode, it is used either to keep the link alive during idle periods or to recover
+unacknowledged I-frames.
 
 **Duration**: `T1 × IOHDLC_DFL_T3_T1_RATIO` (default ratio = 5). With T1 = 100ms → T3 = 500ms.
 
-**Lifecycle:**
+**NRM idle-poll lifecycle:**
 
 - **Start**: After receiving F=1 response (link confirmed responsive), T1 stops, T3 starts.
 - **Restart**: On receiving F=0 frames while T3 is running (secondary still active).
 - **Stop**: When primary sends a new poll (P=1) → T1 starts, T3 stops.
 - **Expiry**: Sets the `need_p` flag → next outbound frame (I or S) carries P=1, starting a new T1 cycle.
+
+**ABM I-frame reply lifecycle:**
+
+- **Start**: When an I-frame is transmitted.
+- **Stop**: When an error-free frame acknowledges the expected `N(R)`.
+- **TWA restart**: In ABM/TWA, transmission of any frame restarts the timer if
+  it is already running.
+- **TWS**: In ABM/TWS, there is no restart-on-transmit condition; the timer is
+  stopped only by the expected acknowledgement.
+- **Expiry**: Initiates timeout recovery by polling for peer status.
 
 ![T1/T3 dual-timer cycle](diagrams/svg/t1_t3_timer_cycle.svg)
 
@@ -768,6 +780,9 @@ poll_retry_max = 8;          // IOHDLC_POLL_RETRY_MAX_DEFAULT
 
 The final retry window uses `IOHDLC_LAST_RETRY_T1_RATIO` (default 5) and
 `IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS` (default 100 ms).
+
+`T3` is derived from T1 through `IOHDLC_DFL_T3_T1_RATIO`. In NRM it is used as
+the idle-poll timer. In ABM it is used as the I-frame acknowledgement timeout.
 
 **Platform-Specific:**
 - Linux: POSIX timers (timer_create)
