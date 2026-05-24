@@ -65,7 +65,11 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  /** @ingroup ioHdlc_pool */
+  /**
+   * @ingroup ioHdlc_pool
+   * @note @p framealign is the preferred frame object alignment; DMA payload
+   *       alignment is derived from the arena policy.
+   */
   void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize, size_t framesize, uint32_t framealign);
 #ifdef __cplusplus
 }

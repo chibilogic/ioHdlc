@@ -14,6 +14,7 @@ COMMON_DIR := $(TESTS_CHIBIOS_DIR)/../common
 COMMON_SCENARIOS_DIR := $(COMMON_DIR)/scenarios
 CONFDIR := $(TEST_CHIBIOS_FRONTEND_DIR)/conf
 FRONTEND_ADAPTERS_DIR := $(TEST_CHIBIOS_FRONTEND_DIR)/adapters
+IOHDLC_CHIBIOS_PORT_DIR := $(OS_CHIBIOS_DIR)/ports/STM32/STM32G4xx
 CHIBIOS ?= $(abspath $(ROOT_DIR)/../ChibiOS)
 
 TARGET_LABEL = G474RE
@@ -136,8 +137,8 @@ COMMON_TEST_SRCS = \
 	$(COMMON_DIR)/test_arenas.c
 
 FRONTEND_SRCS = \
-	$(FRONTEND_ADAPTERS_DIR)/ioHdlcstream_uart_platform.c \
-	$(FRONTEND_ADAPTERS_DIR)/ioHdlcstream_spi_platform.c
+	$(IOHDLC_CHIBIOS_PORT_DIR)/ioHdlcstream_uart_platform.c \
+	$(IOHDLC_CHIBIOS_PORT_DIR)/ioHdlcstream_spi_platform.c
 
 TEST_ADAPTER_SRCS =
 
@@ -184,6 +185,7 @@ INCDIR = $(CONFDIR) \
          $(COMMON_DIR)/mocks \
          $(COMMON_DIR)/adapters \
          $(TESTS_CHIBIOS_DIR) \
+         $(IOHDLC_CHIBIOS_PORT_DIR) \
          $(FRONTEND_ADAPTERS_DIR) \
          $(TESTS_CHIBIOS_DIR)/adapters \
          $(ALLINC)

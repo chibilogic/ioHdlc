@@ -33,8 +33,10 @@
 #include "ioHdlc_core.h"
 #include "ioHdlc_app_events.h"
 #include "ioHdlcosal.h"
+#include "ioHdlcdma.h"
 #include "ioHdlcqueue.h"
 #include "ioHdlclist.h"
+#include "ioHdlcfmempool_layout.h"
 #include "ioHdlcstreamport.h"
 #include "ioHdlc_log.h"
 #include <string.h>
@@ -427,26 +429,12 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
                                               max_info,
                                               want_transparency);
   uint32_t frame_align = IOHDLC_FRAME_POOL_ALIGNMENT;
-  size_t dma_align = iohdlc_dma_alignment();
-  uintptr_t arena_start = (uintptr_t)ioHdlcsconfp->frame_arena;
-  uintptr_t arena_aligned;
-  size_t arena_skip;
-  size_t usable_arena_size;
-  size_t frame_stride;
-
-  if (dma_align > frame_align)
-    frame_align = (uint32_t)dma_align;
-
-  arena_aligned = (arena_start + frame_align - 1U) &
-                  ~((uintptr_t)frame_align - 1U);
-  arena_skip = (size_t)(arena_aligned - arena_start);
-  usable_arena_size = (arena_skip < ioHdlcsconfp->frame_arena_size) ?
-                      (ioHdlcsconfp->frame_arena_size - arena_skip) : 0U;
-  frame_stride = (sizeof (iohdlc_frame_t) + frame_size + frame_align - 1U) &
-                 ~(size_t)(frame_align - 1U);
+  iohdlc_fmempool_layout_t pool_layout = iohdlc_fmempool_layout(ioHdlcsconfp->frame_arena,
+                                                                ioHdlcsconfp->frame_arena_size,
+                                                                frame_size, frame_align);
   
   /* Calculate the low watermark percentage. */
-  uint32_t num_frames = usable_arena_size / frame_stride;
+  uint32_t num_frames = pool_layout.count;
   uint8_t watermark_pct = (ioHdlcsconfp->pool_watermark != 0) ? 
                           ioHdlcsconfp->pool_watermark :
                           IOHDLC_POOL_WATERMARK_PCT_DEFAULT;

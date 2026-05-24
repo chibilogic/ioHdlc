@@ -448,6 +448,16 @@ Build-time policy defaults such as reply timeout, poll-retry limit, pool waterma
 
 `ioHdlcStationInit()` currently accepts only disconnected initial modes (`IOHDLC_OM_NDM` for unbalanced setups, `IOHDLC_OM_ADM` for balanced setups). The operational mode used on the link (`IOHDLC_OM_NRM` or `IOHDLC_OM_ABM`) is selected later by `ioHdlcStationLinkUp()`.
 
+**Frame-pool DMA alignment:**
+
+The default fixed-memory frame pool lays out each `iohdlc_frame_t` slot so the
+flexible `frame[]` payload member can satisfy a platform-defined alignment. The
+default payload alignment is `IOHDLC_FRAME_POOL_ALIGNMENT`; ports that use
+non-coherent DMA buffers should override `IOHDLC_FRAME_PAYLOAD_ALIGNMENT` to the
+cacheline size. The layout keeps the optional `openingflag` immediately before
+`frame[]`, so adapters can transmit a contiguous wire image starting either at
+`frame[]` or at `openingflag` when a leading HDLC flag is required.
+
 ## Extension Points
 
 ### Adding New Platforms

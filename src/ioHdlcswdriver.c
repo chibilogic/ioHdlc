@@ -31,6 +31,7 @@
 
 #include "ioHdlcswdriver.h"
 #include "ioHdlcosal.h"
+#include "ioHdlcdma.h"
 #include "ioHdlcll.h"
 #include <errno.h>
 #include <string.h>

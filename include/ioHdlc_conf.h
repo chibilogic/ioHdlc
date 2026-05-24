@@ -108,6 +108,21 @@
 #endif
 
 /**
+ * @brief   Alignment required for the frame payload buffer.
+ * @details Ports using non-coherent DMA buffers should override this to the
+ *          cacheline size so @p iohdlc_frame_t::frame starts on a safe cache
+ *          maintenance boundary.
+ */
+#ifndef IOHDLC_FRAME_PAYLOAD_ALIGNMENT
+#define IOHDLC_FRAME_PAYLOAD_ALIGNMENT IOHDLC_FRAME_POOL_ALIGNMENT
+#endif
+
+#if (IOHDLC_FRAME_PAYLOAD_ALIGNMENT == 0U) || \
+    ((IOHDLC_FRAME_PAYLOAD_ALIGNMENT & (IOHDLC_FRAME_PAYLOAD_ALIGNMENT - 1U)) != 0U)
+#error "IOHDLC_FRAME_PAYLOAD_ALIGNMENT must be a non-zero power of two"
+#endif
+
+/**
  * @brief   Fallback peer MIFL used when the frame pool is too small to derive it.
  */
 #ifndef IOHDLC_PEER_MIFL_FALLBACK

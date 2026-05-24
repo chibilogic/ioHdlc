@@ -32,6 +32,7 @@
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
 #include "ioHdlcfmempool.h"
+#include "ioHdlcfmempool_layout.h"
 #include "ioHdlcpool_common.h"
 #include <string.h>
 #include <assert.h>
@@ -141,26 +142,16 @@ static const struct _iohdlc_fmempool_vmt vmt = {
  * @param[in] arena       Pointer to caller-owned memory arena
  * @param[in] arenasize   Size of arena in bytes
  * @param[in] framesize   Size of each frame payload
- * @param[in] framealign  Alignment requirement (power of 2)
+ * @param[in] framealign  Preferred frame object alignment (power of 2)
  */
 void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
               size_t framesize, uint32_t framealign) {
-  uint32_t n, es;
-  uint8_t *p;
-  iohdlc_frame_t *framep = NULL;
+  iohdlc_fmempool_layout_t layout;
 
   assert((framealign & (framealign-1)) == 0 && "framealign must be a power of 2");
 
   fmpp->framesize = framesize;
-  framesize = framesize + sizeof *framep;
-  
-  /* Align the arena and adjust its size */
-  p = (uint8_t *)(((uintptr_t)arena + framealign - 1) & ~(uintptr_t)(framealign - 1));
-  arenasize = (size_t)((arena + arenasize) - p);
-
-  /* Compute the size of aligned frame and the number of frames in pool */
-  es = (framesize + framealign - 1) & ~(framealign - 1);
-  n = arenasize / es;
+  layout = iohdlc_fmempool_layout(arena, arenasize, framesize, framealign);
 
   /* Initialize mutex */
   pthread_mutex_init(&fmpp->mp.lock, NULL);
@@ -168,8 +159,8 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
   /* Build free list */
   fmpp->mp.free_list = NULL;
   
-  for (uint32_t i = 0; i < n; i++) {
-    void *elem = p + (i * es);
+  for (uint32_t i = 0; i < layout.count; i++) {
+    void *elem = layout.base + (i * layout.element_size);
     ioHdlcFrameTxGateInit((iohdlc_frame_t *)elem);
     *(void **)elem = fmpp->mp.free_list;
     fmpp->mp.free_list = elem;
@@ -177,11 +168,11 @@ void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
 
   /* Initialize base class */
   fmpp->vmt = &vmt;
-  fmpp->total = n;
+  fmpp->total = layout.count;
   fmpp->allocated = 0;
   
   /* Initialize watermark with sensible defaults (common logic) */
-  hdlc_pool_init_watermark((ioHdlcFramePool *)fmpp, n);
+  hdlc_pool_init_watermark((ioHdlcFramePool *)fmpp, layout.count);
 }
 
 /**

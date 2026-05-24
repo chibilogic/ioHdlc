@@ -20,6 +20,7 @@
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
 #include "ioHdlcfmempool.h"
+#include "ioHdlcfmempool_layout.h"
 #include "ioHdlcpool_common.h"
 #include <string.h>
 /**
@@ -120,38 +121,29 @@ static const struct _iohdlc_fmempool_vmt vmt = {
  * @param[in] arena       Pointer to caller-owned memory arena
  * @param[in] arenasize   Size of arena in bytes
  * @param[in] framesize   Size of each frame payload
- * @param[in] framealign  Alignment requirement (power of 2)
+ * @param[in] framealign  Preferred frame object alignment (power of 2)
  */
 void fmpInit(ioHdlcFrameMemPool *fmpp, uint8_t *arena, size_t arenasize,
               size_t framesize, uint32_t framealign) {
-  uint32_t n, es;
-  uint8_t *p;
+  iohdlc_fmempool_layout_t layout;
 
   chDbgAssert((framealign & (framealign-1)) == 0, "framealign must be a power of 2");
 
   ((ioHdlcFramePool *)fmpp)->framesize = framesize;
-  framesize = framesize + sizeof (iohdlc_frame_t);
-  /* Align the arena and adjust its size.*/
-  p = (uint8_t *)((uint32_t)(arena + framealign - 1) & ~(framealign - 1));
-  arenasize = arena + arenasize - p;
-
-  /* Compute the size of aligned frame and the number of frames
-     in the pool, n.*/
-  es = (framesize + framealign - 1) & ~(framealign - 1);
-  n = arenasize / es;
+  layout = iohdlc_fmempool_layout(arena, arenasize, framesize, framealign);
 
   /* Initialize and load the pool.*/
-  for (uint32_t i = 0; i < n; ++i)
-    ioHdlcFrameTxGateInit((iohdlc_frame_t *)(p + (i * es)));
-  chPoolObjectInit(&fmpp->mp, es, NULL);
-  chPoolLoadArray(&fmpp->mp, p, n);
+  for (uint32_t i = 0; i < layout.count; ++i)
+    ioHdlcFrameTxGateInit((iohdlc_frame_t *)(layout.base + (i * layout.element_size)));
+  chPoolObjectInit(&fmpp->mp, layout.element_size, NULL);
+  chPoolLoadArray(&fmpp->mp, layout.base, layout.count);
 
   fmpp->vmt = &vmt;
-  ((ioHdlcFramePool *)fmpp)->total = n;
+  ((ioHdlcFramePool *)fmpp)->total = layout.count;
   ((ioHdlcFramePool *)fmpp)->allocated = 0;
   
   /* Initialize watermark with sensible defaults (common logic) */
-  hdlc_pool_init_watermark((ioHdlcFramePool *)fmpp, n);
+  hdlc_pool_init_watermark((ioHdlcFramePool *)fmpp, layout.count);
 }
 
 void hdlcPoolConfigWatermark(ioHdlcFramePool *fpp, uint8_t low_pct, 

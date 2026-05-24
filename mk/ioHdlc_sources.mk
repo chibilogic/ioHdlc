@@ -30,6 +30,7 @@ IOHDLC_LINUX_BASE_SRCS = \
 
 IOHDLC_CHIBIOS_BASE_SRCS = \
 	$(IOHDLC_OS_CHIBIOS_DIR)/src/ioHdlcosal.c \
+	$(IOHDLC_OS_CHIBIOS_DIR)/src/ioHdlcdma.c \
 	$(IOHDLC_OS_CHIBIOS_DIR)/src/ioHdlcfmempool.c
 
 IOHDLC_CHIBIOS_UART_SRCS = \
