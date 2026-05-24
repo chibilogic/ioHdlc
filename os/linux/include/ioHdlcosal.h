@@ -419,36 +419,6 @@ static inline void iohdlc_mutex_init(iohdlc_mutex_t *m) {
 /*===========================================================================*/
 
 /**
- * @brief   DMA alignment (no special alignment needed on Linux).
- */
-#define IOHDLC_DMA_ALIGN_DEFAULT 1
-
-static inline size_t iohdlc_dma_alignment(void) {
-  return IOHDLC_DMA_ALIGN_DEFAULT;
-}
-
-static inline bool iohdlc_dma_is_coherent(const void *p, size_t n) {
-  (void)p;
-  (void)n;
-  return true;
-}
-
-static inline void iohdlc_dma_tx_prepare(const void *p, size_t n) {
-  (void)p;
-  (void)n;
-}
-
-static inline void iohdlc_dma_rx_prepare(void *p, size_t n) {
-  (void)p;
-  (void)n;
-}
-
-static inline void iohdlc_dma_rx_complete(void *p, size_t n) {
-  (void)p;
-  (void)n;
-}
-
-/**
  * @brief   Allocate memory block.
  * @param[in] size   Number of bytes to allocate.
  * @return  Pointer to the allocated block, or NULL on failure.
@@ -460,25 +430,6 @@ void* iohdlc_alloc(size_t size);
  * @param[in] ptr   Block previously allocated by the OSAL allocator.
  */
 void iohdlc_free(void* ptr);
-
-/**
- * @brief   Allocate DMA-capable memory (same as regular alloc on Linux).
- * @param[in] size    Number of bytes to allocate.
- * @param[in] align   Requested alignment, ignored on Linux.
- * @return  Pointer to the allocated block, or NULL on failure.
- */
-static inline void* iohdlc_dma_alloc(size_t size, size_t align) {
-  (void)align;  /* Alignment ignored on Linux */
-  return malloc(size);
-}
-
-/**
- * @brief   Free DMA memory.
- * @param[in] ptr   DMA block previously allocated by @ref iohdlc_dma_alloc.
- */
-static inline void iohdlc_dma_free(void* ptr) {
-  free(ptr);
-}
 
 /**
  * @brief   Generic memory allocation macros (OS-agnostic interface).

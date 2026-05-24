@@ -27,6 +27,7 @@
 #include "ioHdlcstream_spi.h"
 #include "ioHdlcstream_spi_platform.h"
 #include "ioHdlcosal.h"
+#include "ioHdlcdma.h"
 #include "ioHdlcll.h"
 #include <errno.h>
 

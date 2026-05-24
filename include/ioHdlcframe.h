@@ -35,6 +35,8 @@
 
 #include "ioHdlctypes.h"
 #include "ioHdlcosal.h"
+#include "ioHdlc_conf.h"
+#include <stddef.h>
 
 #define HDLC_BASIC_MIN_L  4  /**< Minimum serialized frame length without frame-format field. */
 #define HDLC_FRFMT_MIN_L  5  /**< Minimum serialized frame length when a frame-format field is present. */
@@ -57,6 +59,27 @@ struct iohdlc_frame_q {
   struct iohdlc_frame_q *prev;
 };
 
+#define IOHDLC_FRAME_PREFIX_FIELDS                                            \
+  iohdlc_frame_q_t q;                                                         \
+  iohdlc_frame_q_t q_aux;                                                     \
+  iohdlc_frame_txgate_t tx_gate;                                              \
+  uint16_t elen;                                                              \
+  uint16_t tx_len;                                                            \
+  uint8_t refs;                                                               \
+  uint8_t tx_ctrl_len;                                                        \
+
+typedef struct {
+  IOHDLC_FRAME_PREFIX_FIELDS
+  uint8_t openingflag;
+  uint8_t frame[1];
+} iohdlc_frame_unpadded_t;
+
+#define IOHDLC_FRAME_PAYLOAD_PAD_SIZE                                         \
+  ((IOHDLC_FRAME_PAYLOAD_ALIGNMENT -                                          \
+    (offsetof(iohdlc_frame_unpadded_t, frame) &                               \
+     (IOHDLC_FRAME_PAYLOAD_ALIGNMENT - 1U))) &                                \
+   (IOHDLC_FRAME_PAYLOAD_ALIGNMENT - 1U))
+
 /**
  * @brief   Type of a HDLC frame.
  * @note    The frame includes the frame format (optional), the address,
@@ -66,18 +89,17 @@ struct iohdlc_frame_q {
  *          octets; its allocation size is determined by the owning pool.
  */
 struct iohdlc_frame {
-  iohdlc_frame_q_t  q;            /* Primary queue link (protocol queues: i_retrans_q, etc) */
-  iohdlc_frame_q_t  q_aux;        /* Auxiliary queue link (driver use: TX queue, etc) */
-  iohdlc_frame_txgate_t tx_gate;  /* Serializes header updates with TX queue/in-flight ownership. */
-
-  uint16_t elen;                  /* Effective length of the frame, excluding
-                                     FLAG and FCS. */
-  uint16_t tx_len;                /* Physical TX length prepared by the driver. */
-  uint8_t  refs;                  /* Number of references to this frame. */
-  uint8_t  tx_ctrl_len;           /* Control field length for TX formatting. */
-  uint8_t  openingflag;           /* Optional opening flag. */
-  uint8_t  frame[];
+  IOHDLC_FRAME_PREFIX_FIELDS
+  uint8_t payload_pad[IOHDLC_FRAME_PAYLOAD_PAD_SIZE];
+  uint8_t openingflag;
+  uint8_t frame[];
 };
+
+typedef char iohdlc_frame_payload_alignment_check[
+  (offsetof(iohdlc_frame_t, frame) % IOHDLC_FRAME_PAYLOAD_ALIGNMENT) == 0U ? 1 : -1];
+
+#undef IOHDLC_FRAME_PREFIX_FIELDS
+#undef IOHDLC_FRAME_PAYLOAD_PAD_SIZE
 
 /*===========================================================================*/
 /* Module macros.                                                            */
