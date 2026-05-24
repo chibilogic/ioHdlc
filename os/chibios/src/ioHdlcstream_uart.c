@@ -157,7 +157,7 @@ static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cook
 static bool chb_tx_busy(void *vctx) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)vctx;
   chDbgAssert(ctx != NULL, "uart tx_busy: null ctx");
-  return ctx->uartp->txstate != UART_TX_IDLE;
+  return ctx->tx_framep != NULL || ctx->uartp->txstate == UART_TX_ACTIVE;
 }
 
 static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len,
