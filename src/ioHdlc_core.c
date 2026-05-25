@@ -88,12 +88,16 @@ static uint32_t replyTimerTimeoutMs(const iohdlc_station_t *s,
   return s->reply_timeout_ms << retry_count;
 }
 
-static uint32_t iFrameReplyTimeoutMs(const iohdlc_station_t *s) {
-  return s->reply_timeout_ms * IOHDLC_DFL_T3_T1_RATIO;
-}
-
 static bool iFrameReplyTimerUsed(const iohdlc_station_t *s) {
   return IOHDLC_IS_ARM(s) || IOHDLC_IS_ABM(s);
+}
+
+static uint32_t idlePollTimeoutMs(const iohdlc_station_t *s) {
+  return s->reply_timeout_ms * IOHDLC_DFL_T3_IDLE_T1_RATIO;
+}
+
+static uint32_t iFrameReplyTimeoutMs(const iohdlc_station_t *s) {
+  return s->reply_timeout_ms * IOHDLC_DFL_T3_IFRAME_T1_RATIO;
 }
 
 static void setNSInCtrl(iohdlc_station_t *s, uint8_t *ctrl, uint32_t ns) {
@@ -688,7 +692,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       s->pf_state |= IOHDLC_F_RCVED;
       if (u_cmd == IOHDLC_U_UA && IOHDLC_IS_NRM(s) && IOHDLC_IS_PRI(s) &&
           !IOHDLC_PEER_DISC(p))
-        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
+        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, idlePollTimeoutMs(s));
     }
     p->um_state &= ~IOHDLC_UM_SENT;
   }
@@ -936,7 +940,7 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
       p->poll_retry_count = 0;
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
       if (IOHDLC_IS_NRM(s))
-        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
+        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, idlePollTimeoutMs(s));
     } else {
       /* Received P=1 (command): shall respond with F=1. */
       s->pf_state |= IOHDLC_P_RCVED;
@@ -948,7 +952,7 @@ static bool handleCheckpointAndAck(iohdlc_station_t *s, iohdlc_station_peer_t *p
     if (!is_command) {
       /* Received response with F=0: peer sent something but not final yet. */
       if (IOHDLC_IS_NRM(s))
-        ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
+        ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, idlePollTimeoutMs(s));
       if (!IOHDLC_F_ISRCVED(s)) {
         /* Only restart if we're still waiting for F (P is outstanding). */
         ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_REPLY,

@@ -281,7 +281,8 @@
  */
 #define IOHDLC_DFL_I_SIZE       64  /**< Default I-frame payload budget. */
 #define IOHDLC_DFL_MODULUS      8   /**< Default modulo value for basic configurations. */
-#define IOHDLC_DFL_T3_T1_RATIO  5   /**< Default ratio between T3/I-frame reply and T1 timeouts. */
+#define IOHDLC_DFL_T3_IDLE_T1_RATIO    2   /**< Default NRM idle-poll T3/T1 ratio. */
+#define IOHDLC_DFL_T3_IFRAME_T1_RATIO  5   /**< Default I-frame reply T3/T1 ratio. */
 /** @} */
 
 /** @endcond */
