@@ -131,7 +131,7 @@ static inline void iohdlc_dma_tx_prepare(const void *p, size_t n) {
 static inline void iohdlc_dma_rx_prepare(void *p, size_t n) {
 
   if (!iohdlc_dma_is_coherent(p, n))
-    iohdlc_dma_cache_flush_range(p, n);
+    iohdlc_dma_cache_invalidate_range(p, n);
 }
 
 static inline void iohdlc_dma_rx_complete(void *p, size_t n) {
