@@ -684,8 +684,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     }
     
     /* Mark F received and clear UM_SENT. */
-    if (has_pf)
+    if (has_pf) {
       s->pf_state |= IOHDLC_F_RCVED;
+      if (u_cmd == IOHDLC_U_UA && IOHDLC_IS_NRM(s) && IOHDLC_IS_PRI(s) &&
+          !IOHDLC_PEER_DISC(p))
+        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
+    }
     p->um_state &= ~IOHDLC_UM_SENT;
   }
   

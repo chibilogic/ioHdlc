@@ -141,6 +141,8 @@ MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_EXCHANGE)
 # All test binaries
 TEST_BINS = $(AUTO_TEST_BINS) $(MANUAL_TEST_BINS)
 
+EXCHANGE_REGRESSION_ARGS = --mode=nrm --twa --direction=b2a --count=10 --exchanges=10 --size=16 --reply-timeout=10
+
 # Targets
 .PHONY: all clean test test-osal dirs
 
@@ -263,6 +265,7 @@ test: all
 	@for test in $(AUTO_TEST_BINS); do \
 		$$test || exit 1; \
 	done
+	@$(BIN_DIR)/$(TEST_EXCHANGE) $(EXCHANGE_REGRESSION_ARGS) || exit 1
 	@echo ""
 	@echo "════════════════════════════════════════════════════════"
 	@echo "  All Tests Completed Successfully"
