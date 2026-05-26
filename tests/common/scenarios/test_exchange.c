@@ -65,6 +65,73 @@ static uint8_t s_sec_writer_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
 static uint8_t s_pri_reader_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
 static uint8_t s_sec_reader_buf[TEST_EXCHANGE_MAX_PACKET_SIZE];
 
+#if defined(IOHDLC_ENABLE_STATISTICS)
+static struct iohdlc_peer_stats s_exchange_peer_stats_read(
+    const iohdlc_station_peer_t *peer) {
+  struct iohdlc_peer_stats stats;
+
+  stats.rej_received = peer->stats.rej_received;
+  stats.checkpoints = peer->stats.checkpoints;
+  stats.timeouts = peer->stats.timeouts;
+  stats.out_of_sequence = peer->stats.out_of_sequence;
+  stats.pool_low_water = peer->stats.pool_low_water;
+
+  return stats;
+}
+
+static struct iohdlc_peer_stats s_exchange_peer_stats_delta(
+    const iohdlc_station_peer_t *peer,
+    const struct iohdlc_peer_stats *base) {
+  struct iohdlc_peer_stats stats = s_exchange_peer_stats_read(peer);
+
+  stats.rej_received -= base->rej_received;
+  stats.checkpoints -= base->checkpoints;
+  stats.timeouts -= base->timeouts;
+  stats.out_of_sequence -= base->out_of_sequence;
+  stats.pool_low_water -= base->pool_low_water;
+
+  return stats;
+}
+
+static void s_exchange_print_peer_stats(const char *label,
+                                        const struct iohdlc_peer_stats *stats) {
+  test_printf("%s\r\n", label);
+  test_printf("  REJ received:     %u\r\n", stats->rej_received);
+  test_printf("  Checkpoints:      %u\r\n", stats->checkpoints);
+  test_printf("  Timeouts:         %u\r\n", stats->timeouts);
+  test_printf("  Out of sequence:  %u\r\n", stats->out_of_sequence);
+  test_printf("  Pool low water:   %u\r\n", stats->pool_low_water);
+  test_printf("\r\n");
+}
+
+typedef struct {
+  iohdlc_station_peer_t *primary_peer;
+  iohdlc_station_peer_t *secondary_peer;
+  struct iohdlc_peer_stats base_primary;
+  struct iohdlc_peer_stats base_secondary;
+  struct iohdlc_peer_stats data_primary;
+  struct iohdlc_peer_stats data_secondary;
+  bool endpoint_a_active;
+  bool endpoint_b_active;
+  bool captured;
+} exchange_protocol_stats_window_t;
+
+static void s_exchange_capture_protocol_stats(
+    exchange_protocol_stats_window_t *window) {
+  if (window == NULL || window->captured)
+    return;
+
+  if (window->endpoint_a_active)
+    window->data_primary =
+        s_exchange_peer_stats_delta(window->primary_peer, &window->base_primary);
+  if (window->endpoint_b_active)
+    window->data_secondary =
+        s_exchange_peer_stats_delta(window->secondary_peer, &window->base_secondary);
+
+  window->captured = true;
+}
+#endif
+
 /*===========================================================================*/
 /* Thread Functions                                                          */
 /*===========================================================================*/
@@ -79,7 +146,26 @@ typedef struct {
   size_t buffer_size;
   uint32_t seq;
   bool enabled;  /* Whether this thread should be active */
+#if defined(IOHDLC_ENABLE_STATISTICS)
+  exchange_protocol_stats_window_t *protocol_stats;
+#endif
 } thread_context_t;
+
+static void s_exchange_worker_done(thread_context_t *ctx) {
+#if !defined(IOHDLC_ENABLE_STATISTICS)
+  (void)ctx;
+#endif
+
+  iohdlc_mutex_lock(&s_exchange_state_mutex);
+  if (s_exchange_active_workers > 0U) {
+    s_exchange_active_workers--;
+#if defined(IOHDLC_ENABLE_STATISTICS)
+    if (s_exchange_active_workers == 0U)
+      s_exchange_capture_protocol_stats(ctx->protocol_stats);
+#endif
+  }
+  iohdlc_mutex_unlock(&s_exchange_state_mutex);
+}
 
 static void s_exchange_abort_peer(iohdlc_station_peer_t *peer) {
   if (peer == NULL) {
@@ -276,11 +362,7 @@ static void *writer_thread(void *arg) {
     }
   }
   test_printf("Writer %u Data written (iters %d)!\r\n", ctx->station->addr, iterations);
-  iohdlc_mutex_lock(&s_exchange_state_mutex);
-  if (s_exchange_active_workers > 0U) {
-    s_exchange_active_workers--;
-  }
-  iohdlc_mutex_unlock(&s_exchange_state_mutex);
+  s_exchange_worker_done(ctx);
   return NULL;
 }
 
@@ -351,11 +433,7 @@ static void *reader_thread(void *arg) {
     }
   }
 
-  iohdlc_mutex_lock(&s_exchange_state_mutex);
-  if (s_exchange_active_workers > 0U) {
-    s_exchange_active_workers--;
-  }
-  iohdlc_mutex_unlock(&s_exchange_state_mutex);
+  s_exchange_worker_done(ctx);
     
   return NULL;
 }
@@ -389,10 +467,13 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   iohdlc_thread_t *thread_pri_writer = NULL, *thread_pri_reader = NULL;
   iohdlc_thread_t *thread_sec_writer = NULL, *thread_sec_reader = NULL;
   test_statistics_t *stats_local;
-  iohdlc_station_peer_t *peer_local;
   thread_context_t *ctx_writer_local;
   thread_context_t *ctx_reader_local;
   ioHdlcStreamPort port_primary = {0}, port_secondary = {0};
+#if defined(IOHDLC_ENABLE_STATISTICS)
+  exchange_protocol_stats_window_t protocol_stats_window = {0};
+  const struct iohdlc_peer_stats *stats_data_local;
+#endif
   bool twa_explicit = false;
   bool tws_explicit = false;
   bool endpoint_a_active;
@@ -706,6 +787,19 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
 
   test_printf("Connection established\r\n\r\n");
 
+#if defined(IOHDLC_ENABLE_STATISTICS)
+  protocol_stats_window.primary_peer = &peer_at_primary;
+  protocol_stats_window.secondary_peer = &peer_at_secondary;
+  protocol_stats_window.endpoint_a_active = endpoint_a_active;
+  protocol_stats_window.endpoint_b_active = endpoint_b_active;
+  if (endpoint_a_active)
+    protocol_stats_window.base_primary =
+        s_exchange_peer_stats_read(&peer_at_primary);
+  if (endpoint_b_active)
+    protocol_stats_window.base_secondary =
+        s_exchange_peer_stats_read(&peer_at_secondary);
+#endif
+
   if (endpoint_a_active) {
     ctx_pri_writer.station = &station_primary;
     ctx_pri_writer.peer = &peer_at_primary;
@@ -749,6 +843,13 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     ctx_sec_reader.enabled = (config.traffic_direction == TRAFFIC_PRI_TO_SEC ||
                               config.traffic_direction == TRAFFIC_BIDIRECTIONAL);
   }
+
+#if defined(IOHDLC_ENABLE_STATISTICS)
+  ctx_pri_writer.protocol_stats = &protocol_stats_window;
+  ctx_pri_reader.protocol_stats = &protocol_stats_window;
+  ctx_sec_writer.protocol_stats = &protocol_stats_window;
+  ctx_sec_reader.protocol_stats = &protocol_stats_window;
+#endif
 
   s_exchange_active_workers =
       (ctx_pri_writer.enabled ? 1U : 0U) +
@@ -915,6 +1016,10 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   iohdlc_thread_join(thread_sec_writer);
   iohdlc_thread_join(thread_sec_reader);
 
+#if defined(IOHDLC_ENABLE_STATISTICS)
+  s_exchange_capture_protocol_stats(&protocol_stats_window);
+#endif
+
   if (!test_failed_global && endpoint_a_active &&
       station_primary.c_peer != NULL &&
       !IOHDLC_PEER_DISC(&peer_at_primary)) {
@@ -949,21 +1054,10 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     test_printf("\r\n");
 
 #if defined(IOHDLC_ENABLE_STATISTICS)
-    test_printf("Protocol Statistics (A -> B peer):\r\n");
-    test_printf("  REJ received:     %u\r\n", peer_at_primary.stats.rej_received);
-    test_printf("  Checkpoints:      %u\r\n", peer_at_primary.stats.checkpoints);
-    test_printf("  Timeouts:         %u\r\n", peer_at_primary.stats.timeouts);
-    test_printf("  Out of sequence:  %u\r\n", peer_at_primary.stats.out_of_sequence);
-    test_printf("  Pool low water:   %u\r\n", peer_at_primary.stats.pool_low_water);
-    test_printf("\r\n");
-
-    test_printf("Protocol Statistics (B -> A peer):\r\n");
-    test_printf("  REJ received:     %u\r\n", peer_at_secondary.stats.rej_received);
-    test_printf("  Checkpoints:      %u\r\n", peer_at_secondary.stats.checkpoints);
-    test_printf("  Timeouts:         %u\r\n", peer_at_secondary.stats.timeouts);
-    test_printf("  Out of sequence:  %u\r\n", peer_at_secondary.stats.out_of_sequence);
-    test_printf("  Pool low water:   %u\r\n", peer_at_secondary.stats.pool_low_water);
-    test_printf("\r\n");
+    s_exchange_print_peer_stats("Protocol Statistics (data phase, A -> B peer):",
+                                &protocol_stats_window.data_primary);
+    s_exchange_print_peer_stats("Protocol Statistics (data phase, B -> A peer):",
+                                &protocol_stats_window.data_secondary);
 #endif
 
     if (config.traffic_direction == TRAFFIC_PRI_TO_SEC) {
@@ -1046,7 +1140,6 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     }
   } else {
     stats_local = endpoint_a_active ? &stats_primary : &stats_secondary;
-    peer_local = endpoint_a_active ? &peer_at_primary : &peer_at_secondary;
     ctx_writer_local = endpoint_a_active ? &ctx_pri_writer : &ctx_sec_writer;
     ctx_reader_local = endpoint_a_active ? &ctx_pri_reader : &ctx_sec_reader;
 
@@ -1061,13 +1154,15 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     test_printf("\r\n");
 
 #if defined(IOHDLC_ENABLE_STATISTICS)
-    test_printf("Protocol Statistics (Local peer %s -> %s):\r\n",
+    stats_data_local = endpoint_a_active ? &protocol_stats_window.data_primary :
+                                            &protocol_stats_window.data_secondary;
+    test_printf("Protocol Statistics (data phase, Local peer %s -> %s):\r\n",
                 local_label, remote_label);
-    test_printf("  REJ received:     %u\r\n", peer_local->stats.rej_received);
-    test_printf("  Checkpoints:      %u\r\n", peer_local->stats.checkpoints);
-    test_printf("  Timeouts:         %u\r\n", peer_local->stats.timeouts);
-    test_printf("  Out of sequence:  %u\r\n", peer_local->stats.out_of_sequence);
-    test_printf("  Pool low water:   %u\r\n", peer_local->stats.pool_low_water);
+    test_printf("  REJ received:     %u\r\n", stats_data_local->rej_received);
+    test_printf("  Checkpoints:      %u\r\n", stats_data_local->checkpoints);
+    test_printf("  Timeouts:         %u\r\n", stats_data_local->timeouts);
+    test_printf("  Out of sequence:  %u\r\n", stats_data_local->out_of_sequence);
+    test_printf("  Pool low water:   %u\r\n", stats_data_local->pool_low_water);
     test_printf("\r\n");
 #endif
 
