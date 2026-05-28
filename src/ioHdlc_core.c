@@ -88,6 +88,14 @@ static uint32_t replyTimerTimeoutMs(const iohdlc_station_t *s,
   return s->reply_timeout_ms << retry_count;
 }
 
+static void startPollReplyTimer(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
+
+  if (IOHDLC_IS_NRM(s) && IOHDLC_IS_PRI(s))
+    ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
+
+  ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, replyTimerTimeoutMs(s, p));
+}
+
 static bool iFrameReplyTimerUsed(const iohdlc_station_t *s) {
   return IOHDLC_IS_ARM(s) || IOHDLC_IS_ABM(s);
 }
@@ -1572,7 +1580,7 @@ static iohdlc_frame_t *prepareSFrame(iohdlc_station_t *s, iohdlc_station_peer_t 
        In ARM/ABM TWA, non-I frames restart the I-frame reply timer only if
        it is already armed. */
     if (set_pf && is_command)
-      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, replyTimerTimeoutMs(s, p));
+      startPollReplyTimer(s, p);
 
     if (iFrameReplyTimerUsed(s) && IOHDLC_USE_TWA(s))
       ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
@@ -1811,7 +1819,7 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
     /* If sending command with P (poll), start the command reply timer. */
     if (set_pf && is_command)
-      ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY, replyTimerTimeoutMs(s, p));
+      startPollReplyTimer(s, p);
 
     if (iFrameReplyTimerUsed(s))
       ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
@@ -2017,8 +2025,7 @@ void ioHdlcTxEntry(void *stationp) {
           IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, true);
         }
         
-        ioHdlcStartReplyTimer(p, IOHDLC_TIMER_REPLY,
-                                  replyTimerTimeoutMs(s, p));
+        startPollReplyTimer(s, p);
         p->um_state |= IOHDLC_UM_SENT;
         IOHDLC_ACK_F(s);                  /* ack F  */
       } else {
