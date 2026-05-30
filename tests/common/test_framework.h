@@ -72,6 +72,8 @@ typedef struct {
   /* Data exchange pattern */
   uint32_t exchanges_per_iteration;     /**< Writes per iteration */
   uint32_t bytes_per_exchange;          /**< Total size of each write, header included */
+  bool rand_size_enabled;               /**< Use random packet sizes for exchange writes */
+  uint32_t rand_size_seed;              /**< Seed for random packet sizes */
   
   /* Traffic direction */
   test_traffic_direction_t traffic_direction;
@@ -115,6 +117,8 @@ typedef struct __attribute__((packed)) {
 
 #define TEST_PACKET_HEADER_SIZE 10U
 #define TEST_EXCHANGE_MAX_PACKET_SIZE 1024U
+#define TEST_EXCHANGE_RAND_SIZE_MIN TEST_PACKET_HEADER_SIZE
+#define TEST_EXCHANGE_RAND_SIZE_MAX 120U
 #define TEST_POLL_RETRY_MAX_LIMIT 31U
 
 /*===========================================================================*/

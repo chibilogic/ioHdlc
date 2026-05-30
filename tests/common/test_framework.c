@@ -85,6 +85,11 @@ bool test_validate_packet(const uint8_t *buffer, size_t len,
   }
   
   const test_packet_t *pkt = (const test_packet_t *)buffer;
+  uint32_t payload_len = (uint32_t)(len - TEST_PACKET_HEADER_SIZE);
+
+  if (pkt->payload_len != payload_len) {
+    return false;
+  }
   
   /* Check sequence number */
   if (pkt->sequence != *expected_seq) {
@@ -164,7 +169,14 @@ void test_print_config(const test_config_t *cfg) {
   
   /* Traffic pattern */
   test_printf("Exchanges:    %u per iteration\n", cfg->exchanges_per_iteration);
-  test_printf("Packet size:  %u bytes\n", cfg->bytes_per_exchange);
+  if (cfg->rand_size_enabled) {
+    test_printf("Packet size:  random %u-%u bytes (seed %u)\n",
+                (unsigned)TEST_EXCHANGE_RAND_SIZE_MIN,
+                (unsigned)TEST_EXCHANGE_RAND_SIZE_MAX,
+                cfg->rand_size_seed);
+  } else {
+    test_printf("Packet size:  %u bytes\n", cfg->bytes_per_exchange);
+  }
 
   /* Local endpoint */
   switch (cfg->endpoint_mode) {
