@@ -162,6 +162,8 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->duration_value = TEST_DURATION_VALUE;
   cfg->exchanges_per_iteration = TEST_EXCHANGES;
   cfg->bytes_per_exchange = TEST_PACKET_SIZE;
+  cfg->rand_size_enabled = false;
+  cfg->rand_size_seed = 0;
   cfg->traffic_direction = TEST_DIRECTION;
   cfg->endpoint_mode = TEST_ENDPOINT;
   cfg->error_rate = TEST_ERROR_RATE;

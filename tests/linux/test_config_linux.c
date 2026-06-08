@@ -19,6 +19,7 @@
  */
 
 #include "test_framework.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +28,22 @@
 /*===========================================================================*/
 /* Helper Functions                                                          */
 /*===========================================================================*/
+
+static bool parse_u32_arg(const char *value, uint32_t *out) {
+  char *end;
+  unsigned long parsed;
+
+  if (value == NULL || *value == '\0' || *value == '-')
+    return false;
+
+  errno = 0;
+  parsed = strtoul(value, &end, 0);
+  if (errno != 0 || end == value || *end != '\0' || parsed > UINT32_MAX)
+    return false;
+
+  *out = (uint32_t)parsed;
+  return true;
+}
 
 static void print_usage(const char *progname) {
   printf("Usage: %s [options]\n\n", progname);
@@ -40,6 +57,9 @@ static void print_usage(const char *progname) {
   printf("  --exchanges=N       Exchanges per iteration (default: 10)\n");
   printf("  --size=N            Packet size in bytes, header included (default: 64, range: %u-%u)\n",
          (unsigned)TEST_PACKET_HEADER_SIZE, (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
+  printf("  --rand-size=N       Random packet-size seed (range: %u-%u, alias: --rand_size=N)\n",
+         (unsigned)TEST_EXCHANGE_RAND_SIZE_MIN,
+         (unsigned)TEST_EXCHANGE_RAND_SIZE_MAX);
   printf("  --direction=DIR     Traffic direction: both, a2b, b2a (aliases: pri2sec, sec2pri)\n");
   printf("  --endpoint=EP       Local endpoint: both, a, b (aliases: primary, secondary)\n");
   printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
@@ -71,6 +91,8 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->duration_value = 10;
   cfg->exchanges_per_iteration = 10;
   cfg->bytes_per_exchange = 64;
+  cfg->rand_size_enabled = false;
+  cfg->rand_size_seed = 0;
   cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
   cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
   cfg->error_rate = 0;  /* Disabled by default */
@@ -93,6 +115,8 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     {"time",      required_argument, 0, 't'},
     {"exchanges", required_argument, 0, 'e'},
     {"size",      required_argument, 0, 'z'},
+    {"rand-size", required_argument, 0, 'Z'},
+    {"rand_size", required_argument, 0, 'Z'},
     {"direction", required_argument, 0, 'd'},
     {"endpoint",  required_argument, 0, 'E'},
     {"error-rate",required_argument, 0, 'r'},
@@ -176,6 +200,18 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         cfg->bytes_per_exchange = (uint32_t)size;
         break;
       }
+
+      case 'Z':  /* --rand-size */ {
+        uint32_t seed;
+
+        if (!parse_u32_arg(optarg, &seed)) {
+          fprintf(stderr, "Error: Invalid rand-size seed '%s'\n", optarg);
+          return false;
+        }
+        cfg->rand_size_enabled = true;
+        cfg->rand_size_seed = seed;
+        break;
+      }
         
       case 'd':  /* --direction */
         if (strcmp(optarg, "pri2sec") == 0 || strcmp(optarg, "a2b") == 0) {
@@ -252,6 +288,30 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         print_usage(argv[0]);
         return false;
     }
+  }
+
+  for (int i = optind; i < argc; i++) {
+    uint32_t seed;
+    const char *value = NULL;
+
+    if (strncmp(argv[i], "rand_size=", 10) == 0) {
+      value = argv[i] + 10;
+    } else if (strncmp(argv[i], "rand-size=", 10) == 0) {
+      value = argv[i] + 10;
+    }
+
+    if (value == NULL) {
+      fprintf(stderr, "Error: Unknown argument '%s'\n", argv[i]);
+      return false;
+    }
+
+    if (!parse_u32_arg(value, &seed)) {
+      fprintf(stderr, "Error: Invalid rand-size seed '%s'\n", value);
+      return false;
+    }
+
+    cfg->rand_size_enabled = true;
+    cfg->rand_size_seed = seed;
   }
   
   return true;

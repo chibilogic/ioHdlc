@@ -43,6 +43,7 @@ Unless noted otherwise, the semantics are identical on Linux and in the shell. T
 | `--time=N` | -- | Run for N seconds (sets time-based duration) |
 | `--exchanges=N` | 10 | Packets sent per iteration |
 | `--size=N` | 64 | Packet size in bytes, including the 10-byte test header (range: 10-1024) |
+| `--rand-size=N` | off | Random packet-size seed; each packet is 10-120 bytes (alias: `--rand_size=N`) |
 | `--direction=DIR` | both | Traffic direction: `pri2sec`, `sec2pri`, `both` |
 | `--endpoint=EP` | both | Local endpoint selection: `both`, `a`, `b` (aliases: `primary`, `secondary`) |
 | `--error-rate=N` | 0 | Error injection rate 0-100% (mock adapter only) |
@@ -105,6 +106,8 @@ endpoint A, and `secondary` means endpoint B.
 `--size` is the total size of the test packet passed to `ioHdlcWriteTmo()`, including the 10-byte test header (sequence number + timestamp + payload length). The exchange harness supports packet sizes from 10 to 1024 bytes.
 
 This is intentionally larger than a single HDLC I-frame on TYPE0 FFF links, so values above `mifls` exercise the writer fragmentation path instead of being rejected by the test harness.
+
+`--rand-size=N` enables deterministic random packet sizes using `N` as the seed. In this mode each write is between 10 and 120 bytes, and completion is still based on packet counts rather than byte totals.
 
 ### Error Injection
 

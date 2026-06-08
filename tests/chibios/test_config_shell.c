@@ -23,6 +23,7 @@
 #include "test_framework.h"
 #include "test_helpers.h"
 #include "chprintf.h"
+#include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -45,6 +46,22 @@ static const char *get_arg_value(const char *arg) {
   return (eq != NULL) ? (eq + 1) : NULL;
 }
 
+static bool parse_u32_arg(const char *value, uint32_t *out) {
+  char *end;
+  unsigned long parsed;
+
+  if (value == NULL || *value == '\0' || *value == '-')
+    return false;
+
+  errno = 0;
+  parsed = strtoul(value, &end, 0);
+  if (errno != 0 || end == value || *end != '\0' || parsed > UINT32_MAX)
+    return false;
+
+  *out = (uint32_t)parsed;
+  return true;
+}
+
 /**
  * @brief   Print usage help to test output.
  */
@@ -54,6 +71,9 @@ static void print_usage(void) {
   test_printf("Options:\r\n");
   test_printf("  --size=N            Packet size in bytes, header included (default: 64, range: %u-%u)\r\n",
               (unsigned)TEST_PACKET_HEADER_SIZE, (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
+  test_printf("  --rand-size=N       Random packet-size seed (range: %u-%u, alias: --rand_size=N)\r\n",
+              (unsigned)TEST_EXCHANGE_RAND_SIZE_MIN,
+              (unsigned)TEST_EXCHANGE_RAND_SIZE_MAX);
   test_printf("  --count=N           Run for N iterations (default: 100)\r\n");
   test_printf("  --exchanges=N       Exchanges per iteration (default: 10)\r\n");
   test_printf("  --modulo=N          HDLC modulo: 8 or 128 (default: 8)\r\n");
@@ -103,6 +123,8 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->duration_value = 100;
   cfg->exchanges_per_iteration = 10;
   cfg->bytes_per_exchange = 64;
+  cfg->rand_size_enabled = false;
+  cfg->rand_size_seed = 0;
   cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
   cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
   cfg->error_rate = 0;
@@ -135,6 +157,21 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
           return false;
         }
       }
+    }
+    /* --rand-size=N */
+    else if (arg_starts_with(arg, "--rand-size=") ||
+             arg_starts_with(arg, "--rand_size=") ||
+             arg_starts_with(arg, "rand_size=") ||
+             arg_starts_with(arg, "rand-size=")) {
+      uint32_t seed;
+
+      value = get_arg_value(arg);
+      if (!parse_u32_arg(value, &seed)) {
+        test_printf("Error: Invalid rand-size seed\r\n");
+        return false;
+      }
+      cfg->rand_size_enabled = true;
+      cfg->rand_size_seed = seed;
     }
     /* --count=N */
     else if (arg_starts_with(arg, "--count=")) {

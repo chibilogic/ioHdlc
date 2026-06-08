@@ -279,6 +279,7 @@ static void *writer_thread(void *arg) {
   uint32_t packets_sent = 0;
   uint32_t iterations = 0;
   uint32_t start_time = iohdlc_time_now_ms();
+  uint32_t rand_state = ctx->config->rand_size_seed;
   bool test_running = true;
 
   if (!ctx->enabled) {
@@ -300,13 +301,22 @@ static void *writer_thread(void *arg) {
 
     /* Send burst of packets */
     while (packets_sent < ctx->config->exchanges_per_iteration && !IOHDLC_PEER_DISC(ctx->peer)) {
+      uint32_t packet_size_config = ctx->config->bytes_per_exchange;
+
+      if (ctx->config->rand_size_enabled) {
+        rand_state = (rand_state * 1664525U) + 1013904223U;
+        packet_size_config = TEST_EXCHANGE_RAND_SIZE_MIN +
+            (rand_state %
+             (TEST_EXCHANGE_RAND_SIZE_MAX - TEST_EXCHANGE_RAND_SIZE_MIN + 1U));
+      }
+
       size_t packet_size = test_generate_packet(ctx->seq++, 
-                                                ctx->config->bytes_per_exchange,
+                                                packet_size_config,
                                                 ctx->buffer, ctx->buffer_size);
       if (packet_size == 0) {
         test_printf("Writer %u configuration error: packet size %u exceeds test buffer (%u bytes max)\r\n",
                     ctx->station->addr,
-                    ctx->config->bytes_per_exchange,
+                    packet_size_config,
                     (unsigned)ctx->buffer_size);
         test_running = false;
         break;
@@ -372,6 +382,10 @@ static void *writer_thread(void *arg) {
 static void *reader_thread(void *arg) {
   thread_context_t *ctx = (thread_context_t *)arg;
   const uint32_t read_tmo = s_exchange_io_timeout_ms(ctx->station, ctx->peer);
+  const uint32_t read_size = ctx->config->rand_size_enabled ?
+      TEST_PACKET_HEADER_SIZE : ctx->config->bytes_per_exchange;
+  const uint32_t min_packet_size = ctx->config->rand_size_enabled ?
+      TEST_PACKET_HEADER_SIZE : ctx->config->bytes_per_exchange;
   bool test_running = true;
 
   if (!ctx->enabled) {
@@ -380,18 +394,52 @@ static void *reader_thread(void *arg) {
   
   while (test_running && !test_should_stop()) {
    
-    ssize_t received = ioHdlcReadTmo(ctx->peer, ctx->buffer, ctx->config->bytes_per_exchange,
-                                     read_tmo);
+    ssize_t received = ioHdlcReadTmo(ctx->peer, ctx->buffer, read_size, read_tmo);
+
+    if (ctx->config->rand_size_enabled &&
+        received == (ssize_t)TEST_PACKET_HEADER_SIZE) {
+      const test_packet_t *pkt = (const test_packet_t *)ctx->buffer;
+      uint32_t payload_len = pkt->payload_len;
+
+      if (payload_len <= TEST_EXCHANGE_RAND_SIZE_MAX - TEST_PACKET_HEADER_SIZE &&
+          payload_len <= ctx->buffer_size - TEST_PACKET_HEADER_SIZE &&
+          payload_len > 0U) {
+        ssize_t payload_received = ioHdlcReadTmo(
+            ctx->peer, ctx->buffer + TEST_PACKET_HEADER_SIZE, payload_len,
+            read_tmo);
+
+        if (payload_received >= 0)
+          received += payload_received;
+        else
+          received = payload_received;
+      }
+    }
 
     /* Watermark test: delay every 256 packets to simulate pool pressure */
     if (ctx->config->watermark_delay_ms > 0 && ((ctx->seq+1) & 0xFF) == 0) {
       ioHdlc_sleep_ms(ctx->config->watermark_delay_ms);
     }
     
-    if (received > 0 && (size_t)received >= ctx->config->bytes_per_exchange) {
+    if (received > 0 && (size_t)received >= min_packet_size) {
+      bool valid;
+
       iohdlc_mutex_lock(ctx->stats_mutex);
-      test_validate_packet(ctx->buffer, received, &ctx->seq, ctx->stats);
+      valid = test_validate_packet(ctx->buffer, received, &ctx->seq, ctx->stats);
       iohdlc_mutex_unlock(ctx->stats_mutex);
+
+      if (!valid) {
+        iohdlc_mutex_lock(&s_exchange_state_mutex);
+        test_failed_global = true;
+        test_request_stop();
+        iohdlc_mutex_unlock(&s_exchange_state_mutex);
+
+        s_exchange_abort_peer(s_pri_peer);
+        s_exchange_abort_peer(s_sec_peer);
+
+        test_printf("Reader %u invalid packet (%d bytes)\r\n",
+                    ctx->station->addr, (int)received);
+        test_running = false;
+      }
     } else if (received > 0) {
       test_printf("Warning: received short packet (%d bytes)\r\n", (int)received);
     } else if (received == 0) {
