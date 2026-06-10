@@ -747,10 +747,12 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
                                           SPIDriver *spip, SPIConfig *cfgp,
                                           bool is_master, ioline_t dr_line) {
   chDbgAssert(dr_line != PAL_NOLINE, "spi object init: DATA_READY required");
+  chDbgAssert(cfgp != NULL, "spi object init: config required");
 
   obj->spip      = spip;
   obj->cfgp      = cfgp;
   obj->is_master = is_master;
+  ioHdlcStreamSpiPlatformPrepareConfig(obj);
   obj->started   = false;
   obj->dr_line   = dr_line;
   obj->dr_epoch_active = false;

@@ -13,6 +13,15 @@
 #define IOHDLCSTREAM_SPI_PLATFORM_IMPL_H
 
 /**
+ * @brief   Applies ioHdlc SPI requirements to the platform configuration.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+static inline void ioHdlcStreamSpiPlatformPrepareConfig(ioHdlcStreamChibiosSpi *ctx) {
+  ctx->cfgp->cr1 |= SPI_CR1_LSBFIRST;
+}
+
+/**
  * @brief   Cancels STM32 slave RX DMA and drains residual FIFO bytes.
  *
  * @param[in] ctx       SPI stream context

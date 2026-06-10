@@ -24,6 +24,9 @@
  *
  * @note    The caller must configure @p SPIConfig with a @p NULL end_cb; the
  *          adapter installs its own @p end_cb at start time.
+ * @note    The adapter forces the platform SPI configuration to transmit
+ *          LSB-first, as required by HDLC bit ordering. Other SPI timing and
+ *          select-mode fields remain under caller/platform control.
  *
  * @note    REJ must be disabled in the ioHdlc core configuration when using
  *          SPI connections.  Recovery from lost frames happens via

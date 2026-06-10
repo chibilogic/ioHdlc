@@ -13,6 +13,17 @@
 #define IOHDLCSTREAM_SPI_PLATFORM_IMPL_H
 
 /**
+ * @brief   Applies ioHdlc SPI requirements to the platform configuration.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+static inline void ioHdlcStreamSpiPlatformPrepareConfig(
+    ioHdlcStreamChibiosSpi *ctx) {
+
+  ctx->cfgp->tcr |= LPSPI_TCR_LSBF(1U);
+}
+
+/**
  * @brief   Prepares a slave RX transfer.
  *
  * @param[in] ctx       SPI stream context
