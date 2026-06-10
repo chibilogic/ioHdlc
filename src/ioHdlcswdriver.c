@@ -1157,22 +1157,12 @@ static void s_on_tx_error_i(void *cb_ctx, void *framep, uint32_t errmask) {
     queued_fp->q_aux.next = NULL;
     queued_fp->q_aux.prev = NULL;
     ioHdlcFrameTxGateReleaseI(queued_fp);
-    iohdlc_sys_unlock_isr();
     hdlcReleaseFrame(drv->fpp, queued_fp);
-    iohdlc_sys_lock_isr();
   }
 #endif
 
-#ifndef IOHDLC_USE_MOCK_ADAPTER
-  if (done_fp) {
-    iohdlc_sys_unlock_isr();
-    hdlcReleaseFrame(drv->fpp, done_fp);
-    iohdlc_sys_lock_isr();
-  }
-#else
   if (done_fp)
     hdlcReleaseFrame(drv->fpp, done_fp);
-#endif
 }
 
 /*===========================================================================*/

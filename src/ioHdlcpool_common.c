@@ -57,7 +57,9 @@ void hdlc_pool_init_watermark(ioHdlcFramePool *fpp, uint32_t total) {
  *          Checks if free count has dropped below low threshold and updates
  *          state accordingly. Returns callback to invoke if state changed.
  *
- * @note    Caller must invoke callback OUTSIDE of any critical section/lock.
+ * @note    The concrete pool implementation must dispatch callbacks after
+ *          releasing its internal pool lock. Callbacks still inherit the
+ *          original caller context.
  * @note    This helper only reports a transition; it does not itself call the
  *          callback.
  *
@@ -86,7 +88,9 @@ void (*hdlc_pool_check_low_watermark(ioHdlcFramePool *fpp, bool *notify, void **
  *          Checks if free count has risen above high threshold and updates
  *          state accordingly. Returns callback to invoke if state changed.
  *
- * @note    Caller must invoke callback OUTSIDE of any critical section/lock.
+ * @note    The concrete pool implementation must dispatch callbacks after
+ *          releasing its internal pool lock. Callbacks still inherit the
+ *          original caller context.
  * @note    This helper only reports a transition; it does not itself call the
  *          callback.
  *

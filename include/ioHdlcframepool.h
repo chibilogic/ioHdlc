@@ -177,11 +177,17 @@ extern "C" {
 #endif
 /**
  * @brief   Configure low and high watermark callbacks for a frame pool.
- * @details The callback context and the exact execution context in which the
- *          callbacks run are implementation-defined and must be documented by
- *          the concrete pool implementation.
+ * @details Watermark callbacks are dispatched synchronously by pool take and
+ *          release operations after the concrete pool implementation has
+ *          released its internal synchronization primitive. The callbacks
+ *          inherit the execution context of the operation that caused the
+ *          transition; depending on the platform and caller, that context may
+ *          be restricted.
  * @note    Callbacks should be used to react to memory pressure, not as a
  *          substitute for explicit pool accounting in application code.
+ * @note    Callback implementations must be non-blocking and must only use
+ *          APIs valid in all contexts from which the integration can call pool
+ *          take and release operations.
  */
   void hdlcPoolConfigWatermark(ioHdlcFramePool *fpp, uint8_t low_pct, 
                                 uint8_t high_pct, void (*on_low)(void *),
