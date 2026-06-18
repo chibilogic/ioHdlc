@@ -306,6 +306,9 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->addr = ioHdlcsconfp->addr;
   ioHdlcsp->flags = ioHdlcsconfp->flags;
   ioHdlcsp->mode = mode;
+  ioHdlcsp->pf_state = 0;
+  if (mode == IOHDLC_OM_NDM && (ioHdlcsp->flags & IOHDLC_FLG_PRI))
+    ioHdlcsp->pf_state |= IOHDLC_F_RCVED;
 
   /* Driver setup */
   ioHdlcsp->driver = ioHdlcsconfp->driver;

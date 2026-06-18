@@ -75,6 +75,7 @@ static void print_usage(void) {
               (unsigned)TEST_EXCHANGE_RAND_SIZE_MIN,
               (unsigned)TEST_EXCHANGE_RAND_SIZE_MAX);
   test_printf("  --count=N           Run for N iterations (default: 100)\r\n");
+  test_printf("  --test[=N]          Run N TEST command/response cycles (default: 1)\r\n");
   test_printf("  --exchanges=N       Exchanges per iteration (default: 10)\r\n");
   test_printf("  --modulo=N          HDLC modulo: 8 or 128 (default: 8)\r\n");
   test_printf("  -p N                Progress interval in ms (default: 1000)\r\n");
@@ -98,6 +99,7 @@ static void print_usage(void) {
   test_printf("  exchange --size=512 --count=50 --exchanges=100\r\n");
   test_printf("  exchange --direction=a2b --error-rate=5 -p 200\r\n");
   test_printf("  exchange --mode=abm --tws --modulo=128 --count=200\r\n");
+  test_printf("  exchange --test=10 --size=64\r\n");
   test_printf("\r\n");
 }
 
@@ -125,6 +127,8 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->bytes_per_exchange = 64;
   cfg->rand_size_enabled = false;
   cfg->rand_size_seed = 0;
+  cfg->test_command = false;
+  cfg->test_command_count = 0;
   cfg->traffic_direction = TRAFFIC_BIDIRECTIONAL;
   cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
   cfg->error_rate = 0;
@@ -136,6 +140,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->watermark_delay_ms = 0;      /* Watermark delay disabled by default */
   cfg->krs = 0;                     /* Use modmask default */
   cfg->test_name = "Shell Exchange Test";
+  bool exchange_option_seen = false;
   
   /* Parse arguments */
   for (int i = 0; i < argc; i++) {
@@ -144,19 +149,36 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     
     /* --size=N */
     if (arg_starts_with(arg, "--size=")) {
+      uint32_t size;
+
       value = get_arg_value(arg);
-      if (value) {
-        int size = atoi(value);
-        if (size >= (int)TEST_PACKET_HEADER_SIZE &&
-            size <= (int)TEST_EXCHANGE_MAX_PACKET_SIZE) {
-          cfg->bytes_per_exchange = size;
-        } else {
-          test_printf("Error: Invalid size (must be %u-%u, header included)\r\n",
-                      (unsigned)TEST_PACKET_HEADER_SIZE,
-                      (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
+      if (!parse_u32_arg(value, &size) ||
+          size > TEST_EXCHANGE_MAX_PACKET_SIZE) {
+        test_printf("Error: Invalid size (must be 0-%u for TEST or %u-%u for exchange)\r\n",
+                    (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE,
+                    (unsigned)TEST_PACKET_HEADER_SIZE,
+                    (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
+        return false;
+      }
+      cfg->bytes_per_exchange = size;
+    }
+    /* --test[=N] */
+    else if (strcmp(arg, "--test") == 0 || arg_starts_with(arg, "--test=")) {
+      uint32_t count = 1U;
+
+      if (arg_starts_with(arg, "--test=")) {
+        value = get_arg_value(arg);
+        if (!parse_u32_arg(value, &count)) {
+          test_printf("Error: Invalid TEST cycle count\r\n");
           return false;
         }
       }
+      if (count == 0U) {
+        test_printf("Error: --test count must be > 0\r\n");
+        return false;
+      }
+      cfg->test_command = true;
+      cfg->test_command_count = count;
     }
     /* --rand-size=N */
     else if (arg_starts_with(arg, "--rand-size=") ||
@@ -165,6 +187,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
              arg_starts_with(arg, "rand-size=")) {
       uint32_t seed;
 
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (!parse_u32_arg(value, &seed)) {
         test_printf("Error: Invalid rand-size seed\r\n");
@@ -175,6 +198,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --count=N */
     else if (arg_starts_with(arg, "--count=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         int count = atoi(value);
@@ -189,6 +213,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --exchanges=N */
     else if (arg_starts_with(arg, "--exchanges=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         int exchanges = atoi(value);
@@ -202,6 +227,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --modulo=N */
     else if (arg_starts_with(arg, "--modulo=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         int modulo = atoi(value);
@@ -216,6 +242,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     /* -p N (poll interval) */
     else if (strcmp(arg, "-p") == 0 && i + 1 < argc) {
       int interval = atoi(argv[++i]);
+      exchange_option_seen = true;
       if (interval > 0) {
         cfg->progress_interval_ms = interval;
       } else {
@@ -224,12 +251,14 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
       }
     }
     else if (strcmp(arg, "-p") == 0) {
+      exchange_option_seen = true;
       test_printf("Error: Missing value for -p\r\n");
       return false;
     }
     /* -w N (watermark delay) */
     else if (strcmp(arg, "-w") == 0 && i + 1 < argc) {
       int delay = atoi(argv[++i]);
+      exchange_option_seen = true;
       if (delay >= 0) {
         cfg->watermark_delay_ms = delay;
       } else {
@@ -238,11 +267,13 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
       }
     }
     else if (strcmp(arg, "-w") == 0) {
+      exchange_option_seen = true;
       test_printf("Error: Missing value for -w\r\n");
       return false;
     }
     /* --error-rate=N */
     else if (arg_starts_with(arg, "--error-rate=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         int rate = atoi(value);
@@ -256,6 +287,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --direction=DIR */
     else if (arg_starts_with(arg, "--direction=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         if (strcmp(value, "both") == 0) {
@@ -288,6 +320,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --reply-timeout=N */
     else if (arg_starts_with(arg, "--reply-timeout=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         int timeout = atoi(value);
@@ -301,6 +334,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --mode=MODE */
     else if (arg_starts_with(arg, "--mode=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         if (strcmp(value, "nrm") == 0) {
@@ -315,14 +349,17 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --twa */
     else if (strcmp(arg, "--twa") == 0) {
+      exchange_option_seen = true;
       cfg->use_twa = true;
     }
     /* --tws */
     else if (strcmp(arg, "--tws") == 0) {
+      exchange_option_seen = true;
       cfg->use_twa = false;
     }
     /* --time=N */
     else if (arg_starts_with(arg, "--time=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         int time_sec = atoi(value);
@@ -337,6 +374,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --poll-retry-max=N */
     else if (arg_starts_with(arg, "--poll-retry-max=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         int retries = atoi(value);
@@ -351,6 +389,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --watermark-delay=N */
     else if (arg_starts_with(arg, "--watermark-delay=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         int delay = atoi(value);
@@ -364,6 +403,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     /* --krs=N */
     else if (arg_starts_with(arg, "--krs=")) {
+      exchange_option_seen = true;
       value = get_arg_value(arg);
       if (value) {
         int krs = atoi(value);
@@ -382,6 +422,21 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     }
     else {
       test_printf("Error: Unknown option '%s'\r\n", arg);
+      return false;
+    }
+  }
+
+  if (!cfg->test_command &&
+      cfg->bytes_per_exchange < TEST_PACKET_HEADER_SIZE) {
+    test_printf("Error: Invalid size (must be %u-%u, header included)\r\n",
+                (unsigned)TEST_PACKET_HEADER_SIZE,
+                (unsigned)TEST_EXCHANGE_MAX_PACKET_SIZE);
+    return false;
+  }
+
+  if (cfg->test_command) {
+    if (exchange_option_seen) {
+      test_printf("Error: --test accepts only --size and --endpoint\r\n");
       return false;
     }
   }

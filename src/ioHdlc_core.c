@@ -251,6 +251,8 @@ static void applyModeState(iohdlc_station_t *s, uint8_t mode) {
   } else {
     /* Disconnected and unsupported modes: no connected-mode RX handler. */
     s->rx_fn = NULL;
+    if (mode == IOHDLC_OM_NDM && IOHDLC_IS_PRI(s))
+      s->pf_state |= IOHDLC_F_RCVED;
   }
 }
 
@@ -443,7 +445,8 @@ static bool abmSendOpportunity(iohdlc_station_t *s) {
  * @return  true if the active operating mode permits transmission.
  */
 static bool sendOpportunity(iohdlc_station_t *s) {
-  return IOHDLC_IS_NRM(s) ? nrmSendOpportunity(s) : abmSendOpportunity(s);
+  return (IOHDLC_IS_NRM(s) || IOHDLC_IS_NDM(s)) ?
+      nrmSendOpportunity(s) : abmSendOpportunity(s);
 }
 
 /**

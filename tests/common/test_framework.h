@@ -74,6 +74,8 @@ typedef struct {
   uint32_t bytes_per_exchange;          /**< Total size of each write, header included */
   bool rand_size_enabled;               /**< Use random packet sizes for exchange writes */
   uint32_t rand_size_seed;              /**< Seed for random packet sizes */
+  bool test_command;                    /**< Run TEST command/response cycles */
+  uint32_t test_command_count;          /**< Number of TEST cycles */
   
   /* Traffic direction */
   test_traffic_direction_t traffic_direction;

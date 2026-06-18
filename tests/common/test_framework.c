@@ -152,6 +152,29 @@ void test_print_config(const test_config_t *cfg) {
   }
   test_printf("Mode:         %s-%s\n", mode_str, cfg->use_twa ? "TWA" : "TWS");
   test_printf("Modulo:       %u\n", cfg->modulo);
+
+  if (cfg->test_command) {
+    test_printf("Command:      TEST\n");
+    if (cfg->endpoint_mode == TEST_ENDPOINT_B)
+      test_printf("Role:         responder\n");
+    else
+      test_printf("Cycles:       %u\n", cfg->test_command_count);
+    test_printf("TEST I size:  %u bytes\n", cfg->bytes_per_exchange);
+    switch (cfg->endpoint_mode) {
+      case TEST_ENDPOINT_A:
+        test_printf("Endpoint:     A\n");
+        break;
+      case TEST_ENDPOINT_B:
+        test_printf("Endpoint:     B\n");
+        break;
+      case TEST_ENDPOINT_BOTH:
+      default:
+        test_printf("Endpoint:     both\n");
+        break;
+    }
+    test_printf("\n");
+    return;
+  }
   
   /* Duration */
   test_printf("Duration:     ");
