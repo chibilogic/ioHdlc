@@ -63,6 +63,17 @@ extern "C" {
 
 extern const iohdlc_peer_rx_ops_t ioHdlcPeerRawRxOps;
 
+/* Internal frame builders shared by the public API layer and protocol core. */
+/** @ingroup ioHdlc_core */
+void ioHdlcBuildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                       iohdlc_frame_t *fp, uint8_t u_fun, bool set_pf,
+                       bool is_command);
+/** @ingroup ioHdlc_core */
+void ioHdlcBuildUFrameWithInfo(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                               iohdlc_frame_t *fp, uint8_t u_fun, bool set_pf,
+                               bool is_command, const void *info,
+                               size_t info_len);
+
 /* Runner -> Core: entry points */
 
 /** @ingroup ioHdlc_core */

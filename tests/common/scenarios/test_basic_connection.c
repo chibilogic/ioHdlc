@@ -199,6 +199,82 @@ static int32_t init_test_station(iohdlc_station_t *station,
   return ioHdlcStationInit(station, &config);
 }
 
+typedef struct {
+  ioHdlcSwDriver driver_primary;
+  ioHdlcSwDriver driver_secondary;
+  iohdlc_station_t station_primary;
+  iohdlc_station_t station_secondary;
+  iohdlc_station_peer_t peer_at_primary;
+  iohdlc_station_peer_t peer_at_secondary;
+  ioHdlcStreamPort port_primary;
+  ioHdlcStreamPort port_secondary;
+} test_link_pair_t;
+
+static int32_t init_test_link_pair(const test_adapter_t *adapter,
+                                   test_link_pair_t *pair,
+                                   uint8_t primary_mode,
+                                   uint8_t primary_flags,
+                                   uint8_t secondary_mode,
+                                   uint8_t secondary_flags) {
+  iohdlc_station_config_t config;
+  int32_t result;
+
+  memset(pair, 0, sizeof *pair);
+  pair->port_primary = adapter->get_port_a();
+  pair->port_secondary = adapter->get_port_b();
+
+  ioHdlcSwDriverInit(&pair->driver_primary, NULL);
+  ioHdlcSwDriverInit(&pair->driver_secondary, NULL);
+
+  memset(&config, 0, sizeof config);
+  config.mode = primary_mode;
+  config.flags = primary_flags;
+  config.log2mod = 3;
+  config.addr = PRIMARY_ADDR;
+  config.driver = (ioHdlcDriver *)&pair->driver_primary;
+  config.frame_arena = shared_arena_primary;
+  config.frame_arena_size = sizeof shared_arena_primary;
+  config.max_info_len = 0;
+  config.pool_watermark = 0;
+  config.fff_type = 1;
+  config.optfuncs = NULL;
+  config.phydriver = &pair->port_primary;
+  config.phydriver_config = NULL;
+  config.reply_timeout_ms = 0;
+
+  result = ioHdlcStationInit(&pair->station_primary, &config);
+  if (result != 0)
+    return result;
+
+  memset(&config, 0, sizeof config);
+  config.mode = secondary_mode;
+  config.flags = secondary_flags;
+  config.log2mod = 3;
+  config.addr = SECONDARY_ADDR;
+  config.driver = (ioHdlcDriver *)&pair->driver_secondary;
+  config.frame_arena = shared_arena_secondary;
+  config.frame_arena_size = sizeof shared_arena_secondary;
+  config.max_info_len = 0;
+  config.pool_watermark = 0;
+  config.fff_type = 1;
+  config.optfuncs = NULL;
+  config.phydriver = &pair->port_secondary;
+  config.phydriver_config = NULL;
+  config.reply_timeout_ms = 0;
+
+  result = ioHdlcStationInit(&pair->station_secondary, &config);
+  if (result != 0)
+    return result;
+
+  result = ioHdlcAddPeer(&pair->station_primary, &pair->peer_at_primary,
+                         SECONDARY_ADDR);
+  if (result != 0)
+    return result;
+
+  return ioHdlcAddPeer(&pair->station_secondary, &pair->peer_at_secondary,
+                       PRIMARY_ADDR);
+}
+
 /*===========================================================================*/
 /* Test: Station Creation                                                    */
 /*===========================================================================*/
@@ -503,6 +579,124 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
               "Secondary deinit should be idempotent");
   
   return 0;
+}
+
+bool test_test_command_disconnected(const test_adapter_t *adapter) {
+  int test_result = 0;
+  test_link_pair_t pair;
+  int32_t result;
+
+  result = init_test_link_pair(adapter, &pair,
+                               IOHDLC_OM_NDM, IOHDLC_FLG_PRI,
+                               IOHDLC_OM_NDM, 0);
+  TEST_ASSERT(result == 0, "TEST pair init failed");
+
+  result = ioHdlcRunnerStart(&pair.station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&pair.station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
+  ioHdlc_sleep_ms(50);
+
+  result = ioHdlcPeerTest(&pair.peer_at_primary, 0U, 200U);
+  TEST_ASSERT_GOTO(result == 0, "Zero-length TEST should succeed in NDM");
+
+  result = ioHdlcPeerTest(&pair.peer_at_primary, 16U, 200U);
+  TEST_ASSERT_GOTO(result == 0, "Small TEST should succeed in NDM");
+
+  result = ioHdlcPeerTest(&pair.peer_at_primary,
+                          pair.peer_at_primary.mifls, 200U);
+  TEST_ASSERT_GOTO(result == 0, "Maximum TEST should succeed in NDM");
+
+  TEST_ASSERT_GOTO(IOHDLC_PEER_DISC(&pair.peer_at_primary),
+                   "Primary peer should remain disconnected after TEST");
+  TEST_ASSERT_GOTO(IOHDLC_PEER_DISC(&pair.peer_at_secondary),
+                   "Secondary peer should remain disconnected after TEST");
+
+  result = ioHdlcPeerTest(&pair.peer_at_secondary, 4U, 50U);
+  TEST_ASSERT_GOTO(result == -1, "Secondary NDM TEST initiation should fail");
+  TEST_ASSERT_GOTO(iohdlc_errno == ENOTSUP,
+                   "Secondary NDM TEST initiation should report ENOTSUP");
+
+  result = ioHdlcPeerTest(&pair.peer_at_primary,
+                          pair.peer_at_primary.mifls + 1U, 50U);
+  TEST_ASSERT_GOTO(result == -1, "Oversized TEST should fail");
+  TEST_ASSERT_GOTO(iohdlc_errno == EMSGSIZE,
+                   "Oversized TEST should report EMSGSIZE");
+
+test_cleanup:
+  TEST_ASSERT(ioHdlcStationDeinit(&pair.station_primary) == 0,
+              "Primary deinit should succeed");
+  TEST_ASSERT(ioHdlcStationDeinit(&pair.station_secondary) == 0,
+              "Secondary deinit should succeed");
+  return test_result;
+}
+
+bool test_test_command_connected(const test_adapter_t *adapter) {
+  int test_result = 0;
+  test_link_pair_t pair;
+  int32_t result;
+
+  result = init_test_link_pair(adapter, &pair,
+                               IOHDLC_OM_NDM, IOHDLC_FLG_PRI,
+                               IOHDLC_OM_NDM, 0);
+  TEST_ASSERT(result == 0, "TEST pair init failed");
+
+  result = ioHdlcRunnerStart(&pair.station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&pair.station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
+  ioHdlc_sleep_ms(50);
+
+  result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
+                               IOHDLC_OM_NRM);
+  TEST_ASSERT_GOTO(result == 0, "LinkUp should succeed before connected TEST");
+  ioHdlc_sleep_ms(100);
+
+  result = ioHdlcPeerTest(&pair.peer_at_primary, 32U, 200U);
+  TEST_ASSERT_GOTO(result == 0, "TEST should succeed in connected NRM");
+
+  TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&pair.peer_at_primary),
+                   "Primary peer should remain connected after TEST");
+  TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&pair.peer_at_secondary),
+                   "Secondary peer should remain connected after TEST");
+
+test_cleanup:
+  TEST_ASSERT(ioHdlcStationDeinit(&pair.station_primary) == 0,
+              "Primary deinit should succeed");
+  TEST_ASSERT(ioHdlcStationDeinit(&pair.station_secondary) == 0,
+              "Secondary deinit should succeed");
+  return test_result;
+}
+
+bool test_test_command_timeout_preserves_link_state(const test_adapter_t *adapter) {
+  int test_result = 0;
+  test_link_pair_t pair;
+  int32_t result;
+
+  result = init_test_link_pair(adapter, &pair,
+                               IOHDLC_OM_NDM, IOHDLC_FLG_PRI,
+                               IOHDLC_OM_NDM, 0);
+  TEST_ASSERT(result == 0, "TEST pair init failed");
+
+  result = ioHdlcRunnerStart(&pair.station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
+  ioHdlc_sleep_ms(50);
+
+  result = ioHdlcPeerTest(&pair.peer_at_primary, 8U, 30U);
+  TEST_ASSERT_GOTO(result == -1, "TEST without receiver should timeout");
+  TEST_ASSERT_GOTO(iohdlc_errno == ETIMEDOUT,
+                   "TEST timeout should report ETIMEDOUT");
+  TEST_ASSERT_GOTO(IOHDLC_PEER_DISC(&pair.peer_at_primary),
+                   "TEST timeout should not connect the peer");
+  TEST_ASSERT_GOTO(!IOHDLC_PEER_ABORTED(&pair.peer_at_primary),
+                   "TEST timeout should not mark link aborted");
+
+test_cleanup:
+  TEST_ASSERT(ioHdlcStationDeinit(&pair.station_primary) == 0,
+              "Primary deinit should succeed");
+  TEST_ASSERT(ioHdlcStationDeinit(&pair.station_secondary) == 0,
+              "Secondary deinit should succeed");
+  return test_result;
 }
 
 /*===========================================================================*/

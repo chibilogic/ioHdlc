@@ -43,6 +43,7 @@
 #define IOHDLC_APP_DATA_READY    0x0020 /**< Data available for reading (future use). */
 #define IOHDLC_APP_FRMR_RECEIVED 0x0040 /**< FRMR received from peer (link recovery needed). */
 #define IOHDLC_APP_UI_RECEIVED   0x0080 /**< UI value received from peer. */
+#define IOHDLC_APP_TEST_DONE     0x0100 /**< TEST command/response exchange completed. */
 #endif /* IOHDLC_APP_EVENTS_H_ */
 
 /** @} */

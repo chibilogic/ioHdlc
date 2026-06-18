@@ -73,6 +73,7 @@ static const char* ufun_to_str(iohdlc_log_ufun_t fun) {
     case IOHDLC_LOG_DM:   return "DM";
     case IOHDLC_LOG_FRMR: return "FRMR";
     case IOHDLC_LOG_UI:   return "UI";
+    case IOHDLC_LOG_TEST: return "TEST";
     default:              return "???";
   }
 }

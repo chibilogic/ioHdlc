@@ -41,7 +41,6 @@
 #include "ioHdlc_log.h"
 #include "ioHdlclist.h"
 #include "ioHdlcosal.h"
-#include <errno.h>
 #include <string.h>
 
 /*===========================================================================*/
@@ -185,6 +184,17 @@ static void clearFrameQ(iohdlc_station_peer_t *p, iohdlc_frame_q_t *q) {
   }
 }
 
+static void clearPeerUmFrames(iohdlc_station_peer_t *p) {
+  if (p->um_api_frame != NULL) {
+    hdlcReleaseFrame(&p->stationp->frame_pool, p->um_api_frame);
+    p->um_api_frame = NULL;
+  }
+  if (p->um_rsp_frame != NULL) {
+    hdlcReleaseFrame(&p->stationp->frame_pool, p->um_rsp_frame);
+    p->um_rsp_frame = NULL;
+  }
+}
+
 /**
  * @brief   Reset unnumbered-frame negotiation state for a peer.
  * @param[in] p   Peer state to reset.
@@ -212,6 +222,7 @@ static void clearPeerRxBuffered(iohdlc_station_peer_t *p) {
 static void resetPeerProtocolState(iohdlc_station_peer_t *p) {
   ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
   ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
+  clearPeerUmFrames(p);
   p->nr = p->vr = p->vs = p->vs_highest = 0;
   p->t3_expected_nr = 0;
   p->ss_state &= (uint8_t)(IOHDLC_SS_ST_CONN |
@@ -519,6 +530,10 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   const uint8_t ctrl = IOHDLC_FRAME_CTRL(s, fp, 0);
   const uint8_t u_cmd = ctrl & IOHDLC_U_FUN_MASK;
   const bool has_pf = IOHDLC_FRAME_GET_PF(s, fp);
+  const size_t u_hdr_len = s->framing.frame_offset + 2U;
+  const bool u_frame_long_enough = fp->elen >= u_hdr_len;
+  const size_t u_info_len = u_frame_long_enough ? (fp->elen - u_hdr_len) : 0U;
+  bool release_frame = true;
   
   iohdlc_station_peer_t *p = s->c_peer;
   
@@ -537,15 +552,17 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     }
   }
 
+  if (p == NULL) {
+    hdlcReleaseFrame(&s->frame_pool, fp);
+    return;
+  }
+
   if (u_cmd == IOHDLC_U_UI) {
-    const size_t hdr_len = s->framing.frame_offset + 2U;
-    const bool frame_long_enough = fp->elen >= hdr_len;
-    const size_t info_len = frame_long_enough ? (fp->elen - hdr_len) : 0U;
     bool accepted = false;
 
-    if (!frame_long_enough || info_len != sizeof p->ui_rx_value) {
+    if (!u_frame_long_enough || u_info_len != sizeof p->ui_rx_value) {
       IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "discard UI len=%u",
-                      (unsigned)info_len);
+                      (unsigned)u_info_len);
       hdlcReleaseFrame(&s->frame_pool, fp);
       return;
     }
@@ -588,8 +605,22 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       }
     }
     
+    if (u_cmd == IOHDLC_U_TEST && !u_frame_long_enough) {
+      hdlcReleaseFrame(&s->frame_pool, fp);
+      iohdlc_mutex_unlock(&p->state_mutex);
+      return;
+    }
+
+    if (u_cmd == IOHDLC_U_TEST && (p->um_state & IOHDLC_UM_SENT) &&
+        p->um_cmd != IOHDLC_U_TEST) {
+      hdlcReleaseFrame(&s->frame_pool, fp);
+      iohdlc_mutex_unlock(&p->state_mutex);
+      return;
+    }
+
     /* Register command and P bit. */
-    p->um_cmd = u_cmd;
+    if (u_cmd != IOHDLC_U_TEST || !(p->um_state & IOHDLC_UM_SENT))
+      p->um_cmd = u_cmd;
     if (has_pf)
       s->pf_state |= IOHDLC_P_RCVED;
     
@@ -614,6 +645,14 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
         /* Connected: accept DISC, enter disconnected mode.
            The TX will complete the disconnect operations. */
         p->um_rsp = IOHDLC_U_UA;
+      }
+    } else if (u_cmd == IOHDLC_U_TEST) {
+      if (u_info_len <= p->mifls) {
+        p->um_rsp = IOHDLC_U_TEST;
+        p->um_rsp_frame = fp;
+        release_frame = false;
+      } else {
+        p->um_rsp = IOHDLC_U_DM;
       }
     } else {
       /* Unsupported or unimplemented command.
@@ -641,11 +680,22 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     
     /* Stop reply timer immediately. */
     ioHdlcStopReplyTimer(p, IOHDLC_TIMER_REPLY);
-    
-    if (u_cmd == IOHDLC_U_UA) {
+    bool restart_t3 = false;
+
+    if (p->um_cmd == IOHDLC_U_TEST) {
+      if (p->um_api_frame != NULL)
+        hdlcReleaseFrame(&s->frame_pool, p->um_api_frame);
+      p->um_api_frame = fp;
+      fp = NULL;
+      release_frame = false;
+      resetPeerUm(p);
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_PF_RECVD | IOHDLC_EVT_TX_IFRM_ENQ);
+      ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_TEST_DONE);
+      restart_t3 = true;
+    } else if (u_cmd == IOHDLC_U_UA) {
+      uint8_t cmd = p->um_cmd;
+
       /* UA received: command accepted. */
-      uint8_t cmd = p->um_cmd;  /* Save command for state transition and app notification. */
-      
       if (cmd == IOHDLC_U_DISC) {
         /* DISC accepted: close the peer orderly and keep buffered RX readable. */
         closePeerOrderly(s, p);
@@ -668,10 +718,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       /* Notify application: determine if link up or link down based on um_cmd. */
       ioHdlcBroadcastFlagsApp(s, (cmd == IOHDLC_U_DISC) ? 
                             IOHDLC_APP_LINK_DOWN : IOHDLC_APP_LINK_UP);
+      restart_t3 = true;
       
     } else if (u_cmd == IOHDLC_U_DM) {
+      uint8_t cmd = p->um_cmd;
+
       /* DM received: peer disconnected or refused connection. */
-      uint8_t cmd = p->um_cmd;  /* Save command before clearing UM state. */
       if (cmd == IOHDLC_U_DISC) {
         closePeerOrderly(s, p);
       } else {
@@ -698,7 +750,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     /* Mark F received and clear UM_SENT. */
     if (has_pf) {
       s->pf_state |= IOHDLC_F_RCVED;
-      if (u_cmd == IOHDLC_U_UA && IOHDLC_IS_NRM(s) && IOHDLC_IS_PRI(s) &&
+      if (restart_t3 && IOHDLC_IS_NRM(s) && IOHDLC_IS_PRI(s) &&
           !IOHDLC_PEER_DISC(p))
         ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, idlePollTimeoutMs(s));
     }
@@ -706,7 +758,8 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
   }
   
   iohdlc_mutex_unlock(&p->state_mutex);
-  hdlcReleaseFrame(&s->frame_pool, fp);
+  if (release_frame)
+    hdlcReleaseFrame(&s->frame_pool, fp);
 }
 
 /*===========================================================================*/
@@ -1387,11 +1440,11 @@ void ioHdlcRxEntry(void *stationp) {
  *       where M bits encode the function.
  *       P/F bit is always bit 4 of ctrl[0] for U-frames, even in extended modes.
  * @note This function handles only U-frames WITHOUT info field.
- *       For FRMR/XID/TEST/UI, use buildUFrameWithInfo().
+ *       For FRMR/XID/TEST/UI, use ioHdlcBuildUFrameWithInfo().
  */
-static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
-                        iohdlc_frame_t *fp, uint8_t u_fun, bool set_pf,
-                        bool is_command) {
+void ioHdlcBuildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                       iohdlc_frame_t *fp, uint8_t u_fun, bool set_pf,
+                       bool is_command) {
   /* Set address field per ISO 13239 4.2.2 */
   uint8_t addr = is_command ? p->addr : s->addr;
   IOHDLC_FRAME_ADDR(s, fp) = addr;
@@ -1427,11 +1480,11 @@ static void buildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,
  * @param[in] info        Pointer to the information field bytes.
  * @param[in] info_len    Number of information octets to copy.
  */
-static void buildUFrameWithInfo(iohdlc_station_t *s, iohdlc_station_peer_t *p,
-                                iohdlc_frame_t *fp, uint8_t u_fun, bool set_pf,
-                                bool is_command, const void *info,
-                                size_t info_len) {
-  buildUFrame(s, p, fp, u_fun, set_pf, is_command);
+void ioHdlcBuildUFrameWithInfo(iohdlc_station_t *s, iohdlc_station_peer_t *p,
+                               iohdlc_frame_t *fp, uint8_t u_fun, bool set_pf,
+                               bool is_command, const void *info,
+                               size_t info_len) {
+  ioHdlcBuildUFrame(s, p, fp, u_fun, set_pf, is_command);
   memcpy(&fp->frame[s->framing.frame_offset + 2U], info, info_len);
   fp->elen = (uint16_t)(fp->elen + info_len);
 }
@@ -1653,8 +1706,8 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
 
     iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
     if (fp != NULL) {
-      buildUFrameWithInfo(s, p, fp, IOHDLC_U_UI, false, is_command,
-                          &ui_value, sizeof ui_value);
+      ioHdlcBuildUFrameWithInfo(s, p, fp, IOHDLC_U_UI, false, is_command,
+                                &ui_value, sizeof ui_value);
       p->ui_tx_pending = false;
       bool sent = sendFrame(s, fp);
       if (!sent)
@@ -1961,14 +2014,6 @@ void ioHdlcTxEntry(void *stationp) {
       /* serve the event(s).*/
       cm_flags &= ~s_flags;
       
-      /* Connection management requested. */
-      if (!IOHDLC_IS_PRI(s)) {
-        /* A U command must originate from primary station */
-        cm_flags = 0;
-        iohdlc_mutex_unlock(&p->state_mutex);
-        continue;
-      }
-
       /* Multipoint: if LINK_REQ but current peer has no pending um_cmd,
          switch to the peer that requested the connection. */
       if ((s_flags & IOHDLC_EVT_LINK_REQ) && p->um_cmd == 0 &&
@@ -1985,8 +2030,17 @@ void ioHdlcTxEntry(void *stationp) {
         }
       }
 
-            /* Evaluate timer expiry and manage retry counter. */
-      if (s_flags & IOHDLC_EVT_C_RPLYTMO) {
+      /* Connection management requested. */
+      if (!IOHDLC_IS_PRI(s) &&
+          (p->um_cmd != IOHDLC_U_TEST || p->um_api_frame == NULL)) {
+        /* A U command must originate from primary station. */
+        cm_flags = 0;
+        iohdlc_mutex_unlock(&p->state_mutex);
+        continue;
+      }
+
+      /* Evaluate timer expiry and manage retry counter. */
+      if ((s_flags & IOHDLC_EVT_C_RPLYTMO) && p->um_cmd != IOHDLC_U_TEST) {
         if (!handleTimeoutRetry(s, p)) {
           /* Link down: max retries exceeded, switch to next peer. */
           ioHdlcNextPeer(s, false);
@@ -2005,29 +2059,40 @@ void ioHdlcTxEntry(void *stationp) {
 
       if (sendOpportunity(s)) {
         /* Build and send UM command. */
-        iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
+        iohdlc_frame_t *fp = p->um_api_frame;
         if (fp != NULL) {
-          buildUFrame(s, p, fp, p->um_cmd, true, true);  /* P=1, command */
+          p->um_api_frame = NULL;
+        } else {
+          fp = hdlcTakeFrame(&s->frame_pool);
+          if (fp != NULL)
+            ioHdlcBuildUFrame(s, p, fp, p->um_cmd, true, true);  /* P=1, command */
+        }
 
+        if (fp != NULL) {
 #if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
           /* Extract values for logging before send */
           uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
           iohdlc_log_ufun_t log_fun = (p->um_cmd == IOHDLC_U_SNRM) ? IOHDLC_LOG_SNRM :
                                        (p->um_cmd == IOHDLC_U_SARM) ? IOHDLC_LOG_SARM :
                                        (p->um_cmd == IOHDLC_U_SABM) ? IOHDLC_LOG_SABM :
-                                       (p->um_cmd == IOHDLC_U_DISC) ? IOHDLC_LOG_DISC : 0;
+                                       (p->um_cmd == IOHDLC_U_DISC) ? IOHDLC_LOG_DISC :
+                                       (p->um_cmd == IOHDLC_U_TEST) ? IOHDLC_LOG_TEST : 0;
 #endif
           (void)sendFrame(s, fp);
-          if (iFrameReplyTimerUsed(s) && IOHDLC_USE_TWA(s))
+          if (p->um_cmd == IOHDLC_U_TEST) {
+            if (IOHDLC_IS_NRM(s) && IOHDLC_IS_PRI(s))
+              ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
+          } else if (iFrameReplyTimerUsed(s) && IOHDLC_USE_TWA(s)) {
             ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
+          }
           
           /* Log U-frame transmission */
           IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, true);
+          if (p->um_cmd != IOHDLC_U_TEST)
+            startPollReplyTimer(s, p);
+          p->um_state |= IOHDLC_UM_SENT;
+          IOHDLC_ACK_F(s);                  /* ack F  */
         }
-        
-        startPollReplyTimer(s, p);
-        p->um_state |= IOHDLC_UM_SENT;
-        IOHDLC_ACK_F(s);                  /* ack F  */
       } else {
         iohdlc_mutex_unlock(&p->state_mutex);
         continue;
@@ -2044,28 +2109,44 @@ void ioHdlcTxEntry(void *stationp) {
       IOHDLC_ACK_P(s);                  /* ack P  */
 
       /* Build and send UM response. */
-      iohdlc_frame_t *fp = hdlcTakeFrame(&s->frame_pool);
+      iohdlc_frame_t *fp = NULL;
+      if (p->um_rsp == IOHDLC_U_TEST && p->um_rsp_frame != NULL) {
+        size_t info_len = p->um_rsp_frame->elen -
+                          (s->framing.frame_offset + 2U);
+        fp = p->um_rsp_frame;
+        p->um_rsp_frame = NULL;
+        ioHdlcBuildUFrame(s, p, fp, IOHDLC_U_TEST, setf, false);
+        fp->elen = (uint16_t)(fp->elen + info_len);
+      } else if (p->um_rsp != IOHDLC_U_TEST) {
+        fp = hdlcTakeFrame(&s->frame_pool);
+      }
+
       if (fp != NULL) {
         if (p->um_rsp == IOHDLC_U_FRMR)
           buildFrmrResponse(s, p, fp, setf);
-        else
-          buildUFrame(s, p, fp, p->um_rsp, setf, false);
+        else if (p->um_rsp != IOHDLC_U_TEST)
+          ioHdlcBuildUFrame(s, p, fp, p->um_rsp, setf, false);
 
 #if IOHDLC_LOG_LEVEL > IOHDLC_LOG_LEVEL_OFF
         /* Extract values for logging before send */
         uint8_t log_addr = IOHDLC_FRAME_ADDR(s, fp);
         iohdlc_log_ufun_t log_fun = (p->um_rsp == IOHDLC_U_UA) ? IOHDLC_LOG_UA :
                                      (p->um_rsp == IOHDLC_U_DM) ? IOHDLC_LOG_DM :
-                                     (p->um_rsp == IOHDLC_U_FRMR) ? IOHDLC_LOG_FRMR : 0;
+                                     (p->um_rsp == IOHDLC_U_FRMR) ? IOHDLC_LOG_FRMR :
+                                     (p->um_rsp == IOHDLC_U_TEST) ? IOHDLC_LOG_TEST : 0;
 #endif
         (void)sendFrame(s, fp);
         if (iFrameReplyTimerUsed(s) && IOHDLC_USE_TWA(s))
           ioHdlcRestartReplyTimer(p, IOHDLC_TIMER_T3, iFrameReplyTimeoutMs(s));
 
         /* Log U-frame transmission */
-        IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, true);
+        IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, setf);
 
-        if (p->um_cmd == IOHDLC_U_DISC) {
+        if (p->um_cmd == IOHDLC_U_TEST) {
+          if (!(p->um_state & IOHDLC_UM_SENT))
+            p->um_cmd = 0;
+          p->um_rsp = 0;
+        } else if (p->um_cmd == IOHDLC_U_DISC) {
           /* DISC has been received: disconnect the link. */
           closePeerOrderly(s, p); /* Do not reset the queues to allow */
                                   /* the reading of remaining frames */

@@ -394,6 +394,8 @@ struct iohdlc_station_peer {
   volatile uint8_t  ss_state;   /* Supervision state. See definitions. */
   uint8_t  um_cmd;              /* Unnumbered command event payload. */
   uint8_t  um_rsp;              /* Unnumbered response event payload. */
+  iohdlc_frame_t *um_api_frame; /* Frame exchanged between synchronous U APIs and the core. */
+  iohdlc_frame_t *um_rsp_frame; /* Prebuilt/retained frame for an unnumbered response. */
   bool ui_tx_pending;           /* A UI value is pending for transmission. */
   bool ui_rx_pending;           /* A new UI value has been received. */
   uint32_t ui_tx_value;         /* Last UI value requested by the application. */
@@ -590,6 +592,8 @@ extern "C" {
 
   int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer, uint32_t addr);
   int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t kr);
+  int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
+                         uint32_t timeout_ms);
   int32_t ioHdlcPeerUiSend(iohdlc_station_peer_t *peer, uint32_t value);
   bool ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value);
 

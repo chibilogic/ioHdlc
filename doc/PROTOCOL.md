@@ -162,7 +162,7 @@ Bit:  7   6   5   4   3   2   1   0
 
 ### Unnumbered Frames (U-frames)
 
-**Purpose**: Link setup, disconnect, mode setting, and optional best-effort side-band exchange
+**Purpose**: Link setup, disconnect, mode setting, link testing, and optional best-effort side-band exchange
 
 **Common U-frames:**
 
@@ -174,6 +174,25 @@ Bit:  7   6   5   4   3   2   1   0
 | DM              | 0x0F    | F   | Disconnected Mode                |
 | FRMR            | 0x87    | F   | Frame Reject                     |
 | UI              | 0x03    | -   | Unnumbered Information (no ACK)  |
+| TEST            | 0xE3    | P/F | Test command/response            |
+
+#### TEST support in ioHdlc
+
+`ioHdlcPeerTest()` exposes `TEST` as a synchronous data-link ping. The caller
+selects only the information-field length; the API builds a deterministic
+payload, sends a TEST command with `P=1`, and returns success only when the
+peer responds with a TEST response carrying the same bytes.
+
+Rules:
+
+- TEST is available on connected and disconnected peers
+- NRM/NDM initiation is restricted to the primary station
+- ABM/ADM combined stations may initiate TEST
+- TEST does not change mode, sequence variables, or connected/disconnected state
+- TEST timeout or echo mismatch is reported to the caller and does not imply
+  link loss
+- received TEST commands are answered by echoing the information field when
+  the response can be built
 
 #### UI support in ioHdlc
 
@@ -209,13 +228,14 @@ Bit:  7   6   5   4   3   2   1   0
 - Stations may only exchange unnumbered frames for link management
 
 **Allowed Frames:**
-- **Commands**: SNRM, DISC
-- **Responses**: DM, UA
+- **Commands**: SNRM, DISC, TEST
+- **Responses**: DM, UA, TEST
 
 **Transitions:**
 - NDM → NRM: Send SNRM → Receive UA
 - NDM → ABM: Send SABM → Receive UA
 - NDM → NDM: Send DISC → Receive DM
+- NDM → NDM: Send TEST → Receive TEST response
 
 ---
 
@@ -237,14 +257,15 @@ Bit:  7   6   5   4   3   2   1   0
 - **Commands (Primary → Secondary)**:
   - I-frames
   - S-frames (RR, RNR, REJ)
-  - U-frames (DISC)
+  - U-frames (DISC, TEST)
 - **Responses (Secondary → Primary)**:
   - I-frames (when permitted)
   - S-frames (RR, RNR, REJ)
-  - U-frames (UA)
+  - U-frames (UA, TEST)
 
 **Transitions:**
 - NRM → NDM: Send DISC → Receive UA
+- NRM → NRM: Send TEST → Receive TEST response
 
 ---
 
@@ -259,12 +280,13 @@ Bit:  7   6   5   4   3   2   1   0
 - The station responds independently to received commands
 
 **Allowed Frames:**
-- **Commands**: SABM, DISC
-- **Responses**: DM, UA
+- **Commands**: SABM, DISC, TEST
+- **Responses**: DM, UA, TEST
 
 **Transitions:**
 - ADM → ABM: Receive SABM → Send UA
 - ADM → ADM: Receive DISC → Send DM
+- ADM → ADM: Send TEST → Receive TEST response
 
 ---
 
@@ -285,11 +307,12 @@ Bit:  7   6   5   4   3   2   1   0
 - **Both directions**:
   - I-frames
   - S-frames (RR, RNR, REJ)
-  - U-frames (DISC)
+  - U-frames (DISC, TEST)
 
 **Transitions:**
 - ADM → ABM: Send SABM → Receive UA
 - ABM → ADM: Send DISC → Receive UA
+- ABM → ABM: Send TEST → Receive TEST response
 
 ---
 
