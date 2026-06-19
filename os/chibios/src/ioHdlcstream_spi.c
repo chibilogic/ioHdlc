@@ -87,14 +87,17 @@ static uint16_t chb_spi_slave_watchdog_ticks_from_us(uint32_t watchdog_us) {
 static void chb_spi_start_receive_i(ioHdlcStreamChibiosSpi *ctx, size_t len, uint8_t *ptr);
 static inline bool chb_spi_try_start_master_rx_i(ioHdlcStreamChibiosSpi *ctx);
 
-static void chb_spi_slave_watchdog_cb(virtual_timer_t *vtp, void *p) {
-  ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)p;
+#if CH_KERNEL_MAJOR >= 7
+static void chb_spi_slave_watchdog_cb(virtual_timer_t *vtp, void *p);
+#else
+static void chb_spi_slave_watchdog_cb(void *p);
+#endif
+
+static void chb_spi_slave_watchdog_timeout(ioHdlcStreamChibiosSpi *ctx) {
   void *tx_framep = NULL;
   bool rx_aborted = false;
   bool tx_aborted = false;
   bool rearm = false;
-
-  (void)vtp;
 
   chSysLockFromISR();
   if (!ctx->is_master && ctx->started) {
@@ -161,6 +164,17 @@ static void chb_spi_slave_watchdog_cb(virtual_timer_t *vtp, void *p) {
     ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_OVERRUN);
   }
 }
+
+#if CH_KERNEL_MAJOR >= 7
+static void chb_spi_slave_watchdog_cb(virtual_timer_t *vtp, void *p) {
+  (void)vtp;
+  chb_spi_slave_watchdog_timeout((ioHdlcStreamChibiosSpi *)p);
+}
+#else
+static void chb_spi_slave_watchdog_cb(void *p) {
+  chb_spi_slave_watchdog_timeout((ioHdlcStreamChibiosSpi *)p);
+}
+#endif
 
 static void chb_spi_start_receive_i(ioHdlcStreamChibiosSpi *ctx, size_t len,
                                     uint8_t *ptr) {

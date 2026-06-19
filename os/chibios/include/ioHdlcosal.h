@@ -64,14 +64,18 @@ typedef event_listener_t iohdlc_event_listener_t;
  * @note  This object adds a flag to track expiry state.
  *        It adds also the event flag to broadcast.
  */
-typedef struct {
+typedef struct iohdlc_virtual_timer {
   virtual_timer_t vt;         /* ChibiOS virtual timer. */
+  void (*callback)(struct iohdlc_virtual_timer *vtp, void *par);
+  void *par;                  /* ioHdlc timer callback argument. */
   uint32_t  evt_flag;         /* Event flag to broadcast when timer expires. */
   iohdlc_event_source_t *esp; /* Event source the evt_flag is emitted from. */
   volatile bool expired;      /* True if timer expired (cleared on
                                  start/restart/stop). Volatile: modified from
                                  ISR context, read from thread. */
 } iohdlc_virtual_timer_t;
+
+typedef void (*iohdlc_vt_callback_t)(iohdlc_virtual_timer_t *vtp, void *par);
 
 typedef semaphore_t iohdlc_sem_t;
 typedef binary_semaphore_t iohdlc_binary_semaphore_t;
@@ -178,15 +182,14 @@ static inline uint32_t iohdlc_time_now_ms(void) {
 /* Virtual Timer                                                             */
 /*===========================================================================*/
 
-typedef void (*iohdlc_vt_callback_t)(iohdlc_virtual_timer_t *vtp, void *par);
-
 /**
  * @brief   Initialize virtual timer.
- * @note    On ChibiOS, virtual timers are statically initialized,
- *          so this is a no-op. Just clear the expired flag.
  */
 static inline void iohdlc_vt_init(iohdlc_virtual_timer_t *vtp,
                       iohdlc_event_source_t *esp, uint32_t evt_flag) {
+  chVTObjectInit(&vtp->vt);
+  vtp->callback = NULL;
+  vtp->par = NULL;
   vtp->expired = false;
   vtp->esp = esp;
   vtp->evt_flag = evt_flag;
@@ -203,14 +206,27 @@ static inline bool iohdlc_vt_is_armed(iohdlc_virtual_timer_t *vtp) {
   return chVTIsArmed(&vtp->vt);
 }
 
+#if CH_KERNEL_MAJOR >= 7
+static inline void iohdlc_vt_cb(virtual_timer_t *vt, void *par) {
+  (void)vt;
+#else
+static inline void iohdlc_vt_cb(void *par) {
+#endif
+  iohdlc_virtual_timer_t *vtp = (iohdlc_virtual_timer_t *)par;
+
+  vtp->callback(vtp, vtp->par);
+}
+
 static inline void iohdlc_vt_set(iohdlc_virtual_timer_t *vtp,
                     uint32_t delay_ms, iohdlc_vt_callback_t callback,
                     void *par) {
   chSysLock();
   if (chVTIsArmedI(&vtp->vt))
     chVTResetI(&vtp->vt);
+  vtp->callback = callback;
+  vtp->par = par;
   vtp->expired = false;
-  chVTSetI(&vtp->vt, TIME_MS2I(delay_ms), (vtfunc_t)callback, par);
+  chVTSetI(&vtp->vt, TIME_MS2I(delay_ms), iohdlc_vt_cb, vtp);
   chSysUnlock();
 }
 
@@ -218,6 +234,8 @@ static inline void iohdlc_vt_reset(iohdlc_virtual_timer_t *vtp) {
   chSysLock();
   if (chVTIsArmedI(&vtp->vt))
     chVTResetI(&vtp->vt);
+  vtp->callback = NULL;
+  vtp->par = NULL;
   vtp->expired = false;
   chSysUnlock();
 }
