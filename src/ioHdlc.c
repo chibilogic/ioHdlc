@@ -74,6 +74,15 @@
 #ifndef ECONNRESET
 #define ECONNRESET      104  /* Connection reset */
 #endif
+#ifndef EBUSY
+#define EBUSY           16   /* Device or resource busy */
+#endif
+#ifndef EMSGSIZE
+#define EMSGSIZE        90   /* Message too long */
+#endif
+#ifndef EIO
+#define EIO             5    /* I/O error */
+#endif
 
 /*===========================================================================*/
 /* Module exported variables.                                                */
@@ -124,6 +133,48 @@ static uint32_t s_link_api_timeout_ms(const iohdlc_station_t *s,
     return ~(uint32_t)0U;
 
   return (uint32_t)total;
+}
+
+static bool s_test_initiator_allowed(const iohdlc_station_t *s) {
+  if (IOHDLC_IS_NRM(s) || IOHDLC_IS_NDM(s))
+    return IOHDLC_IS_PRI(s);
+
+  return IOHDLC_IS_ABM(s) || IOHDLC_IS_ADM(s);
+}
+
+static uint8_t s_test_pattern_byte(size_t index) {
+  return (uint8_t)(0xA5U ^ (uint8_t)(index * 0x3DU) ^
+                   (uint8_t)(index >> 8));
+}
+
+static void s_fill_test_pattern(uint8_t *buf, size_t len) {
+  size_t i;
+
+  for (i = 0; i < len; ++i)
+    buf[i] = s_test_pattern_byte(i);
+}
+
+static bool s_test_pattern_matches(const uint8_t *buf, size_t len) {
+  size_t i;
+
+  for (i = 0; i < len; ++i) {
+    if (buf[i] != s_test_pattern_byte(i))
+      return false;
+  }
+
+  return true;
+}
+
+static iohdlc_frame_t *s_take_completed_test_frame_locked(iohdlc_station_peer_t *peer) {
+  iohdlc_frame_t *fp;
+
+  if (peer->um_cmd != 0 || (peer->um_state & IOHDLC_UM_SENT) ||
+      peer->um_api_frame == NULL)
+    return NULL;
+
+  fp = peer->um_api_frame;
+  peer->um_api_frame = NULL;
+  return fp;
 }
 
 static bool s_peer_rx_has_data(const iohdlc_station_peer_t *peer) {
@@ -255,6 +306,9 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->addr = ioHdlcsconfp->addr;
   ioHdlcsp->flags = ioHdlcsconfp->flags;
   ioHdlcsp->mode = mode;
+  ioHdlcsp->pf_state = 0;
+  if (mode == IOHDLC_OM_NDM && (ioHdlcsp->flags & IOHDLC_FLG_PRI))
+    ioHdlcsp->pf_state |= IOHDLC_F_RCVED;
 
   /* Driver setup */
   ioHdlcsp->driver = ioHdlcsconfp->driver;
@@ -644,6 +698,171 @@ int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t k
   }
   peer->ks = ks;
   peer->kr = kr;
+  return 0;
+}
+
+/**
+ * @brief   Run a HDLC TEST command/response exchange with a peer.
+ * @details Queues a TEST command carrying a deterministic information field
+ *          of @p len octets and waits for a TEST response echoing it exactly.
+ *          The exchange does not change link mode or sequence variables.
+ *
+ * @param[in] peer        Peer descriptor.
+ * @param[in] len         TEST information field length.
+ * @param[in] timeout_ms  Maximum time to wait for completion.
+ * @return  0 on echo success, -1 on error with @p iohdlc_errno set.
+ */
+int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
+                       uint32_t timeout_ms) {
+  iohdlc_station_t *s;
+  iohdlc_event_listener_t listener;
+  iohdlc_frame_t *cmd_fp = NULL;
+  iohdlc_frame_t *rsp_fp = NULL;
+  uint32_t deadline_ms;
+  int32_t error = 0;
+  bool signal_tx = false;
+  const size_t hdr_len = 2U;
+
+  if (peer == NULL || timeout_ms == 0U) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  s = peer->stationp;
+  if (s == NULL) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  if (!s_test_initiator_allowed(s)) {
+    iohdlc_errno = ENOTSUP;
+    return -1;
+  }
+
+  if (len > peer->mifls ||
+      len > ((size_t)UINT16_MAX - (s->framing.frame_offset + hdr_len))) {
+    iohdlc_errno = EMSGSIZE;
+    return -1;
+  }
+
+  cmd_fp = hdlcTakeFrame(&s->frame_pool);
+  if (cmd_fp == NULL) {
+    iohdlc_errno = ENOMEM;
+    return -1;
+  }
+
+  ioHdlcBuildUFrame(s, peer, cmd_fp, IOHDLC_U_TEST, true, true);
+  s_fill_test_pattern(&cmd_fp->frame[s->framing.frame_offset + hdr_len], len);
+  cmd_fp->elen = (uint16_t)(cmd_fp->elen + len);
+
+  deadline_ms = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
+                IOHDLC_WAIT_FOREVER : (iohdlc_time_now_ms() + timeout_ms);
+
+  iohdlc_evt_register(&s->app_es, &listener, IOHDLC_APP_EVT_MASK_DEFAULT,
+                      IOHDLC_APP_TEST_DONE);
+
+  iohdlc_mutex_lock(&peer->state_mutex);
+
+  if (peer->um_cmd != 0 || peer->um_state != 0 ||
+      peer->um_api_frame != NULL || peer->um_rsp_frame != NULL ||
+      peer->frmr_condition ||
+      ((IOHDLC_IS_NRM(s) || IOHDLC_IS_ABM(s)) && IOHDLC_P_SENT(s)) ||
+      (IOHDLC_IS_ABM(s) && IOHDLC_P_ISRCVED(s))) {
+    iohdlc_mutex_unlock(&peer->state_mutex);
+    iohdlc_evt_unregister(&s->app_es, &listener);
+    hdlcReleaseFrame(&s->frame_pool, cmd_fp);
+    iohdlc_errno = EBUSY;
+    return -1;
+  }
+
+  peer->um_cmd = IOHDLC_U_TEST;
+  peer->um_api_frame = cmd_fp;
+  cmd_fp = NULL;
+
+  iohdlc_mutex_unlock(&peer->state_mutex);
+  ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
+
+  while (rsp_fp == NULL) {
+    uint32_t remaining_ms;
+    eventmask_t evt;
+    eventflags_t flags;
+
+    if (deadline_ms == IOHDLC_WAIT_FOREVER) {
+      remaining_ms = IOHDLC_WAIT_FOREVER;
+    } else {
+      uint32_t now_ms = iohdlc_time_now_ms();
+      remaining_ms = (now_ms < deadline_ms) ? (deadline_ms - now_ms) : 0U;
+    }
+
+    if (remaining_ms == 0U)
+      break;
+
+    evt = iohdlc_evt_wait_any_timeout(IOHDLC_APP_EVT_MASK_DEFAULT,
+                                      remaining_ms);
+    if (evt == 0)
+      break;
+
+    flags = iohdlc_evt_get_and_clear_flags(&listener);
+    if (!(flags & IOHDLC_APP_TEST_DONE))
+      continue;
+
+    iohdlc_mutex_lock(&peer->state_mutex);
+    rsp_fp = s_take_completed_test_frame_locked(peer);
+    iohdlc_mutex_unlock(&peer->state_mutex);
+  }
+
+  if (rsp_fp == NULL) {
+    iohdlc_mutex_lock(&peer->state_mutex);
+    rsp_fp = s_take_completed_test_frame_locked(peer);
+    if (rsp_fp == NULL && peer->um_cmd == IOHDLC_U_TEST) {
+      if (peer->um_api_frame != NULL) {
+        cmd_fp = peer->um_api_frame;
+        peer->um_api_frame = NULL;
+      }
+      peer->um_cmd = 0;
+      peer->um_state &= (uint8_t)~IOHDLC_UM_SENT;
+      ioHdlcStopReplyTimer(peer, IOHDLC_TIMER_REPLY);
+      if (IOHDLC_IS_PRI(s) || IOHDLC_IS_ABM(s) || IOHDLC_IS_ADM(s))
+        s->pf_state |= IOHDLC_F_RCVED;
+      if (IOHDLC_IS_NRM(s) && IOHDLC_IS_PRI(s) && !IOHDLC_PEER_DISC(peer))
+        ioHdlcStartReplyTimer(peer, IOHDLC_TIMER_T3,
+                              s->reply_timeout_ms *
+                              IOHDLC_DFL_T3_IDLE_T1_RATIO);
+      signal_tx = true;
+    }
+    if (rsp_fp == NULL)
+      error = ETIMEDOUT;
+    iohdlc_mutex_unlock(&peer->state_mutex);
+  }
+
+  iohdlc_evt_unregister(&s->app_es, &listener);
+
+  if (cmd_fp != NULL)
+    hdlcReleaseFrame(&s->frame_pool, cmd_fp);
+
+  if (signal_tx)
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
+
+  if (rsp_fp != NULL) {
+    const size_t frame_hdr_len = s->framing.frame_offset + hdr_len;
+    if (rsp_fp->elen < frame_hdr_len) {
+      error = EIO;
+    } else {
+      const uint8_t rsp_fun = IOHDLC_FRAME_CTRL(s, rsp_fp, 0) &
+                              IOHDLC_U_FUN_MASK;
+      const size_t info_len = rsp_fp->elen - frame_hdr_len;
+      if (rsp_fun != IOHDLC_U_TEST || info_len != len ||
+          !s_test_pattern_matches(&rsp_fp->frame[frame_hdr_len], info_len))
+        error = EIO;
+    }
+    hdlcReleaseFrame(&s->frame_pool, rsp_fp);
+  }
+
+  if (error != 0) {
+    iohdlc_errno = error;
+    return -1;
+  }
+
   return 0;
 }
 

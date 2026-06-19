@@ -4,6 +4,10 @@
 
 The exchange test is a parametrized, long-running HDLC stress test for validating the entire protocol stack under realistic traffic conditions. It supports bidirectional communication, configurable error injection, latency and throughput measurement, and multiple duration modes.
 
+It can also run a TEST command/response check using `--test[=N]`. In that
+mode the tool behaves like a small HDLC ping: it sends N disconnected TEST
+commands, waits for the peer TEST responses, then terminates.
+
 The tool is fully cross-platform: the core logic lives in `tests/common/scenarios/test_exchange.c` with platform-specific wrappers for Linux (runtime CLI) and ChibiOS (compile-time defines or interactive shell).
 
 ## Quick Start
@@ -41,6 +45,7 @@ Unless noted otherwise, the semantics are identical on Linux and in the shell. T
 | `--tws` | _(default)_ | Use Two-Way Simultaneous (explicit) |
 | `--count=N` | 10 | Run for N iterations (sets count-based duration) |
 | `--time=N` | -- | Run for N seconds (sets time-based duration) |
+| `--test[=N]` | -- | Run N TEST command/response cycles, or 1 cycle when N is omitted |
 | `--exchanges=N` | 10 | Packets sent per iteration |
 | `--size=N` | 64 | Packet size in bytes, including the 10-byte test header (range: 10-1024) |
 | `--rand-size=N` | off | Random packet-size seed; each packet is 10-120 bytes (alias: `--rand_size=N`) |
@@ -74,6 +79,26 @@ Three duration modes, mutually exclusive:
 - **By time** (`--time=N`): run for N seconds, sending continuously.
 - **Infinite**: no `--count` or `--time` with very large values. Stop with Ctrl-C (Linux) or board reset (ChibiOS).
 
+### TEST Command Mode
+
+`--test[=N]` switches the tool from data exchange to TEST command mode. The
+tool initializes the selected endpoint(s), starts the HDLC runner(s), sends N
+TEST command/response cycles from endpoint A, then exits. `--test` without a
+value is equivalent to `--test=1`.
+
+TEST command mode runs while the link is disconnected; it does not perform
+`LinkUp` and does not start the exchange reader/writer threads. The valid
+runtime options in this mode are only `--test[=N]`, `--size=N`,
+`--endpoint=both|a|b`, and `--help`.
+
+In TEST command mode, `--size` is the TEST information field length. It is not
+the exchange packet size and does not include the 10-byte exchange test header.
+`--size=0` is valid for TEST because the TEST information field is optional.
+
+With `--endpoint=b`, the tool runs endpoint B as a responder-only TEST target.
+It stays active for the same protocol I/O guard window used by the exchange
+tool, then terminates cleanly. With default timing this window is about 27 s.
+
 ### Traffic Direction
 
 - `both` (default): both stations send and receive simultaneously (4 active threads).
@@ -106,6 +131,9 @@ endpoint A, and `secondary` means endpoint B.
 `--size` is the total size of the test packet passed to `ioHdlcWriteTmo()`, including the 10-byte test header (sequence number + timestamp + payload length). The exchange harness supports packet sizes from 10 to 1024 bytes.
 
 This is intentionally larger than a single HDLC I-frame on TYPE0 FFF links, so values above `mifls` exercise the writer fragmentation path instead of being rejected by the test harness.
+
+In `--test` mode, `--size` has different semantics: it is the TEST information
+field length and may be zero.
 
 `--rand-size=N` enables deterministic random packet sizes using `N` as the seed. In this mode each write is between 10 and 120 bytes, and completion is still based on packet counts rather than byte totals.
 
@@ -153,6 +181,18 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 
 # ABM/TWS with modulo 128
 ./test_exchange --mode=abm --tws --modulo=128 --count=200
+
+# Single TEST command/response cycle
+./test_exchange --test
+
+# Ten TEST command/response cycles with a 64-byte information field
+./test_exchange --test=10 --size=64
+
+# TEST command mode with only endpoint A local
+./test_exchange --test=100 --endpoint=a --size=32
+
+# TEST responder-only mode with only endpoint B local
+./test_exchange --test --endpoint=b --size=32
 ```
 
 ### Stress Tests

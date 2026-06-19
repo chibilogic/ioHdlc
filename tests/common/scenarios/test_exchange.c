@@ -49,6 +49,7 @@ static iohdlc_station_peer_t *s_pri_peer, *s_sec_peer;
 #define SECONDARY_ADDR  0x02
 #define WINDOW_SIZE     7
 #define RETRY_TOTAL_TIMEOUT_TARGET_MS 25000U
+#define TEST_COMMAND_TIMEOUT_MS 1000U
 #ifndef EXCHANGE_ARENA_SIZE
 #define EXCHANGE_ARENA_SIZE 32768
 #endif
@@ -789,6 +790,69 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     TEST_ASSERT(result == 0, "Failed to start endpoint B runner");
   }
   ioHdlc_sleep_ms(50);
+
+  if (config.test_command) {
+    uint32_t elapsed_ms;
+
+    if (!endpoint_a_active) {
+      uint32_t wait_ms = s_exchange_io_timeout_ms(&station_secondary,
+                                                  &peer_at_secondary);
+
+      test_printf("Waiting for HDLC TEST commands for %u ms...\r\n", wait_ms);
+      start_time = iohdlc_time_now_ms();
+      while (!test_should_stop() &&
+             (iohdlc_time_now_ms() - start_time) < wait_ms) {
+        ioHdlc_sleep_ms(100U);
+      }
+
+      elapsed_ms = iohdlc_time_now_ms() - start_time;
+      test_printf("\r\n");
+      test_printf("========================================\r\n");
+      test_printf("TEST RESPONDER COMPLETED\r\n");
+      test_printf("========================================\r\n\r\n");
+      test_printf("TEST I size:  %u bytes\r\n", config.bytes_per_exchange);
+      test_printf("Elapsed time: %u ms\r\n\r\n", elapsed_ms);
+      goto cleanup;
+    }
+
+    test_printf("Running HDLC TEST command%s...\r\n",
+                config.test_command_count == 1U ? "" : "s");
+    start_time = iohdlc_time_now_ms();
+
+    for (uint32_t cycle = 0; cycle < config.test_command_count; cycle++) {
+      if (test_should_stop()) {
+        return_code = 1;
+        break;
+      }
+
+      result = ioHdlcPeerTest(&peer_at_primary, config.bytes_per_exchange,
+                              TEST_COMMAND_TIMEOUT_MS);
+      if (result != 0) {
+        test_printf("TEST cycle %u/%u failed: iohdlc_errno=%d\r\n",
+                    cycle + 1U, config.test_command_count, iohdlc_errno);
+        return_code = 1;
+        break;
+      }
+
+      if (config.test_command_count > 1U) {
+        test_printf("TEST cycle %u/%u OK\r\n",
+                    cycle + 1U, config.test_command_count);
+      }
+    }
+
+    elapsed_ms = iohdlc_time_now_ms() - start_time;
+    if (return_code == 0) {
+      test_printf("\r\n");
+      test_printf("========================================\r\n");
+      test_printf("TEST COMMAND COMPLETED\r\n");
+      test_printf("========================================\r\n\r\n");
+      test_printf("Cycles:       %u\r\n", config.test_command_count);
+      test_printf("TEST I size:  %u bytes\r\n", config.bytes_per_exchange);
+      test_printf("Elapsed time: %u ms\r\n\r\n", elapsed_ms);
+    }
+
+    goto cleanup;
+  }
 
   test_printf("Establishing connection...\r\n");
   if (endpoint_a_active) {

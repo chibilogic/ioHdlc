@@ -41,6 +41,9 @@ communication, ISO 13239 compliant data link layer.
 - **Link event notifications**: application-facing flags such as `LINK_UP`,
   `LINK_REFUSED`, `LINK_DOWN`, and `LINK_LOST` are emitted for link-state
   changes.
+- **Data-link TEST ping**: `ioHdlcPeerTest()` performs a synchronous U-frame
+  TEST exchange with deterministic echo verification, including disconnected
+  peers.
 - **Multi-peer support**: a single primary station manages multiple secondary
   peers simultaneously (multipoint configuration).
 

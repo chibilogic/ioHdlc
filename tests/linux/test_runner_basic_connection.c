@@ -46,6 +46,18 @@ int main(void) {
   mock_adapter.init();
   RUN_TEST_ADAPTER(test_snrm_handshake, &mock_adapter);
   mock_adapter.deinit();
+
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_test_command_disconnected, &mock_adapter);
+  mock_adapter.deinit();
+
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_test_command_connected, &mock_adapter);
+  mock_adapter.deinit();
+
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_test_command_timeout_preserves_link_state, &mock_adapter);
+  mock_adapter.deinit();
   
   mock_adapter.init();
   RUN_TEST_ADAPTER(test_data_exchange, &mock_adapter);

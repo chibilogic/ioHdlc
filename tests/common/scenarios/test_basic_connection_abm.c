@@ -129,6 +129,11 @@ bool test_abm_data_exchange(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(IOHDLC_IS_ABM(&station_b), "Station B should be in ABM mode");
   test_printf("  ✅ ABM connection established\n");
 
+  result = ioHdlcPeerTest(&peer_at_a, 16U, 200U);
+  TEST_ASSERT_GOTO(result == 0, "Station A TEST should succeed in ABM");
+  result = ioHdlcPeerTest(&peer_at_b, 16U, 200U);
+  TEST_ASSERT_GOTO(result == 0, "Station B TEST should succeed in ABM");
+
   /* Station A sends to station B */
   test_printf("Station A → Station B...\n");
   char recv_buf[128];
