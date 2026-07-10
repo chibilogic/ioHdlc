@@ -134,10 +134,38 @@ bool test_abm_data_exchange(const test_adapter_t *adapter) {
   result = ioHdlcPeerTest(&peer_at_b, 16U, 200U);
   TEST_ASSERT_GOTO(result == 0, "Station B TEST should succeed in ABM");
 
-  /* Station A sends to station B */
-  test_printf("Station A → Station B...\n");
+  /* Hold an I-frame behind peer-busy, then release it using RR as the only
+     scheduler event. */
+  const char *rr_msg = "RR resumes TX";
+  size_t rr_msg_len = strlen(rr_msg);
   char recv_buf[128];
   ssize_t sent, received;
+
+  iohdlc_mutex_lock(&peer_at_a.state_mutex);
+  peer_at_a.ss_state |= IOHDLC_SS_BUSY;
+  iohdlc_mutex_unlock(&peer_at_a.state_mutex);
+
+  sent = ioHdlcWriteTmo(&peer_at_a, rr_msg, rr_msg_len, 500U);
+  TEST_ASSERT_GOTO(sent == (ssize_t)rr_msg_len,
+                   "Station A RR-resume write failed");
+  ioHdlc_sleep_ms(50U);
+
+  iohdlc_mutex_lock(&peer_at_a.state_mutex);
+  bool tx_queued = !ioHdlc_frameq_isempty(&peer_at_a.i_trans_q);
+  peer_at_a.ss_state &= (uint8_t)~IOHDLC_SS_BUSY;
+  iohdlc_mutex_unlock(&peer_at_a.state_mutex);
+  TEST_ASSERT_GOTO(tx_queued, "Peer-busy should hold the I-frame in the TX queue");
+
+  ioHdlcBroadcastFlags(&station_a, IOHDLC_EVT_RR_RECVD);
+  memset(recv_buf, 0, sizeof recv_buf);
+  received = ioHdlcReadTmo(&peer_at_b, recv_buf, rr_msg_len, 500U);
+  TEST_ASSERT_GOTO(received == (ssize_t)rr_msg_len,
+                   "An isolated RR should resume queued transmission");
+  TEST_ASSERT_GOTO(memcmp(recv_buf, rr_msg, rr_msg_len) == 0,
+                   "RR-resumed data mismatch");
+
+  /* Station A sends to station B */
+  test_printf("Station A → Station B...\n");
   int i;
 
   for (i = 0; i < 10; ++i) {

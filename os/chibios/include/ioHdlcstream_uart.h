@@ -35,6 +35,8 @@ typedef struct ioHdlcStreamChibiosUart {
   const ioHdlcStreamCallbacks *cbs;
   const iohdlc_stream_caps_t *caps;
   void        * volatile tx_framep;        /* TX in-flight frame pointer */
+  uint8_t     *rx_ptr;
+  size_t       rx_n;
 } ioHdlcStreamChibiosUart;
 
 void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,

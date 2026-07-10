@@ -23,6 +23,7 @@
  */
 
 #include "ioHdlcstream_uart.h"
+#include "ioHdlcdma.h"
 #include "ioHdlcstream_uart_platform.h"
 #include "ioHdlcll.h"
 #include "ioHdlcosal.h"
@@ -47,6 +48,9 @@ static void chb_rxend_cb(UARTDriver *uartp) {
   ioHdlcStreamChibiosUart *ctx = (ioHdlcStreamChibiosUart *)uartp->ip;
   if (!ctx) return;
   chDbgAssert(ctx->cbs && ctx->cbs->on_rx, "uart rxend cb: callbacks not set");
+  iohdlc_dma_rx_complete(ctx->rx_ptr, ctx->rx_n);
+  ctx->rx_ptr = NULL;
+  ctx->rx_n = 0U;
   ctx->cbs->on_rx(ctx->cbs->cb_ctx, 0);
 }
 
@@ -149,6 +153,7 @@ static bool chb_tx_submit(void *vctx, const uint8_t *ptr, size_t len, void *cook
   chDbgAssert(len > 0U, "uart tx_submit: zero length");
   chDbgAssert(ctx->tx_framep == NULL && ctx->uartp->txstate != UART_TX_ACTIVE,
               "uart tx_submit: tx is busy");
+  iohdlc_dma_tx_prepare(ptr, len);
   ctx->tx_framep = cookie;
   uartStartSendI(ctx->uartp, len, ptr);
   return true;
@@ -170,6 +175,9 @@ static bool chb_rx_submit(void *vctx, uint8_t *ptr, size_t len,
   if (ctx->uartp->rxstate == UART_RX_ACTIVE) {
     return false; /* one RX at a time */
   }
+  iohdlc_dma_rx_prepare(ptr, len);
+  ctx->rx_ptr = ptr;
+  ctx->rx_n = len;
   uartStartReceiveI(ctx->uartp, len, ptr);
   return true;
 }
@@ -180,6 +188,8 @@ static void chb_rx_cancel(void *vctx) {
   chDbgAssert(ctx != NULL, "uart rx_cancel: null ctx");
   uartStopReceiveI(ctx->uartp);
   ioHdlcStreamUartPlatformRxCancelCleanup(ctx->uartp);
+  ctx->rx_ptr = NULL;
+  ctx->rx_n = 0U;
 }
 
 static const ioHdlcStreamPortOps chibios_ops = {
@@ -212,6 +222,8 @@ void ioHdlcStreamPortChibiosUartObjectInit(ioHdlcStreamPort *port,
   obj->cbs   = NULL;
   obj->caps = &chibios_uart_caps;
   obj->tx_framep = NULL;
+  obj->rx_ptr = NULL;
+  obj->rx_n = 0U;
 
   port->ctx = obj;
   port->ops = &chibios_ops;

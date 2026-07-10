@@ -1944,9 +1944,9 @@ skip_i_frames:
       default_sframe_is_command);
   }
   
-  cm_flags &= ~(IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RNR_RECVD|IOHDLC_EVT_POOL_ST_CHG|
-                IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_PF_RECVD|IOHDLC_EVT_xREJ_RECVD|
-                IOHDLC_EVT_UI_ENQ);
+  cm_flags &= ~(IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RR_RECVD|IOHDLC_EVT_RNR_RECVD|
+                IOHDLC_EVT_POOL_ST_CHG|IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_PF_RECVD|
+                IOHDLC_EVT_xREJ_RECVD|IOHDLC_EVT_UI_ENQ);
 
   if (sframe_to_send != NULL) {
     /* Send the prepared S-frame. */
@@ -1987,7 +1987,7 @@ void ioHdlcTxEntry(void *stationp) {
   if (!s) return;
 
   flags_mask = IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_T3_TMO|
-               IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RNR_RECVD|
+               IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RR_RECVD|IOHDLC_EVT_RNR_RECVD|
                IOHDLC_EVT_POOL_ST_CHG|IOHDLC_EVT_LINK_ST_CHG|IOHDLC_EVT_UM_RECVD|
                IOHDLC_EVT_LINK_REQ|IOHDLC_EVT_LINE_IDLE|IOHDLC_EVT_xREJ_RECVD|
                IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_REJ_ACTED|IOHDLC_EVT_PF_RECVD|

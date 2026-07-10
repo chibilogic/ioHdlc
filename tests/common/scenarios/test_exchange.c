@@ -133,6 +133,52 @@ static void s_exchange_capture_protocol_stats(
 }
 #endif
 
+static uint64_t s_exchange_scaled_ratio(uint64_t numerator,
+                                        uint64_t denominator,
+                                        uint32_t scale) {
+  uint64_t quotient;
+  uint64_t remainder;
+
+  if (denominator == 0U)
+    return 0U;
+
+  quotient = numerator / denominator;
+  remainder = numerator % denominator;
+
+  return quotient * scale +
+      (remainder * scale + denominator / 2U) / denominator;
+}
+
+static void s_exchange_print_loss(uint32_t lost, uint32_t sent) {
+  uint64_t percent_x100 = s_exchange_scaled_ratio(lost, sent, 10000U);
+
+  test_printf("  Lost:       %u packets (%u.%02u%%)\r\n", lost,
+              (uint32_t)(percent_x100 / 100U),
+              (uint32_t)(percent_x100 % 100U));
+}
+
+static void s_exchange_print_throughput(uint64_t bytes, uint32_t elapsed_ms) {
+  uint64_t bytes_per_sec_x100 =
+      s_exchange_scaled_ratio(bytes, elapsed_ms, 100000U);
+  uint64_t kb_per_sec_x100 =
+      s_exchange_scaled_ratio(bytes, (uint64_t)elapsed_ms * 1024U, 100000U);
+  uint64_t bytes_per_sec = bytes_per_sec_x100 / 100U;
+  uint64_t kb_per_sec = kb_per_sec_x100 / 100U;
+  uint32_t bytes_fraction = (uint32_t)(bytes_per_sec_x100 % 100U);
+  uint32_t kb_fraction = (uint32_t)(kb_per_sec_x100 % 100U);
+
+  if (bytes_per_sec > ~(uint32_t)0U || kb_per_sec > ~(uint32_t)0U) {
+    test_printf("  Throughput: " U64_FMT ".%02u bytes/s (" U64_FMT
+                ".%02u KB/s)\r\n",
+                U64_ARGS(bytes_per_sec), bytes_fraction,
+                U64_ARGS(kb_per_sec), kb_fraction);
+  } else {
+    test_printf("  Throughput: %u.%02u bytes/s (%u.%02u KB/s)\r\n",
+                (uint32_t)bytes_per_sec, bytes_fraction,
+                (uint32_t)kb_per_sec, kb_fraction);
+  }
+}
+
 /*===========================================================================*/
 /* Thread Functions                                                          */
 /*===========================================================================*/
@@ -533,7 +579,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   const uint8_t *optfuncs;
   uint8_t log2mod;
   int result;
-  uint32_t start_time = 0U, elapsed_time = 0U;
+  uint32_t start_time = 0U, elapsed_time = 0U, elapsed_ms = 0U;
   uint32_t active_workers;
   bool thread_create_failed = false;
   bool adapter_initialized = false;
@@ -1114,9 +1160,10 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     }
   }
 
-  elapsed_time = (iohdlc_time_now_ms() - start_time) / 1000;
   stats_primary.end_time_ms = iohdlc_time_now_ms();
   stats_secondary.end_time_ms = stats_primary.end_time_ms;
+  elapsed_ms = stats_primary.end_time_ms - start_time;
+  elapsed_time = elapsed_ms / 1000U;
 
   if (test_failed_global) {
     return_code = 1;
@@ -1175,10 +1222,6 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     if (config.traffic_direction == TRAFFIC_PRI_TO_SEC) {
       uint32_t lost = (stats_primary.packets_sent > stats_secondary.packets_received) ?
           (stats_primary.packets_sent - stats_secondary.packets_received) : 0U;
-      float loss_percent = (stats_primary.packets_sent > 0U) ?
-          (100.0f * lost / stats_primary.packets_sent) : 0.0f;
-      float throughput = (elapsed_time > 0U) ?
-          ((float)stats_secondary.total_bytes_received / elapsed_time) : 0.0f;
 
       test_printf("A -> B Traffic:\r\n");
       test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
@@ -1187,17 +1230,13 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
                   stats_secondary.packets_received,
                   U64_ARGS(stats_secondary.total_bytes_received));
-      test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
-      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
-                  throughput, throughput / 1024.0f);
+      s_exchange_print_loss(lost, stats_primary.packets_sent);
+      s_exchange_print_throughput(stats_secondary.total_bytes_received,
+                                  elapsed_ms);
       test_printf("\r\n");
     } else if (config.traffic_direction == TRAFFIC_SEC_TO_PRI) {
       uint32_t lost = (stats_secondary.packets_sent > stats_primary.packets_received) ?
           (stats_secondary.packets_sent - stats_primary.packets_received) : 0U;
-      float loss_percent = (stats_secondary.packets_sent > 0U) ?
-          (100.0f * lost / stats_secondary.packets_sent) : 0.0f;
-      float throughput = (elapsed_time > 0U) ?
-          ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
 
       test_printf("B -> A Traffic:\r\n");
       test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
@@ -1206,23 +1245,15 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
                   stats_primary.packets_received,
                   U64_ARGS(stats_primary.total_bytes_received));
-      test_printf("  Lost:       %u packets (%.2f%%)\r\n", lost, loss_percent);
-      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
-                  throughput, throughput / 1024.0f);
+      s_exchange_print_loss(lost, stats_secondary.packets_sent);
+      s_exchange_print_throughput(stats_primary.total_bytes_received,
+                                  elapsed_ms);
       test_printf("\r\n");
     } else {
       uint32_t lost_a2b = (stats_primary.packets_sent > stats_secondary.packets_received) ?
           (stats_primary.packets_sent - stats_secondary.packets_received) : 0U;
-      float loss_percent_a2b = (stats_primary.packets_sent > 0U) ?
-          (100.0f * lost_a2b / stats_primary.packets_sent) : 0.0f;
-      float throughput_a2b = (elapsed_time > 0U) ?
-          ((float)stats_secondary.total_bytes_received / elapsed_time) : 0.0f;
       uint32_t lost_b2a = (stats_secondary.packets_sent > stats_primary.packets_received) ?
           (stats_secondary.packets_sent - stats_primary.packets_received) : 0U;
-      float loss_percent_b2a = (stats_secondary.packets_sent > 0U) ?
-          (100.0f * lost_b2a / stats_secondary.packets_sent) : 0.0f;
-      float throughput_b2a = (elapsed_time > 0U) ?
-          ((float)stats_primary.total_bytes_received / elapsed_time) : 0.0f;
 
       test_printf("A -> B Traffic:\r\n");
       test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
@@ -1231,10 +1262,9 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
                   stats_secondary.packets_received,
                   U64_ARGS(stats_secondary.total_bytes_received));
-      test_printf("  Lost:       %u packets (%.2f%%)\r\n",
-                  lost_a2b, loss_percent_a2b);
-      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
-                  throughput_a2b, throughput_a2b / 1024.0f);
+      s_exchange_print_loss(lost_a2b, stats_primary.packets_sent);
+      s_exchange_print_throughput(stats_secondary.total_bytes_received,
+                                  elapsed_ms);
       test_printf("\r\n");
 
       test_printf("B -> A Traffic:\r\n");
@@ -1244,10 +1274,9 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
                   stats_primary.packets_received,
                   U64_ARGS(stats_primary.total_bytes_received));
-      test_printf("  Lost:       %u packets (%.2f%%)\r\n",
-                  lost_b2a, loss_percent_b2a);
-      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
-                  throughput_b2a, throughput_b2a / 1024.0f);
+      s_exchange_print_loss(lost_b2a, stats_secondary.packets_sent);
+      s_exchange_print_throughput(stats_primary.total_bytes_received,
+                                  elapsed_ms);
       test_printf("\r\n");
     }
   } else {
@@ -1279,28 +1308,21 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
 #endif
 
     if (ctx_writer_local->enabled) {
-      float tx_throughput = (elapsed_time > 0U) ?
-          ((float)stats_local->total_bytes_sent / elapsed_time) : 0.0f;
-
       test_printf("Local %s -> %s Traffic:\r\n", local_label, remote_label);
       test_printf("  Sent:       %u packets (" U64_FMT " bytes)\r\n",
                   stats_local->packets_sent,
                   U64_ARGS(stats_local->total_bytes_sent));
-      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
-                  tx_throughput, tx_throughput / 1024.0f);
+      s_exchange_print_throughput(stats_local->total_bytes_sent, elapsed_ms);
       test_printf("\r\n");
     }
 
     if (ctx_reader_local->enabled) {
-      float rx_throughput = (elapsed_time > 0U) ?
-          ((float)stats_local->total_bytes_received / elapsed_time) : 0.0f;
-
       test_printf("Local %s <- %s Traffic:\r\n", local_label, remote_label);
       test_printf("  Received:   %u packets (" U64_FMT " bytes)\r\n",
                   stats_local->packets_received,
                   U64_ARGS(stats_local->total_bytes_received));
-      test_printf("  Throughput: %.2f bytes/s (%.2f KB/s)\r\n",
-                  rx_throughput, rx_throughput / 1024.0f);
+      s_exchange_print_throughput(stats_local->total_bytes_received,
+                                  elapsed_ms);
       test_printf("\r\n");
     }
   }
