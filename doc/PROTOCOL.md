@@ -209,7 +209,8 @@ channel with these rules:
 - each peer exposes a single TX slot, so pending values are last-value-wins
 - each peer caches the last received value, which can be consumed through
   `ioHdlcPeerUiGet()`
-- arrival is reported through the `IOHDLC_APP_UI_RECEIVED` application event
+- arrival is reported through the `IOHDLC_APP_UI_RECEIVED` application event,
+  consumed through an application listener registered on the station
 
 **Control Byte Format (SNRM example):**
 ```
@@ -569,6 +570,12 @@ frame loss.
 **Stop**: When response with F=1 received
 **Expiry**: Force poll (set need_p) while retry budget remains. If the response
 window following the last retry expires → link down.
+
+A terminal timeout marks the peer `ABORTED`. If that peer had previously been
+connected, the station publishes `IOHDLC_APP_LINK_LOST`. In NRM multipoint the
+expired P/F cycle is closed and surveillance advances immediately to the next
+connected peer; no further application operation is required to detect its
+loss independently.
 
 **Configuration:**
 ```c

@@ -37,6 +37,7 @@ int main(void) {
 
   RUN_TEST(test_station_creation);
   RUN_TEST(test_peer_creation);
+  RUN_TEST(test_application_event_listener);
   RUN_TEST(test_swdriver_fcs_backend_capabilities);
   RUN_TEST(test_swdriver_rejects_unsupported_modulo);
   RUN_TEST(test_read_zero_length_returns_zero);
@@ -81,6 +82,10 @@ int main(void) {
 
   mock_adapter.init();
   RUN_TEST_ADAPTER(test_link_timeout_marks_peer_aborted, &mock_adapter);
+  mock_adapter.deinit();
+
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_connected_link_timeout_emits_lost, &mock_adapter);
   mock_adapter.deinit();
 
   TEST_SUMMARY();

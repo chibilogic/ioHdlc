@@ -909,24 +909,29 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       goto cleanup;
     }
   } else if (endpoint_b_active) {
-    iohdlc_event_listener_t listener;
+    iohdlc_app_listener_t listener;
     eventflags_t flags = 0U;
 
-    iohdlc_evt_register(&station_secondary.app_es, &listener, EVENT_MASK(0),
-                        IOHDLC_APP_LINK_UP | IOHDLC_APP_LINK_REFUSED);
-    if (!IOHDLC_PEER_DISC(&peer_at_secondary)) {
+    result = ioHdlcAppListenerRegister(&station_secondary, &listener,
+                                       EVENT_MASK(0), IOHDLC_APP_LINK_UP |
+                                                      IOHDLC_APP_LINK_REFUSED);
+    if (result != 0) {
+      test_printf("Application listener registration failed\r\n");
+      return_code = 1;
+      goto cleanup;
+    }
+    if (ioHdlcPeerGetState(&peer_at_secondary) ==
+        IOHDLC_PEER_STATE_CONNECTED) {
       flags = IOHDLC_APP_LINK_UP;
     } else {
-      eventmask_t evt = iohdlc_evt_wait_any_timeout(
-          EVENT_MASK(0),
+      flags = ioHdlcAppListenerWait(
+          &listener,
           s_exchange_io_timeout_ms(&station_secondary, &peer_at_secondary));
-      if (evt != 0U) {
-        flags = iohdlc_evt_get_and_clear_flags(&listener);
-      }
     }
-    iohdlc_evt_unregister(&station_secondary.app_es, &listener);
+    ioHdlcAppListenerUnregister(&listener);
 
-    if (IOHDLC_PEER_DISC(&peer_at_secondary)) {
+    if (ioHdlcPeerGetState(&peer_at_secondary) !=
+        IOHDLC_PEER_STATE_CONNECTED) {
       test_printf((flags & IOHDLC_APP_LINK_REFUSED) != 0U ?
           "Connection refused\r\n" :
           "Connection not established\r\n");

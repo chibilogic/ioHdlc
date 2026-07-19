@@ -31,6 +31,7 @@ int main(void) {
   RUN_TEST(test_multipoint_data_exchange);
   RUN_TEST(test_multipoint_selective_disconnect);
   RUN_TEST(test_multipoint_address_isolation);
+  RUN_TEST(test_multipoint_link_loss);
 
   TEST_SUMMARY();
 

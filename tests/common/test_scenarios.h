@@ -47,6 +47,7 @@ int test_exhaust_pool(void);
 
 bool test_station_creation(void);
 bool test_peer_creation(void);
+bool test_application_event_listener(void);
 bool test_swdriver_fcs_backend_capabilities(void);
 bool test_swdriver_rejects_unsupported_modulo(void);
 bool test_read_zero_length_returns_zero(void);
@@ -61,6 +62,7 @@ bool test_data_exchange_with_fcs_backend(const test_adapter_t *adapter);
 bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter);
 bool test_remote_disc_preserves_buffered_rx(const test_adapter_t *adapter);
 bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter);
+bool test_connected_link_timeout_emits_lost(const test_adapter_t *adapter);
 
 /*===========================================================================*/
 /* Test: Basic Connection TWA                                                */
@@ -109,6 +111,7 @@ int test_multipoint_connect_two_secondaries(void);
 int test_multipoint_data_exchange(void);
 int test_multipoint_selective_disconnect(void);
 int test_multipoint_address_isolation(void);
+int test_multipoint_link_loss(void);
 
 #ifdef __cplusplus
 }

@@ -46,6 +46,7 @@
 
 #include "ioHdlc_conf.h"
 #include "ioHdlc_version.h"
+#include "ioHdlc_app_events.h"
 #include "ioHdlctypes.h"
 #include "ioHdlcframe.h"
 #include "ioHdlcframepool.h"
@@ -180,7 +181,7 @@
  * @name    Application event mask
  * @{
  */
-#define IOHDLC_APP_EVT_MASK_DEFAULT  EVENT_MASK(31)  /**< @brief Default event mask for app API.
+#define IOHDLC_APP_EVT_MASK_DEFAULT  EVENT_MASK(31)  /**< @brief Default mask for synchronous app APIs.
                                                             High bit to avoid conflicts with user events. */
 /** @} */
 
@@ -298,6 +299,27 @@
 /*===========================================================================*/
 /* Module data structures and types.                                         */
 /*===========================================================================*/
+
+/**
+ * @brief   Application-visible state of a station peer.
+ */
+typedef enum {
+  IOHDLC_PEER_STATE_INVALID = -1,
+  IOHDLC_PEER_STATE_DISCONNECTED,
+  IOHDLC_PEER_STATE_CONNECTED,
+  IOHDLC_PEER_STATE_ORDERLY_CLOSED,
+  IOHDLC_PEER_STATE_ABORTED
+} iohdlc_peer_state_t;
+
+/**
+ * @brief   Caller-owned application event listener.
+ * @details Encapsulates the OS event listener and its station registration.
+ */
+typedef struct {
+  iohdlc_event_listener_t listener;
+  iohdlc_station_t *stationp;
+  eventmask_t event_mask;
+} iohdlc_app_listener_t;
 
 /**
  * @brief   Station peer list header.
@@ -490,7 +512,7 @@ struct iohdlc_station {
 
   /* events. */
   iohdlc_event_source_t cm_es;   /* Event source for internal core events (RX/TX/timer). */
-  iohdlc_event_source_t app_es;  /* Event source for application events (link status, data). */
+  iohdlc_event_source_t app_es;  /* Internal source backing application event listeners. */
   iohdlc_event_listener_t cm_listener; /* Event listener for TX thread. */
 
   /* runner context (OS-specific). */
@@ -596,6 +618,15 @@ extern "C" {
                          uint32_t timeout_ms);
   int32_t ioHdlcPeerUiSend(iohdlc_station_peer_t *peer, uint32_t value);
   bool ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value);
+  iohdlc_peer_state_t ioHdlcPeerGetState(iohdlc_station_peer_t *peer);
+
+  int32_t ioHdlcAppListenerRegister(iohdlc_station_t *station,
+                                    iohdlc_app_listener_t *listener,
+                                    eventmask_t event_mask,
+                                    eventflags_t wanted_flags);
+  eventflags_t ioHdlcAppListenerWait(iohdlc_app_listener_t *listener,
+                                     uint32_t timeout_ms);
+  void ioHdlcAppListenerUnregister(iohdlc_app_listener_t *listener);
 
   iohdlc_station_peer_t *ioHdlcAddr2peer(iohdlc_station_t *ioHdlcsp, uint32_t peer_addr);
 

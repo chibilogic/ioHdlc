@@ -294,11 +294,16 @@ static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
 #endif
   
   if (p->poll_retry_count >= p->poll_retry_max) {
+    const bool was_connected = !IOHDLC_PEER_DISC(p);
+
     /* Max retries exceeded: declare link down. */
     ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_DOWN);
 
     /* Link loss is an abnormal terminal state. */
     abortPeerLink(s, p);
+    s->pf_state |= IOHDLC_F_RCVED;
+    if (was_connected)
+      ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_LINK_LOST);
 
     return false;  /* Link down, do not retry. */
   }
@@ -2164,9 +2169,16 @@ void ioHdlcTxEntry(void *stationp) {
          advance to next peer that is connected or has pending um_cmd. */
       if (IOHDLC_IS_PRI(s) && IOHDLC_PEER_DISC(p) &&
           p->um_cmd == 0 && !(p->um_state & IOHDLC_UM_SENT)) {
+        iohdlc_station_peer_t *next;
+
         iohdlc_mutex_unlock(&p->state_mutex);
-        ioHdlcNextPeer(s, false);
-        cm_flags = 0;
+        next = ioHdlcNextPeer(s, false);
+        if (next != NULL && !IOHDLC_PEER_DISC(next)) {
+          IOHDLC_SET_NEED_P(s, next);
+          cm_flags = IOHDLC_EVT_LINK_ST_CHG;
+        } else {
+          cm_flags = 0;
+        }
         continue;
       }
       cm_flags &= IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_LINK_REQ;

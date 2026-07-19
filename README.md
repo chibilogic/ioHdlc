@@ -40,7 +40,14 @@ communication, ISO 13239 compliant data link layer.
   pressure to the application automatically.
 - **Link event notifications**: application-facing flags such as `LINK_UP`,
   `LINK_REFUSED`, `LINK_DOWN`, and `LINK_LOST` are emitted for link-state
-  changes.
+  changes. Applications register an `iohdlc_app_listener_t` through
+  `ioHdlcAppListenerRegister()` and consume coalesced flags with
+  `ioHdlcAppListenerWait()`.
+- **Peer state snapshots**: `ioHdlcPeerGetState()` reports connected,
+  disconnected, orderly-closed, or aborted state without requiring direct
+  access to peer internals. Application events are station-wide state-change
+  notifications; after a notification, applications should inspect the peers
+  they manage rather than treating the event stream as a transition log.
 - **Data-link TEST ping**: `ioHdlcPeerTest()` performs a synchronous U-frame
   TEST exchange with deterministic echo verification, including disconnected
   peers.
