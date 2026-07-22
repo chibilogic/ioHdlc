@@ -18,7 +18,7 @@
  * @param[in] ctx       SPI stream context
  */
 static inline void ioHdlcStreamSpiPlatformPrepareConfig(ioHdlcStreamChibiosSpi *ctx) {
-  ctx->cfgp->cr1 |= SPI_CR1_LSBFIRST;
+  (void)ctx;
 }
 
 /**

@@ -6,7 +6,7 @@
  */
 /**
  * @file    ioHdlcstream_spi_platform_impl.h
- * @brief   Inline IMX95 platform hooks for the ChibiOS SPI stream backend.
+ * @brief   Inline SAMA5D2x hooks for the ChibiOS SPI stream backend.
  */
 
 #ifndef IOHDLCSTREAM_SPI_PLATFORM_IMPL_H
@@ -21,6 +21,22 @@ static inline void ioHdlcStreamSpiPlatformPrepareConfig(
     ioHdlcStreamChibiosSpi *ctx) {
 
   (void)ctx;
+}
+
+/**
+ * @brief   Stops both DMA channels and clears the SPI FIFOs.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+static inline void ioHdlcStreamSpiPlatformResetTransferI(
+    ioHdlcStreamChibiosSpi *ctx) {
+
+  dmaChannelDisable(ctx->spip->dmatx);
+  dmaChannelDisable(ctx->spip->dmarx);
+  ctx->spip->spi->SPI_CR = SPI_CR_TXFCLR | SPI_CR_RXFCLR;
+  (void)ctx->spip->spi->SPI_RDR;
+  (void)ctx->spip->spi->SPI_SR;
+  ctx->spip->state = SPI_READY;
 }
 
 /**
@@ -42,32 +58,32 @@ static inline void ioHdlcStreamSpiPlatformPrepareSlaveRxI(
 static inline void ioHdlcStreamSpiPlatformPrepareSlaveRxAfterTxI(
     ioHdlcStreamChibiosSpi *ctx) {
 
-  ioHdlcStreamSpiPlatformPrepareSlaveRxI(ctx);
+  ioHdlcStreamSpiPlatformResetTransferI(ctx);
 }
 
 /**
- * @brief   Prepares a slave TX transfer after a RX boundary.
+ * @brief   Prepares a slave TX transfer after an RX boundary.
  *
  * @param[in] ctx       SPI stream context
  */
 static inline void ioHdlcStreamSpiPlatformPrepareSlaveTx(
     ioHdlcStreamChibiosSpi *ctx) {
 
-  (void)ctx;
+  ioHdlcStreamSpiPlatformResetTransferI(ctx);
 }
 
 /**
  * @brief   Cancels an armed slave RX transfer without waiting for clocks.
  *
  * @param[in] ctx       SPI stream context
- * @return              true if the platform handled the cancellation
+ * @return              true because the platform handled the cancellation
  */
 static inline bool ioHdlcStreamSpiPlatformCancelSlaveRxI(
     ioHdlcStreamChibiosSpi *ctx) {
 
-  (void)ctx;
+  ioHdlcStreamSpiPlatformResetTransferI(ctx);
 
-  return false;
+  return true;
 }
 
 #endif /* IOHDLCSTREAM_SPI_PLATFORM_IMPL_H */

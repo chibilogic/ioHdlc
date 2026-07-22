@@ -27,4 +27,8 @@
 
 bool ioHdlcStreamSpiPlatformAbortSlaveI(ioHdlcStreamChibiosSpi *ctx);
 
+#if CH_KERNEL_MAJOR < 7
+void ioHdlcStreamSpiPlatformStopTransferI(ioHdlcStreamChibiosSpi *ctx);
+#endif
+
 #endif /* IOHDLCSTREAM_SPI_PLATFORM_H */

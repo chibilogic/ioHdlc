@@ -853,6 +853,7 @@ static void s_handle_rx_error(ioHdlcSwDriver *drv) {
  */
 static void s_on_rx(void *cb_ctx, uint32_t errmask) {
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
+  iohdlc_syssts_t sts;
   size_t n = 1;
   uint8_t *b = 0;
   iohdlc_rx_mode_t rx_mode = IOHDLC_RX_START_PACKET;
@@ -861,25 +862,25 @@ static void s_on_rx(void *cb_ctx, uint32_t errmask) {
   if (errmask & IOHDLC_STREAM_ERR_TMO) {
     if (drv->rx.in_frame && drv->rx.in_frame->elen != 0) {
       /* Intra-frame timeout - discard partial frame */
-      iohdlc_sys_lock_isr();
+      sts = iohdlc_sys_get_status_and_lock_x();
       drv->port.handle.ops->rx_cancel(drv->port.handle.ctx);
-      iohdlc_sys_unlock_isr();
+      iohdlc_sys_restore_status_x(sts);
       s_handle_rx_error(drv);
       goto newframe;
     }
     /* Inter-frame timeout - signal IDLE */
-    IOHDLC_RAWQ_LOCK_ISR(drv->rx.recept_mtx);
+    IOHDLC_RAWQ_LOCK_X(drv->rx.recept_mtx, sts);
     iohdlc_sem_signal_i(&drv->rx.recept_sem);
-    IOHDLC_RAWQ_UNLOCK_ISR(drv->rx.recept_mtx);
+    IOHDLC_RAWQ_UNLOCK_X(drv->rx.recept_mtx, sts);
     return;
   }
   
   /* Handle other errors */
   if (errmask) {
     s_handle_rx_error(drv);
-    iohdlc_sys_lock_isr();
+    sts = iohdlc_sys_get_status_and_lock_x();
     drv->port.handle.ops->rx_cancel(drv->port.handle.ctx);
-    iohdlc_sys_unlock_isr();
+    iohdlc_sys_restore_status_x(sts);
     goto newframe;
   }
 
@@ -1018,9 +1019,15 @@ newframe:
 nextoctet:
   /* Arm next RX byte/chunk */
   IOHDLC_ASSERT(n != 0, "Invalid RX chunk size");
-  iohdlc_sys_lock_isr();
-  (void)drv->port.handle.ops->rx_submit(drv->port.handle.ctx, b, n, rx_mode);
-  iohdlc_sys_unlock_isr();
+  if (errmask) {
+    sts = iohdlc_sys_get_status_and_lock_x();
+    (void)drv->port.handle.ops->rx_submit(drv->port.handle.ctx, b, n, rx_mode);
+    iohdlc_sys_restore_status_x(sts);
+  } else {
+    iohdlc_sys_lock_isr();
+    (void)drv->port.handle.ops->rx_submit(drv->port.handle.ctx, b, n, rx_mode);
+    iohdlc_sys_unlock_isr();
+  }
 }
 
 static iohdlc_frame_t *drv_recv_frame(void *instance, iohdlc_timeout_t tmo) {

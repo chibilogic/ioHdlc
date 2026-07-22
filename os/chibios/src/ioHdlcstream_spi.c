@@ -87,6 +87,24 @@ static uint16_t chb_spi_slave_watchdog_ticks_from_us(uint32_t watchdog_us) {
 static void chb_spi_start_receive_i(ioHdlcStreamChibiosSpi *ctx, size_t len, uint8_t *ptr);
 static inline bool chb_spi_try_start_master_rx_i(ioHdlcStreamChibiosSpi *ctx);
 
+static inline void chb_spi_stop_transfer_i(ioHdlcStreamChibiosSpi *ctx) {
+#if CH_KERNEL_MAJOR >= 7
+  spiStopTransferI(ctx->spip, NULL);
+#else
+  ioHdlcStreamSpiPlatformStopTransferI(ctx);
+#endif
+}
+
+static void chb_spi_stop_transfer(ioHdlcStreamChibiosSpi *ctx) {
+#if CH_KERNEL_MAJOR >= 7
+  spiStopTransfer(ctx->spip, NULL);
+#else
+  chSysLock();
+  ioHdlcStreamSpiPlatformStopTransferI(ctx);
+  chSysUnlock();
+#endif
+}
+
 #if CH_KERNEL_MAJOR >= 7
 static void chb_spi_slave_watchdog_cb(virtual_timer_t *vtp, void *p);
 #else
@@ -108,7 +126,7 @@ static void chb_spi_slave_watchdog_timeout(ioHdlcStreamChibiosSpi *ctx) {
       if (ctx->slave_tx_watchdog_ticks >= ctx->slave_watchdog_limit_ticks) {
         tx_framep = ctx->tx_framep;
         if (!ioHdlcStreamSpiPlatformAbortSlaveI(ctx))
-          spiStopTransferI(ctx->spip, NULL);
+          chb_spi_stop_transfer_i(ctx);
 
         ctx->tx_active = false;
         ctx->tx_framep = NULL;
@@ -130,7 +148,7 @@ static void chb_spi_slave_watchdog_timeout(ioHdlcStreamChibiosSpi *ctx) {
       ctx->slave_tx_watchdog_ticks = 0U;
       if (ctx->slave_rx_watchdog_ticks >= ctx->slave_watchdog_limit_ticks) {
         if (!ioHdlcStreamSpiPlatformAbortSlaveI(ctx))
-          spiStopTransferI(ctx->spip, NULL);
+          chb_spi_stop_transfer_i(ctx);
 
         ctx->rx_active = false;
         ctx->rx_ptr = NULL;
@@ -190,7 +208,7 @@ static inline void *chb_spi_abort_master_tx_i(ioHdlcStreamChibiosSpi *ctx) {
 #if SPI_SELECT_MODE != SPI_SELECT_MODE_NONE
   spiUnselectI(ctx->spip);
 #endif
-  spiStopTransferI(ctx->spip, NULL);
+  chb_spi_stop_transfer_i(ctx);
 
   ctx->tx_active = false;
   ctx->tx_framep = NULL;
@@ -230,7 +248,7 @@ static inline bool chb_spi_try_start_master_rx_i(ioHdlcStreamChibiosSpi *ctx) {
 }
 
 /**
- * @brief   Data callback (SPI v2 @p data_cb): transfer completed without errors.
+ * @brief   SPI transfer completion callback.
  * @details Dispatches to the TX or RX handler based on which transfer was
  *          active.  Called from ISR context.
  */
@@ -312,6 +330,7 @@ static void chb_spi_data_cb(SPIDriver *spip) {
  * @details Resets the in-flight state and notifies the swdriver using the
  *          callback matching the failed transfer direction.
  */
+#if CH_KERNEL_MAJOR >= 7
 static void chb_spi_error_cb(SPIDriver *spip) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)spip->ip;
   void *tx_framep;
@@ -355,6 +374,7 @@ static void chb_spi_error_cb(SPIDriver *spip) {
   else if (ctx->cbs && ctx->cbs->on_rx_error)
     ctx->cbs->on_rx_error(ctx->cbs->cb_ctx, IOHDLC_STREAM_ERR_OVERRUN);
 }
+#endif
 
 /**
  * @brief   Handles a slave SPI RX overrun detected by a platform ISR.
@@ -375,7 +395,7 @@ void ioHdlcStreamSpiSlaveOverrunI(ioHdlcStreamChibiosSpi *ctx) {
     rx_aborted = true;
 
     if (!ioHdlcStreamSpiPlatformAbortSlaveI(ctx))
-      spiStopTransferI(ctx->spip, NULL);
+      chb_spi_stop_transfer_i(ctx);
 
     ctx->tx_active = false;
     ctx->tx_framep = NULL;
@@ -456,15 +476,19 @@ static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
   /* Install callbacks, slave flag, and bind context pointer. */
   ctx->spip->ip = ctx;
   if (ctx->cfgp) {
+#if CH_KERNEL_MAJOR >= 7
     ctx->cfgp->data_cb  = chb_spi_data_cb;
     ctx->cfgp->error_cb = chb_spi_error_cb;
+#else
+    ctx->cfgp->end_cb   = chb_spi_data_cb;
+#endif
 #if SPI_SUPPORTS_SLAVE_MODE
     ctx->cfgp->slave    = !ctx->is_master;
 #endif
   }
+  spiStart(ctx->spip, ctx->cfgp);
   if (ctx->is_master)
     spiUnselect(ctx->spip);
-  spiStart(ctx->spip, ctx->cfgp);
 #if defined(STM32G474xx)
   if (!ctx->is_master) {
     ctx->spip->spi->CR2 |= SPI_CR2_ERRIE;
@@ -510,9 +534,9 @@ static void chb_spi_stop(void *vctx) {
   /* Stop any pending transactions. */
   if (!ctx->is_master) {
     if (!slave_aborted)
-      spiStopTransfer(ctx->spip, NULL);
+      chb_spi_stop_transfer(ctx);
   } else {
-    spiStopTransfer(ctx->spip, NULL);
+    chb_spi_stop_transfer(ctx);
     spiUnselect(ctx->spip);
   }
 
@@ -523,7 +547,9 @@ static void chb_spi_stop(void *vctx) {
 /**
  * @brief   Submit a TX buffer.
  * @details DATA_READY masters reject TX while RX is active or ready; slaves may
- *          still cancel their pending RX when switching direction.
+ *          still cancel their pending RX when switching direction. The RX
+ *          discard callback is synchronous and inherits the caller's lock
+ *          state.
  */
 static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
                                void *cookie) {
@@ -550,13 +576,13 @@ static bool chb_spi_tx_submit(void *vctx, const uint8_t *ptr, size_t len,
     ctx->rx_active = false;
     if (ctx->is_master) {
       spiUnselectI(ctx->spip);
-      spiStopTransferI(ctx->spip, NULL);
+      chb_spi_stop_transfer_i(ctx);
     } else {
       if (ioHdlcStreamSpiPlatformCancelSlaveRxI(ctx)) {
         needs_slave_tx_prepare = false;
         ctx->slave_tx_needs_prepare = false;
       } else {
-        spiStopTransferI(ctx->spip, NULL);
+        chb_spi_stop_transfer_i(ctx);
         needs_slave_tx_prepare = true;
       }
       discard_rx = true;
@@ -672,7 +698,7 @@ static void chb_spi_rx_cancel(void *vctx) {
   chDbgAssert(ctx != NULL, "spi rx_cancel: null ctx");
   if (ctx->is_master && ctx->rx_active) {
     spiUnselectI(ctx->spip);
-    spiStopTransferI(ctx->spip, NULL);
+    chb_spi_stop_transfer_i(ctx);
     ctx->rx_active = false;
   }
   ctx->rx_ptr = NULL;
@@ -753,7 +779,7 @@ static const ioHdlcStreamPortOps chibios_spi_ops = {
  * @param[out] port       destination port handle to be bound to this object
  * @param[out] obj        object storage provided by the caller
  * @param[in]  spip       ChibiOS SPI driver instance
- * @param[in]  cfgp       SPI configuration (end_cb will be set at start time)
+ * @param[in]  cfgp       SPI configuration (callbacks are set at start time)
  * @param[in]  is_master  true if this node drives the SPI clock
  */
 void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,

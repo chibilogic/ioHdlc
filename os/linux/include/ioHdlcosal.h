@@ -191,6 +191,7 @@ typedef struct {
 /** @brief Compatibility alias for the binary semaphore type. */
 typedef iohdlc_bsem_t iohdlc_binary_semaphore_t;
 typedef iohdlc_bsem_t iohdlc_frame_txgate_t;
+typedef uint32_t iohdlc_syssts_t;
 
 /*===========================================================================*/
 /* Mutex (forward declaration needed by condvar)                            */
@@ -467,6 +468,10 @@ static inline void iohdlc_sys_unlock_isr(void) { /* No-op */ }
 static inline void iohdlc_sys_lock(void) { /* No-op */ }
 /** @brief No-op system unlock for POSIX userspace integrations. */
 static inline void iohdlc_sys_unlock(void) { /* No-op */ }
+/** @brief Return a placeholder status for context-neutral lock operations. */
+static inline iohdlc_syssts_t iohdlc_sys_get_status_and_lock_x(void) { return 0U; }
+/** @brief Restore a placeholder status for context-neutral lock operations. */
+static inline void iohdlc_sys_restore_status_x(iohdlc_syssts_t sts) { (void)sts; }
 /** @brief Yield execution to the scheduler. */
 static inline void iohdlc_thread_yield(void) { sched_yield(); }
 
@@ -484,6 +489,8 @@ static inline void iohdlc_thread_yield(void) { sched_yield(); }
 #define IOHDLC_RAWQ_UNLOCK(m)             iohdlc_mutex_unlock(&(m))    /**< Unlock a raw-queue mutex. */
 #define IOHDLC_RAWQ_LOCK_ISR(m)           iohdlc_mutex_lock(&(m))      /**< ISR-context raw-queue lock alias for Linux. */
 #define IOHDLC_RAWQ_UNLOCK_ISR(m)         iohdlc_mutex_unlock(&(m))    /**< ISR-context raw-queue unlock alias for Linux. */
+#define IOHDLC_RAWQ_LOCK_X(m, sts)        do { (sts) = iohdlc_sys_get_status_and_lock_x(); iohdlc_mutex_lock(&(m)); } while (0)
+#define IOHDLC_RAWQ_UNLOCK_X(m, sts)      do { iohdlc_mutex_unlock(&(m)); iohdlc_sys_restore_status_x(sts); } while (0)
 
 /*===========================================================================*/
 /* Virtual Timer Operations                                                  */

@@ -61,6 +61,11 @@ In HDLC, it is permitted for the closing flag of a frame to also serve as the op
 - **Size**: 16 bits (2 bytes)
 - **Transmission**: LSB first
 
+The ChibiOS SPI backend is a transport-specific exception: it transfers each
+already-encoded HDLC octet MSB-first, following the conventional SPI wire
+mapping. Both SPI peers must use the same mapping; this does not alter the HDLC
+frame image stored in memory.
+
 ### Byte Stuffing
 
 To ensure flag uniqueness:

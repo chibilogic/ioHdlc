@@ -81,6 +81,7 @@ typedef semaphore_t iohdlc_sem_t;
 typedef binary_semaphore_t iohdlc_binary_semaphore_t;
 typedef binary_semaphore_t iohdlc_frame_txgate_t;
 typedef memory_pool_t iohdlc_memory_pool_t;
+typedef syssts_t iohdlc_syssts_t;
 
 /* Mutex type */
 struct iohdlc_mutex {
@@ -359,6 +360,12 @@ static inline void iohdlc_sys_lock_isr(void) { chSysLockFromISR(); }
 static inline void iohdlc_sys_unlock_isr(void) { chSysUnlockFromISR(); }
 static inline void iohdlc_sys_lock(void) { chSysLock(); }
 static inline void iohdlc_sys_unlock(void) { chSysUnlock(); }
+static inline iohdlc_syssts_t iohdlc_sys_get_status_and_lock_x(void) {
+  return chSysGetStatusAndLockX();
+}
+static inline void iohdlc_sys_restore_status_x(iohdlc_syssts_t sts) {
+  chSysRestoreStatusX(sts);
+}
 static inline void iohdlc_thread_yield(void) { chThdYield(); }
 
 /*===========================================================================*/
@@ -375,6 +382,8 @@ static inline void iohdlc_thread_yield(void) { chThdYield(); }
 #define IOHDLC_RAWQ_UNLOCK(m)             chSysUnlock()
 #define IOHDLC_RAWQ_LOCK_ISR(m)           chSysLockFromISR()
 #define IOHDLC_RAWQ_UNLOCK_ISR(m)         chSysUnlockFromISR()
+#define IOHDLC_RAWQ_LOCK_X(m, sts)        ((sts) = iohdlc_sys_get_status_and_lock_x())
+#define IOHDLC_RAWQ_UNLOCK_X(m, sts)      iohdlc_sys_restore_status_x(sts)
 
 /*
  * OS-agnostic assertion hook for ioHdlc core modules.

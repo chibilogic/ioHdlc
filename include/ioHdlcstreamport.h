@@ -76,6 +76,8 @@ extern "C" {
  *          documented by the implementation that triggers the callback.
  * @note    Backends should clearly state whether callbacks run in thread,
  *          task, interrupt, or deferred-work context.
+ * @note    An RX error callback may be invoked synchronously by a backend
+ *          operation and inherit the caller's context and lock state.
  */
 typedef void (*ioHdlcStreamOnRx)(void *cb_ctx, uint32_t errmask);
 typedef void (*ioHdlcStreamOnTxDone)(void *cb_ctx, void *framep);
@@ -94,7 +96,7 @@ typedef struct ioHdlcStreamCallbacks {
   ioHdlcStreamOnTxDone   on_tx_done;    /**< TX buffer has been fully sent */
   ioHdlcStreamOnTxErrorI on_tx_error_i; /**< TX aborted, called from I-class context */
   ioHdlcStreamOnTxReadyI on_tx_ready_i; /**< TX may be retried, called from I-class context */
-  ioHdlcStreamOnRxError  on_rx_error;   /**< Stream/DMA error notification */
+  ioHdlcStreamOnRxError  on_rx_error;   /**< RX error in backend-defined context */
   void                  *cb_ctx;        /**< Opaque callback owner context passed back to all callbacks. */
 } ioHdlcStreamCallbacks;
 

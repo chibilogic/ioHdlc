@@ -22,11 +22,10 @@
  *          exclusive. DATA_READY is part of the SPI physical protocol: masters
  *          wait for the slave notification before clocking RX data.
  *
- * @note    The caller must configure @p SPIConfig with a @p NULL end_cb; the
- *          adapter installs its own @p end_cb at start time.
- * @note    The adapter forces the platform SPI configuration to transmit
- *          LSB-first, as required by HDLC bit ordering. Other SPI timing and
- *          select-mode fields remain under caller/platform control.
+ * @note    The adapter installs the SPI completion callbacks at start time.
+ * @note    SPI links transmit octets MSB-first, following the usual SPI wire
+ *          convention. Timing and select-mode fields remain under caller and
+ *          platform control.
  *
  * @note    REJ must be disabled in the ioHdlc core configuration when using
  *          SPI connections.  Recovery from lost frames happens via
@@ -87,8 +86,8 @@ typedef struct ioHdlcStreamChibiosSpi {
  * @param[out] port       destination port handle to be bound to this object
  * @param[out] obj        object storage provided by the caller
  * @param[in]  spip       ChibiOS SPI driver instance (e.g. &SPID1)
- * @param[in]  cfgp       SPI configuration; @p end_cb will be overwritten by
- *                        the adapter at start time
+ * @param[in]  cfgp       SPI configuration; completion callbacks are installed
+ *                        by the adapter at start time
  * @param[in]  is_master  true if this node drives the SPI clock
  */
 void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,

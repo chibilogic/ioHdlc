@@ -15,7 +15,7 @@
  */
 /**
  * @file    main_shell.c
- * @brief   ChibiOS interactive shell for ioHdlc tests on BV9000CL.
+ * @brief   ChibiOS interactive shell for ioHdlc tests on MIP104.
  */
 
 #include "ch.h"
@@ -28,12 +28,12 @@
 
 extern int test_exchange_main(const test_adapter_t *adapter, int argc,
                               char **argv);
-extern const test_adapter_t uart_adapter;
+extern const test_adapter_t spi_adapter;
 
 static void cmd_exchange(BaseSequentialStream *chp, int argc, char *argv[]) {
   (void)chp;
 
-  test_exchange_main(&uart_adapter, argc, argv);
+  test_exchange_main(&spi_adapter, argc, argv);
 }
 
 static const ShellCommand commands[] = {
@@ -59,23 +59,17 @@ static THD_FUNCTION(blinker_thread, arg) {
   chRegSetThreadName("blinker");
 
   while (true) {
-    palToggleLine(LINE_LED_RGB_R);
-    palToggleLine(LINE_LED_MAINTENANCE);
+    palToggleLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(80);
-    palToggleLine(LINE_LED_RGB_R);
-    palToggleLine(LINE_LED_MAINTENANCE);
+    palToggleLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(120);
-    palToggleLine(LINE_LED_RGB_R);
-    palToggleLine(LINE_LED_MAINTENANCE);
+    palToggleLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(120);
-    palToggleLine(LINE_LED_RGB_R);
-    palToggleLine(LINE_LED_MAINTENANCE);
+    palToggleLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(120);
-    palToggleLine(LINE_LED_RGB_R);
-    palToggleLine(LINE_LED_MAINTENANCE);
+    palToggleLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(160);
-    palToggleLine(LINE_LED_RGB_R);
-    palToggleLine(LINE_LED_MAINTENANCE);
+    palToggleLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(600);
     chSysLock();
     wdgResetI(&WDGD0);
@@ -93,6 +87,8 @@ int main(void) {
   halInit();
   chSysInit();
 
+  palClearLine(LINE_ENABLE_BUFFER);
+
   sdStart(&TEST_OUTPUT_SD, &serialcfg);
   ioHdlcSDx = (BaseSequentialStream *)&TEST_OUTPUT_SD;
 
@@ -104,8 +100,7 @@ int main(void) {
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD,
            "ioHdlc Exchange Test Shell" SHELL_NEWLINE_STR);
   chprintf((BaseSequentialStream *)&TEST_OUTPUT_SD,
-           "Use exchange --endpoint=a or exchange --endpoint=b"
-           SHELL_NEWLINE_STR);
+           "Use exchange for the intraboard SPI test" SHELL_NEWLINE_STR);
 
   shellThread((void *)&shell_cfg);
 
