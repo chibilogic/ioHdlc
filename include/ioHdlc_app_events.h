@@ -39,7 +39,7 @@
 #define IOHDLC_APP_LINK_REFUSED  0x0002 /**< Link connection refused (DM received). */
 #define IOHDLC_APP_LINK_DOWN     0x0004 /**< Link disconnected (UA/DM after DISC). */
 #define IOHDLC_APP_LINK_TIMEOUT  0x0008 /**< Link operation timeout (no response). */
-#define IOHDLC_APP_LINK_LOST     0x0010 /**< Link lost spontaneously (unexpected DM/timeout). */
+#define IOHDLC_APP_LINK_LOST     0x0010 /**< Previously active link lost after timeout recovery. */
 #define IOHDLC_APP_DATA_READY    0x0020 /**< Data available for reading (future use). */
 #define IOHDLC_APP_FRMR_RECEIVED 0x0040 /**< FRMR received from peer (link recovery needed). */
 #define IOHDLC_APP_UI_RECEIVED   0x0080 /**< UI value received from peer. */

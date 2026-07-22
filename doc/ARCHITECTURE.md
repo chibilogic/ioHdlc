@@ -51,7 +51,8 @@ A **station** represents one end of the HDLC link. It can be:
 - Frame pool
 - Driver instance
 - Internal event source (`cm_es`) for protocol event synchronisation between threads
-- Application event source (`app_es`) for notifying upper layers
+- Application event source (`app_es`) for station-wide, coalesced upper-layer
+  notifications
 
 ### 3. Peer Management
 
@@ -306,6 +307,13 @@ The core is OS-agnostic but calls concrete functions defined in `src/ioHdlc_runn
 | `ioHdlcBroadcastFlags(station, flags)` | Broadcast internal core event flags to the station's `cm_es` |
 | `ioHdlcBroadcastFlagsApp(station, flags)` | Broadcast application-facing event flags to `app_es` |
 | `ioHdlcWaitEvents(station)` | Block until any core event flag is set; return and clear the pending mask |
+
+Applications do not register directly on `app_es`. A caller-owned
+`iohdlc_app_listener_t` is registered with `ioHdlcAppListenerRegister()`, waited
+with `ioHdlcAppListenerWait()`, and removed with
+`ioHdlcAppListenerUnregister()`. Flags are coalesced by type. They indicate that
+observable station state changed; `ioHdlcPeerGetState()` provides a synchronized
+peer-state snapshot for subsequent inspection.
 
 ## Data Flow
 

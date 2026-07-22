@@ -925,6 +925,112 @@ bool ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value) {
 }
 
 /**
+ * @brief   Return an application-visible snapshot of a peer's link state.
+ * @param[in] peer  Peer descriptor.
+ * @return  Current peer state, or @ref IOHDLC_PEER_STATE_INVALID if @p peer
+ *          is null.
+ */
+iohdlc_peer_state_t ioHdlcPeerGetState(iohdlc_station_peer_t *peer) {
+  iohdlc_peer_state_t state;
+
+  if (peer == NULL) {
+    iohdlc_errno = EINVAL;
+    return IOHDLC_PEER_STATE_INVALID;
+  }
+
+  iohdlc_mutex_lock(&peer->state_mutex);
+  if (peer->ss_state & IOHDLC_SS_ST_CONN)
+    state = IOHDLC_PEER_STATE_CONNECTED;
+  else if (peer->ss_state & IOHDLC_SS_TERM_ORDERLY)
+    state = IOHDLC_PEER_STATE_ORDERLY_CLOSED;
+  else if (peer->ss_state & IOHDLC_SS_TERM_ABORTED)
+    state = IOHDLC_PEER_STATE_ABORTED;
+  else
+    state = IOHDLC_PEER_STATE_DISCONNECTED;
+  iohdlc_mutex_unlock(&peer->state_mutex);
+
+  return state;
+}
+
+/**
+ * @brief   Register an application listener on a station event source.
+ * @details The listener is bound to the calling thread. The event mask must
+ *          contain one bit reserved for this listener in that thread.
+ * @param[in] station       Station whose application events are observed.
+ * @param[out] listener     Caller-owned listener object.
+ * @param[in] event_mask    Single thread event bit used for notification.
+ * @param[in] wanted_flags  Application event flags to receive.
+ * @return  0 on success, -1 on invalid arguments.
+ */
+int32_t ioHdlcAppListenerRegister(iohdlc_station_t *station,
+                                  iohdlc_app_listener_t *listener,
+                                  eventmask_t event_mask,
+                                  eventflags_t wanted_flags) {
+  if (station == NULL || listener == NULL || event_mask == 0U ||
+      (event_mask & (event_mask - 1U)) != 0U || wanted_flags == 0U) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  memset(listener, 0, sizeof *listener);
+  listener->stationp = station;
+  listener->event_mask = event_mask;
+  iohdlc_evt_register(&station->app_es, &listener->listener, event_mask,
+                      wanted_flags);
+  return 0;
+}
+
+/**
+ * @brief   Wait for and consume pending application event flags.
+ * @details Pending listener flags are consumed before blocking, so a wakeup
+ *          consumed by another wait in the same thread does not hide an
+ *          already published notification.
+ * @param[in] listener    Registered application listener.
+ * @param[in] timeout_ms  Maximum wait time, zero for polling, or
+ *                        @ref IOHDLC_WAIT_FOREVER.
+ * @return  Received application flags, or zero on timeout.
+ */
+eventflags_t ioHdlcAppListenerWait(iohdlc_app_listener_t *listener,
+                                   uint32_t timeout_ms) {
+  eventflags_t flags;
+
+  IOHDLC_ASSERT(listener != NULL,
+                "ioHdlcAppListenerWait: null listener");
+  IOHDLC_ASSERT(listener->stationp != NULL,
+                "ioHdlcAppListenerWait: listener not registered");
+
+  flags = iohdlc_evt_get_and_clear_flags(&listener->listener);
+  if (flags != 0U) {
+    (void)iohdlc_evt_wait_any_timeout(listener->event_mask, 0U);
+    return flags;
+  }
+
+  if (iohdlc_evt_wait_any_timeout(listener->event_mask, timeout_ms) == 0U)
+    return 0U;
+
+  return iohdlc_evt_get_and_clear_flags(&listener->listener);
+}
+
+/**
+ * @brief   Unregister an application event listener.
+ * @param[in,out] listener  Registered listener object.
+ */
+void ioHdlcAppListenerUnregister(iohdlc_app_listener_t *listener) {
+  eventmask_t event_mask;
+
+  IOHDLC_ASSERT(listener != NULL,
+                "ioHdlcAppListenerUnregister: null listener");
+  IOHDLC_ASSERT(listener->stationp != NULL,
+                "ioHdlcAppListenerUnregister: listener not registered");
+
+  event_mask = listener->event_mask;
+  iohdlc_evt_unregister(&listener->stationp->app_es, &listener->listener);
+  (void)iohdlc_evt_wait_any_timeout(event_mask, 0U);
+  listener->stationp = NULL;
+  listener->event_mask = 0U;
+}
+
+/**
  * @brief   Establish data link connection with a peer (extended version).
  * @details Initiates connection by sending the appropriate U-frame command
  *          (SNRM/SARM/SABM) once, then waits for the protocol core to conclude

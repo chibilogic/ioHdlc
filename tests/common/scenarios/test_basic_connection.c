@@ -344,6 +344,8 @@ bool test_peer_creation(void) {
   /* Validate peer is in station's peer list */
   iohdlc_station_peer_t *found_peer = ioHdlcAddr2peer(&station, SECONDARY_ADDR);
   TEST_ASSERT(found_peer == &peer, "Peer should be findable in station's peer list");
+  TEST_ASSERT(ioHdlcPeerGetState(&peer) == IOHDLC_PEER_STATE_DISCONNECTED,
+              "New peer should report disconnected state");
   
   /* Test duplicate address rejection */
   iohdlc_station_peer_t duplicate_peer;
@@ -352,6 +354,56 @@ bool test_peer_creation(void) {
   TEST_ASSERT(iohdlc_errno == EEXIST, "Error should be EEXIST");
 
   test_printf("✅ Peer creation and initialization successful\n");
+  return 0;
+}
+
+/*===========================================================================*/
+/* Test: Application Event Listener                                          */
+/*===========================================================================*/
+
+bool test_application_event_listener(void) {
+  iohdlc_station_t station;
+  uint8_t frame_arena[1024];
+  ioHdlcDriver mock_driver;
+  iohdlc_app_listener_t listener_a, listener_b;
+  eventflags_t flags;
+  int32_t result;
+
+  result = init_test_station(&station, frame_arena, &mock_driver, PRIMARY_ADDR);
+  TEST_ASSERT(result == 0, "Station init should succeed");
+
+  result = ioHdlcAppListenerRegister(&station, &listener_a, EVENT_MASK(0),
+                                     IOHDLC_APP_LINK_UP |
+                                     IOHDLC_APP_LINK_LOST);
+  TEST_ASSERT(result == 0, "First application listener registration failed");
+  result = ioHdlcAppListenerRegister(&station, &listener_b, EVENT_MASK(1),
+                                     IOHDLC_APP_LINK_LOST);
+  TEST_ASSERT(result == 0, "Second application listener registration failed");
+
+  ioHdlcBroadcastFlagsApp(&station, IOHDLC_APP_LINK_UP);
+  flags = ioHdlcAppListenerWait(&listener_a, 0U);
+  TEST_ASSERT(flags == IOHDLC_APP_LINK_UP,
+              "Interested listener should receive LINK_UP");
+  flags = ioHdlcAppListenerWait(&listener_b, 0U);
+  TEST_ASSERT(flags == 0U,
+              "Filtered listener should not receive LINK_UP");
+
+  ioHdlcBroadcastFlagsApp(&station, IOHDLC_APP_LINK_LOST);
+  ioHdlcBroadcastFlagsApp(&station, IOHDLC_APP_LINK_LOST);
+  flags = ioHdlcAppListenerWait(&listener_a, 0U);
+  TEST_ASSERT(flags == IOHDLC_APP_LINK_LOST,
+              "Repeated application flags should coalesce");
+  flags = ioHdlcAppListenerWait(&listener_b, 0U);
+  TEST_ASSERT(flags == IOHDLC_APP_LINK_LOST,
+              "Application events should be broadcast to all listeners");
+
+  ioHdlcAppListenerUnregister(&listener_b);
+  ioHdlcAppListenerUnregister(&listener_a);
+
+  TEST_ASSERT(ioHdlcPeerGetState(NULL) == IOHDLC_PEER_STATE_INVALID,
+              "Null peer should report invalid state");
+  TEST_ASSERT(iohdlc_errno == EINVAL,
+              "Null peer state query should report EINVAL");
   return 0;
 }
 
@@ -888,7 +940,7 @@ bool test_ui_exchange(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t config;
-  iohdlc_event_listener_t listener;
+  iohdlc_app_listener_t listener;
   bool listener_registered = false;
   int32_t result;
   int ret;
@@ -896,7 +948,6 @@ bool test_ui_exchange(const test_adapter_t *adapter) {
   uint32_t rx_value = 0U;
   uint32_t pri_vs, pri_vr, pri_nr;
   uint32_t sec_vs, sec_vr, sec_nr;
-  eventmask_t evt;
   eventflags_t flags;
 
   ioHdlcStreamPort port_primary = adapter->get_port_a();
@@ -978,19 +1029,18 @@ bool test_ui_exchange(const test_adapter_t *adapter) {
   sec_vr = peer_at_secondary.vr;
   sec_nr = peer_at_secondary.nr;
 
-  iohdlc_evt_register(&station_secondary.app_es, &listener, EVENT_MASK(0),
-                      IOHDLC_APP_UI_RECEIVED);
+  result = ioHdlcAppListenerRegister(&station_secondary, &listener,
+                                     EVENT_MASK(0), IOHDLC_APP_UI_RECEIVED);
+  TEST_ASSERT_GOTO(result == 0, "UI listener registration failed");
   listener_registered = true;
 
   ui_value = 0xA5B4C3E2U;
   ret = ioHdlcPeerUiSend(&peer_at_primary, ui_value);
   TEST_ASSERT_GOTO(ret == 0, "Connected UI send should succeed");
 
-  evt = iohdlc_evt_wait_any_timeout(EVENT_MASK(0), 1000U);
-  TEST_ASSERT_GOTO(evt != 0, "Timed out waiting for UI event");
-  flags = iohdlc_evt_get_and_clear_flags(&listener);
+  flags = ioHdlcAppListenerWait(&listener, 1000U);
   TEST_ASSERT_GOTO((flags & IOHDLC_APP_UI_RECEIVED) != 0U,
-                   "UI event flag should be raised");
+                   "Timed out waiting for UI event");
 
   TEST_ASSERT_GOTO(ioHdlcPeerUiGet(&peer_at_secondary, &rx_value),
                    "UI payload should be available");
@@ -1007,7 +1057,7 @@ bool test_ui_exchange(const test_adapter_t *adapter) {
 
 test_cleanup:
   if (listener_registered)
-    iohdlc_evt_unregister(&station_secondary.app_es, &listener);
+    ioHdlcAppListenerUnregister(&listener);
   ioHdlcStationDeinit(&station_primary);
   ioHdlcStationDeinit(&station_secondary);
 
@@ -1142,6 +1192,7 @@ bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t config;
+  iohdlc_app_listener_t listener;
   ioHdlcStreamPort port_primary = adapter->get_port_a();
   ioHdlcStreamPort port_secondary = adapter->get_port_b();
   char recv_buf[64];
@@ -1150,6 +1201,8 @@ bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter) {
   int32_t result;
   int ret;
   bool rx_queued = false;
+  bool listener_registered = false;
+  eventflags_t flags;
   int i;
 
   memset(&station_primary, 0, sizeof station_primary);
@@ -1216,8 +1269,20 @@ bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(rx_queued,
                    "Primary RX queue should contain unread data before DISC");
 
+  result = ioHdlcAppListenerRegister(&station_primary, &listener,
+                                     EVENT_MASK(0), IOHDLC_APP_LINK_DOWN |
+                                                    IOHDLC_APP_LINK_LOST);
+  TEST_ASSERT_GOTO(result == 0, "Link event listener registration failed");
+  listener_registered = true;
+
   ret = ioHdlcStationLinkDown(&station_primary, SECONDARY_ADDR);
   TEST_ASSERT_GOTO(ret == 0, "LinkDown failed");
+
+  flags = ioHdlcAppListenerWait(&listener, 100U);
+  TEST_ASSERT_GOTO((flags & IOHDLC_APP_LINK_DOWN) != 0U,
+                   "Orderly close should publish LINK_DOWN");
+  TEST_ASSERT_GOTO((flags & IOHDLC_APP_LINK_LOST) == 0U,
+                   "Orderly close should not publish LINK_LOST");
 
   TEST_ASSERT_GOTO(IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_primary),
                    "Primary peer should be marked orderly closed");
@@ -1225,6 +1290,9 @@ bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter) {
                    "Secondary peer should be marked orderly closed");
   TEST_ASSERT_GOTO(!IOHDLC_PEER_ABORTED(&peer_at_primary),
                    "Primary peer should not be marked aborted");
+  TEST_ASSERT_GOTO(ioHdlcPeerGetState(&peer_at_primary) ==
+                   IOHDLC_PEER_STATE_ORDERLY_CLOSED,
+                   "Primary peer should report orderly-closed state");
 
   memset(recv_buf, 0, sizeof recv_buf);
   received = ioHdlcReadTmo(&peer_at_primary, recv_buf, sizeof recv_buf, 100);
@@ -1237,6 +1305,8 @@ bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter) {
                    "Primary should observe EOF once orderly-close RX is drained");
 
 test_cleanup:
+  if (listener_registered)
+    ioHdlcAppListenerUnregister(&listener);
   ioHdlc_sleep_ms(100);
   ioHdlcStationDeinit(&station_primary);
   ioHdlcStationDeinit(&station_secondary);
@@ -1359,9 +1429,12 @@ bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary;
   iohdlc_station_peer_t peer_at_primary;
   iohdlc_station_config_t config;
+  iohdlc_app_listener_t listener;
   ioHdlcStreamPort port_primary = adapter->get_port_a();
   int32_t result;
   int ret;
+  eventflags_t flags;
+  bool listener_registered = false;
 
   memset(&station_primary, 0, sizeof station_primary);
   ioHdlcSwDriverInit(&driver_primary, NULL);
@@ -1384,6 +1457,9 @@ bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
 
   result = ioHdlcAddPeer(&station_primary, &peer_at_primary, SECONDARY_ADDR);
   TEST_ASSERT(result == 0, "Add peer to primary failed");
+  TEST_ASSERT(ioHdlcPeerGetState(&peer_at_primary) ==
+              IOHDLC_PEER_STATE_DISCONNECTED,
+              "Peer should initially report disconnected state");
   TEST_ASSERT(!IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_primary),
               "Peer should not start in orderly-closed state");
   TEST_ASSERT(!IOHDLC_PEER_ABORTED(&peer_at_primary),
@@ -1391,6 +1467,11 @@ bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
 
   result = ioHdlcRunnerStart(&station_primary);
   TEST_ASSERT(result == 0, "Failed to start primary runner");
+
+  result = ioHdlcAppListenerRegister(&station_primary, &listener,
+                                     EVENT_MASK(0), IOHDLC_APP_LINK_LOST);
+  TEST_ASSERT(result == 0, "Link event listener registration failed");
+  listener_registered = true;
 
   ioHdlc_sleep_ms(20);
 
@@ -1403,6 +1484,12 @@ bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
               "Peer should be marked aborted after link timeout");
   TEST_ASSERT(!IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_primary),
               "Peer should not be marked orderly closed after timeout");
+  TEST_ASSERT(ioHdlcPeerGetState(&peer_at_primary) ==
+              IOHDLC_PEER_STATE_ABORTED,
+              "Timed-out link attempt should report aborted state");
+  flags = ioHdlcAppListenerWait(&listener, 0U);
+  TEST_ASSERT((flags & IOHDLC_APP_LINK_LOST) == 0U,
+              "Never-connected peer should not publish LINK_LOST");
 #if defined(IOHDLC_ENABLE_STATISTICS)
   TEST_ASSERT(peer_at_primary.stats.timeouts == 2U,
               "poll_retry_max=1 should allow one retry plus final timeout");
@@ -1416,7 +1503,66 @@ bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
   }
 
   ioHdlc_sleep_ms(50);
+  if (listener_registered)
+    ioHdlcAppListenerUnregister(&listener);
   ioHdlcStationDeinit(&station_primary);
 
   return 0;
+}
+
+bool test_connected_link_timeout_emits_lost(const test_adapter_t *adapter) {
+  int test_result = 0;
+  test_link_pair_t pair;
+  iohdlc_app_listener_t listener;
+  bool listener_registered = false;
+  bool secondary_stopped = false;
+  eventflags_t flags;
+  int32_t result;
+
+  result = init_test_link_pair(adapter, &pair,
+                               IOHDLC_OM_NDM, IOHDLC_FLG_PRI,
+                               IOHDLC_OM_NDM, 0);
+  TEST_ASSERT(result == 0, "Link-loss pair init failed");
+
+  result = ioHdlcRunnerStart(&pair.station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&pair.station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
+  ioHdlc_sleep_ms(50);
+
+  result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
+                               IOHDLC_OM_NRM);
+  TEST_ASSERT_GOTO(result == 0, "LinkUp should succeed before link loss");
+  TEST_ASSERT_GOTO(ioHdlcPeerGetState(&pair.peer_at_primary) ==
+                   IOHDLC_PEER_STATE_CONNECTED,
+                   "Peer should report connected state before link loss");
+
+  iohdlc_mutex_lock(&pair.peer_at_primary.state_mutex);
+  pair.station_primary.reply_timeout_ms = 20U;
+  pair.peer_at_primary.poll_retry_max = 1U;
+  iohdlc_mutex_unlock(&pair.peer_at_primary.state_mutex);
+
+  result = ioHdlcAppListenerRegister(&pair.station_primary, &listener,
+                                     EVENT_MASK(0), IOHDLC_APP_LINK_LOST);
+  TEST_ASSERT_GOTO(result == 0, "Link-loss listener registration failed");
+  listener_registered = true;
+
+  result = ioHdlcStationDeinit(&pair.station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Secondary deinit should succeed");
+  secondary_stopped = true;
+
+  flags = ioHdlcAppListenerWait(&listener, 1000U);
+  TEST_ASSERT_GOTO((flags & IOHDLC_APP_LINK_LOST) != 0U,
+                   "Connected peer timeout should publish LINK_LOST");
+  TEST_ASSERT_GOTO(ioHdlcPeerGetState(&pair.peer_at_primary) ==
+                   IOHDLC_PEER_STATE_ABORTED,
+                   "Lost peer should report aborted state");
+
+test_cleanup:
+  if (listener_registered)
+    ioHdlcAppListenerUnregister(&listener);
+  ioHdlcStationDeinit(&pair.station_primary);
+  if (!secondary_stopped)
+    ioHdlcStationDeinit(&pair.station_secondary);
+  return test_result;
 }

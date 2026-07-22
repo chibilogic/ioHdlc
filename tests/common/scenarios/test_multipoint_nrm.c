@@ -420,3 +420,71 @@ test_cleanup:
   mp_teardown(&ctx);
   return test_result;
 }
+
+/*===========================================================================*/
+/* Test 5: Coalesced notification for multiple lost peers                    */
+/*===========================================================================*/
+
+int test_multipoint_link_loss(void) {
+  mp_ctx_t ctx;
+  iohdlc_app_listener_t listener;
+  int test_result = 0;
+  int32_t result;
+  eventflags_t flags = 0U;
+  uint32_t start_ms;
+  bool listener_registered = false;
+
+  test_printf("=== Test: Multipoint link loss ===\r\n");
+
+  if (mp_setup(&ctx) != 0) {
+    test_printf("  Setup failed\r\n");
+    test_failures++;
+    return 1;
+  }
+
+  result = ioHdlcStationLinkUp(&ctx.st_pri, SECONDARY_A_ADDR, IOHDLC_OM_NRM);
+  TEST_ASSERT_EQ_GOTO(0, result, "LinkUp A failed");
+  ioHdlc_sleep_ms(300);
+  result = ioHdlcStationLinkUp(&ctx.st_pri, SECONDARY_B_ADDR, IOHDLC_OM_NRM);
+  TEST_ASSERT_EQ_GOTO(0, result, "LinkUp B failed");
+  ioHdlc_sleep_ms(300);
+
+  result = ioHdlcAppListenerRegister(&ctx.st_pri, &listener, EVENT_MASK(0),
+                                     IOHDLC_APP_LINK_LOST);
+  TEST_ASSERT_EQ_GOTO(0, result, "Link-loss listener registration failed");
+  listener_registered = true;
+
+  iohdlc_mutex_lock(&ctx.peer_pri_a.state_mutex);
+  ctx.st_pri.reply_timeout_ms = 20U;
+  ctx.peer_pri_a.poll_retry_max = 1U;
+  iohdlc_mutex_unlock(&ctx.peer_pri_a.state_mutex);
+  iohdlc_mutex_lock(&ctx.peer_pri_b.state_mutex);
+  ctx.peer_pri_b.poll_retry_max = 1U;
+  iohdlc_mutex_unlock(&ctx.peer_pri_b.state_mutex);
+
+  ioHdlcStationDeinit(&ctx.st_sec_a);
+  ioHdlcStationDeinit(&ctx.st_sec_b);
+
+  start_ms = iohdlc_time_now_ms();
+  while ((uint32_t)(iohdlc_time_now_ms() - start_ms) < 3000U) {
+    if (ioHdlcPeerGetState(&ctx.peer_pri_a) == IOHDLC_PEER_STATE_ABORTED &&
+        ioHdlcPeerGetState(&ctx.peer_pri_b) == IOHDLC_PEER_STATE_ABORTED)
+      break;
+    flags |= ioHdlcAppListenerWait(&listener, 100U);
+  }
+
+  TEST_ASSERT_GOTO((flags & IOHDLC_APP_LINK_LOST) != 0U,
+                   "Lost peers should publish LINK_LOST");
+  TEST_ASSERT_GOTO(ioHdlcPeerGetState(&ctx.peer_pri_a) ==
+                   IOHDLC_PEER_STATE_ABORTED,
+                   "Peer A should report aborted state");
+  TEST_ASSERT_GOTO(ioHdlcPeerGetState(&ctx.peer_pri_b) ==
+                   IOHDLC_PEER_STATE_ABORTED,
+                   "Peer B should report aborted state");
+
+test_cleanup:
+  if (listener_registered)
+    ioHdlcAppListenerUnregister(&listener);
+  mp_teardown(&ctx);
+  return test_result;
+}
