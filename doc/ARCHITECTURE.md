@@ -315,6 +315,30 @@ with `ioHdlcAppListenerWait()`, and removed with
 observable station state changed; `ioHdlcPeerGetState()` provides a synchronized
 peer-state snapshot for subsequent inspection.
 
+The public application events are:
+
+| Event | Meaning and follow-up |
+|---|---|
+| `IOHDLC_APP_LINK_UP` | A mode-setting command completed successfully or was accepted. Inspect managed peers with `ioHdlcPeerGetState()` to identify those now connected. |
+| `IOHDLC_APP_LINK_REFUSED` | A local link-up request was rejected with DM. Inspect disconnected peers to identify the affected request. |
+| `IOHDLC_APP_LINK_DOWN` | A connected peer closed orderly after a locally or remotely initiated DISC. Both endpoints publish the event and report `IOHDLC_PEER_STATE_ORDERLY_CLOSED`. |
+| `IOHDLC_APP_LINK_LOST` | A previously connected peer became aborted after exhausting protocol retries. Inspect peers for `IOHDLC_PEER_STATE_ABORTED`. |
+| `IOHDLC_APP_FRMR_RECEIVED` | A peer reported an FRMR condition. Higher-layer recovery is required. |
+| `IOHDLC_APP_UI_RECEIVED` | A peer cached a new UI value. Probe managed peers with `ioHdlcPeerUiGet()` to identify and consume it. |
+
+A listener is bound to the thread that registers it and must be unregistered by
+that thread before its caller-owned storage goes out of scope. Its `event_mask`
+must contain exactly one OSAL event bit dedicated to that listener. Applications
+should not use `IOHDLC_APP_EVT_MASK_DEFAULT` on a thread that also calls the
+synchronous link-management or TEST APIs, because those APIs reserve that bit
+for their private waits. A zero wait timeout polls pending flags;
+`IOHDLC_WAIT_FOREVER` waits without a deadline.
+
+Application events carry no peer identifier or payload and repeated flags
+coalesce until consumed. Register before starting the operation of interest,
+then treat each flag as a prompt to inspect current peer state rather than as a
+lossless transition record.
+
 ## Data Flow
 
 ### TX Path (Application → Wire)

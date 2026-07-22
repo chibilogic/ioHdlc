@@ -15,15 +15,15 @@
  */
 /**
  * @file    include/ioHdlc_app_events.h
- * @brief   Application-facing link event definitions.
+ * @brief   Application-facing event definitions.
  * @details Defines coarse-grained status notifications that an integration can
  *          expose upward when mapping protocol behaviour to application-level
  *          events.
  *
  *          These flags are intentionally higher level than the internal event
  *          masks in @ref ioHdlc_events.h. They are suitable for user-facing
- *          state changes such as link establishment, refusal, teardown, and
- *          loss detection.
+ *          state changes such as link establishment, refusal, teardown, loss
+ *          detection, frame rejection, and UI reception.
  *
  * @addtogroup ioHdlc_api
  * @{
@@ -37,13 +37,10 @@
  */
 #define IOHDLC_APP_LINK_UP       0x0001 /**< Link established successfully (UA received). */
 #define IOHDLC_APP_LINK_REFUSED  0x0002 /**< Link connection refused (DM received). */
-#define IOHDLC_APP_LINK_DOWN     0x0004 /**< Link disconnected (UA/DM after DISC). */
-#define IOHDLC_APP_LINK_TIMEOUT  0x0008 /**< Link operation timeout (no response). */
+#define IOHDLC_APP_LINK_DOWN     0x0004 /**< Link closed orderly after local or remote DISC. */
 #define IOHDLC_APP_LINK_LOST     0x0010 /**< Previously active link lost after timeout recovery. */
-#define IOHDLC_APP_DATA_READY    0x0020 /**< Data available for reading (future use). */
 #define IOHDLC_APP_FRMR_RECEIVED 0x0040 /**< FRMR received from peer (link recovery needed). */
 #define IOHDLC_APP_UI_RECEIVED   0x0080 /**< UI value received from peer. */
-#define IOHDLC_APP_TEST_DONE     0x0100 /**< TEST command/response exchange completed. */
 #endif /* IOHDLC_APP_EVENTS_H_ */
 
 /** @} */

@@ -711,6 +711,12 @@ int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t k
  * @param[in] len         TEST information field length.
  * @param[in] timeout_ms  Maximum time to wait for completion.
  * @return  0 on echo success, -1 on error with @p iohdlc_errno set.
+ * @par Errors
+ * @p iohdlc_errno is set to @c EINVAL, @c ENOTSUP, @c EMSGSIZE, @c ENOMEM,
+ * @c EBUSY, @c ETIMEDOUT, or @c EIO according to the rejected argument,
+ * station role, resource state, timeout, or response validation failure.
+ * @note    Completion signaling is private to this synchronous API; callers
+ *          observe the result through the return value and @p iohdlc_errno.
  */
 int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
                        uint32_t timeout_ms) {
@@ -759,7 +765,7 @@ int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
                 IOHDLC_WAIT_FOREVER : (iohdlc_time_now_ms() + timeout_ms);
 
   iohdlc_evt_register(&s->app_es, &listener, IOHDLC_APP_EVT_MASK_DEFAULT,
-                      IOHDLC_APP_TEST_DONE);
+                      IOHDLC_APP_INTERNAL_TEST_DONE);
 
   iohdlc_mutex_lock(&peer->state_mutex);
 
@@ -803,7 +809,7 @@ int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
       break;
 
     flags = iohdlc_evt_get_and_clear_flags(&listener);
-    if (!(flags & IOHDLC_APP_TEST_DONE))
+    if (!(flags & IOHDLC_APP_INTERNAL_TEST_DONE))
       continue;
 
     iohdlc_mutex_lock(&peer->state_mutex);
@@ -873,6 +879,9 @@ int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
  * @param[in] peer   Connected peer descriptor.
  * @param[in] value  UI payload to transmit.
  * @return  0 on success, -1 if the peer is invalid or disconnected.
+ * @par Errors
+ * @p iohdlc_errno is set to @c EINVAL for a null peer or @c ENOTCONN when
+ * the peer is disconnected.
  */
 int32_t ioHdlcPeerUiSend(iohdlc_station_peer_t *peer, uint32_t value) {
   iohdlc_station_t *s;
@@ -905,6 +914,8 @@ int32_t ioHdlcPeerUiSend(iohdlc_station_peer_t *peer, uint32_t value) {
  * @param[in] peer    Peer descriptor.
  * @param[out] value  Storage for the received UI payload.
  * @return  true if a new UI value was available, false otherwise.
+ * @note    A false return means either no value was pending, or invalid
+ *          arguments when @p iohdlc_errno is set to @c EINVAL.
  */
 bool ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value) {
   if (peer == NULL || value == NULL) {
@@ -929,6 +940,7 @@ bool ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value) {
  * @param[in] peer  Peer descriptor.
  * @return  Current peer state, or @ref IOHDLC_PEER_STATE_INVALID if @p peer
  *          is null.
+ * @note    The returned state is captured under the peer state mutex.
  */
 iohdlc_peer_state_t ioHdlcPeerGetState(iohdlc_station_peer_t *peer) {
   iohdlc_peer_state_t state;
@@ -955,12 +967,22 @@ iohdlc_peer_state_t ioHdlcPeerGetState(iohdlc_station_peer_t *peer) {
 /**
  * @brief   Register an application listener on a station event source.
  * @details The listener is bound to the calling thread. The event mask must
- *          contain one bit reserved for this listener in that thread.
+ *          contain one bit reserved for this listener in that thread. The
+ *          caller owns @p listener and must keep it valid until unregistering
+ *          it from the same thread. Event flags are station-wide and
+ *          coalesced; they do not identify a peer or form a transition log.
+ *
+ *          Do not use @ref IOHDLC_APP_EVT_MASK_DEFAULT for a listener on a
+ *          thread that also invokes synchronous ioHdlc APIs, because that bit
+ *          is reserved for their internal waits.
  * @param[in] station       Station whose application events are observed.
  * @param[out] listener     Caller-owned listener object.
  * @param[in] event_mask    Single thread event bit used for notification.
  * @param[in] wanted_flags  Application event flags to receive.
  * @return  0 on success, -1 on invalid arguments.
+ * @par Errors
+ * @p iohdlc_errno is set to @c EINVAL when a pointer is null, the mask is not
+ * a single bit, or no application flags were requested.
  */
 int32_t ioHdlcAppListenerRegister(iohdlc_station_t *station,
                                   iohdlc_app_listener_t *listener,
@@ -984,11 +1006,13 @@ int32_t ioHdlcAppListenerRegister(iohdlc_station_t *station,
  * @brief   Wait for and consume pending application event flags.
  * @details Pending listener flags are consumed before blocking, so a wakeup
  *          consumed by another wait in the same thread does not hide an
- *          already published notification.
+ *          already published notification. The caller should inspect peer
+ *          state or consume the associated UI value after receiving a flag.
  * @param[in] listener    Registered application listener.
  * @param[in] timeout_ms  Maximum wait time, zero for polling, or
  *                        @ref IOHDLC_WAIT_FOREVER.
- * @return  Received application flags, or zero on timeout.
+ * @return  Coalesced application flags selected by the listener, or zero on
+ *          timeout.
  */
 eventflags_t ioHdlcAppListenerWait(iohdlc_app_listener_t *listener,
                                    uint32_t timeout_ms) {
@@ -1013,6 +1037,8 @@ eventflags_t ioHdlcAppListenerWait(iohdlc_app_listener_t *listener,
 
 /**
  * @brief   Unregister an application event listener.
+ * @details Removes the listener, clears its thread event bit, and releases
+ *          the caller-owned object for reuse.
  * @param[in,out] listener  Registered listener object.
  */
 void ioHdlcAppListenerUnregister(iohdlc_app_listener_t *listener) {

@@ -1322,14 +1322,17 @@ bool test_remote_disc_preserves_buffered_rx(const test_adapter_t *adapter) {
   iohdlc_station_t station_primary, station_secondary;
   iohdlc_station_peer_t peer_at_primary, peer_at_secondary;
   iohdlc_station_config_t config;
+  iohdlc_app_listener_t listener;
   ioHdlcStreamPort port_primary = adapter->get_port_a();
   ioHdlcStreamPort port_secondary = adapter->get_port_b();
+  eventflags_t flags;
   char recv_buf[64];
   ssize_t sent;
   ssize_t received;
   int32_t result;
   int ret;
   bool rx_queued = false;
+  bool listener_registered = false;
   int i;
 
   memset(&station_primary, 0, sizeof station_primary);
@@ -1396,8 +1399,20 @@ bool test_remote_disc_preserves_buffered_rx(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(rx_queued,
                    "Primary RX queue should contain unread data before remote DISC");
 
+  result = ioHdlcAppListenerRegister(&station_primary, &listener,
+                                     EVENT_MASK(1), IOHDLC_APP_LINK_DOWN |
+                                                    IOHDLC_APP_LINK_LOST);
+  TEST_ASSERT_GOTO(result == 0, "Remote link event listener registration failed");
+  listener_registered = true;
+
   ret = ioHdlcStationLinkDown(&station_secondary, PRIMARY_ADDR);
   TEST_ASSERT_GOTO(ret == 0, "Secondary LinkDown failed");
+
+  flags = ioHdlcAppListenerWait(&listener, 100U);
+  TEST_ASSERT_GOTO((flags & IOHDLC_APP_LINK_DOWN) != 0U,
+                   "Remote DISC receiver should publish LINK_DOWN");
+  TEST_ASSERT_GOTO((flags & IOHDLC_APP_LINK_LOST) == 0U,
+                   "Remote DISC receiver should not publish LINK_LOST");
 
   TEST_ASSERT_GOTO(IOHDLC_PEER_ORDERLY_CLOSED(&peer_at_primary),
                    "Primary peer should be marked orderly closed after remote DISC");
@@ -1417,6 +1432,8 @@ bool test_remote_disc_preserves_buffered_rx(const test_adapter_t *adapter) {
                    "Primary should observe EOF once remote DISC RX is drained");
 
 test_cleanup:
+  if (listener_registered)
+    ioHdlcAppListenerUnregister(&listener);
   ioHdlc_sleep_ms(100);
   ioHdlcStationDeinit(&station_primary);
   ioHdlcStationDeinit(&station_secondary);

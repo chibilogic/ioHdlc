@@ -57,6 +57,10 @@
  */
 #define ioHdlcBroadcastFlagsApp(s, flags) iohdlc_evt_broadcast_flags(&(s)->app_es, flags)
 
+/** @cond IOHDLC_INTERNAL */
+#define IOHDLC_APP_INTERNAL_TEST_DONE  0x0100U
+/** @endcond */
+
 #ifdef __cplusplus
 extern "C" {
 #endif

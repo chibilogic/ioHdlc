@@ -1179,6 +1179,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   iohdlc_thread_join(thread_pri_reader);
   iohdlc_thread_join(thread_sec_writer);
   iohdlc_thread_join(thread_sec_reader);
+  test_printf("Threads stopped\r\n");
 
 #if defined(IOHDLC_ENABLE_STATISTICS)
   s_exchange_capture_protocol_stats(&protocol_stats_window);
@@ -1187,7 +1188,52 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
   if (!test_failed_global && endpoint_a_active &&
       station_primary.c_peer != NULL &&
       !IOHDLC_PEER_DISC(&peer_at_primary)) {
-    ioHdlcStationLinkDown(&station_primary, station_primary.c_peer->addr);
+    test_printf("Disconnecting link...\r\n");
+    result = ioHdlcStationLinkDown(&station_primary,
+                                   station_primary.c_peer->addr);
+    if (result != 0) {
+      test_printf("Link disconnect failed: iohdlc_errno=%d\r\n",
+                  iohdlc_errno);
+      test_failed_global = true;
+      return_code = 1;
+    } else {
+      test_printf("Link disconnected\r\n");
+    }
+  } else if (!test_failed_global && endpoint_b_active &&
+             !endpoint_a_active) {
+    iohdlc_app_listener_t listener;
+    eventflags_t flags = 0U;
+    iohdlc_peer_state_t peer_state;
+
+    result = ioHdlcAppListenerRegister(&station_secondary, &listener,
+                                       EVENT_MASK(0), IOHDLC_APP_LINK_DOWN |
+                                                      IOHDLC_APP_LINK_LOST);
+    if (result != 0) {
+      test_printf("Link listener registration failed\r\n");
+      test_failed_global = true;
+      return_code = 1;
+    } else {
+      peer_state = ioHdlcPeerGetState(&peer_at_secondary);
+      if (peer_state == IOHDLC_PEER_STATE_CONNECTED) {
+        test_printf("Waiting for peer disconnect...\r\n");
+        flags = ioHdlcAppListenerWait(
+            &listener,
+            s_exchange_io_timeout_ms(&station_secondary, &peer_at_secondary));
+        peer_state = ioHdlcPeerGetState(&peer_at_secondary);
+      }
+      ioHdlcAppListenerUnregister(&listener);
+
+      if (peer_state == IOHDLC_PEER_STATE_ORDERLY_CLOSED) {
+        test_printf("Link disconnected\r\n");
+      } else {
+        test_printf((flags & IOHDLC_APP_LINK_LOST) != 0U ||
+                    peer_state == IOHDLC_PEER_STATE_ABORTED ?
+                    "Link lost during disconnect\r\n" :
+                    "Peer disconnect timeout\r\n");
+        test_failed_global = true;
+        return_code = 1;
+      }
+    }
   }
 
   test_printf("\r\n");

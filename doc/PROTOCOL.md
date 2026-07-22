@@ -198,6 +198,8 @@ Rules:
   link loss
 - received TEST commands are answered by echoing the information field when
   the response can be built
+- TEST completion is private to the synchronous `ioHdlcPeerTest()` call; no
+  asynchronous application event is exposed
 
 #### UI support in ioHdlc
 
@@ -748,6 +750,13 @@ Clear state, enter NDM
 
 [Link disconnected, NDM]
 ```
+
+After the orderly state transition, both the DISC initiator and receiver
+publish `IOHDLC_APP_LINK_DOWN`. Applications can then use
+`ioHdlcPeerGetState()` to observe `IOHDLC_PEER_STATE_ORDERLY_CLOSED`; buffered
+RX data remains readable until drained. This is distinct from
+`IOHDLC_APP_LINK_LOST`, which reports an abnormal close after retry recovery is
+exhausted.
 
 ## Addressing
 

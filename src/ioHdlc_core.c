@@ -257,6 +257,8 @@ static void applyModeState(iohdlc_station_t *s, uint8_t mode) {
 }
 
 static void closePeerOrderly(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
+  const bool was_connected = !IOHDLC_PEER_DISC(p);
+
   resetPeerProtocolState(p);
   clearPeerTxQueues(p);
   ioHdlcSetDisconnected(p, IOHDLC_SS_TERM_ORDERLY);
@@ -265,6 +267,9 @@ static void closePeerOrderly(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
     s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
     applyModeState(s, s->mode);
   }
+
+  if (was_connected)
+    ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_LINK_DOWN);
 }
 
 static void abortPeerLink(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
@@ -698,7 +703,7 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       release_frame = false;
       resetPeerUm(p);
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_PF_RECVD | IOHDLC_EVT_TX_IFRM_ENQ);
-      ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_TEST_DONE);
+      ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_INTERNAL_TEST_DONE);
       restart_t3 = true;
     } else if (u_cmd == IOHDLC_U_UA) {
       uint8_t cmd = p->um_cmd;
@@ -723,9 +728,8 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
          ioHdlcNextPeer(s,true) in TX guards the switch. */
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_ST_CHG | IOHDLC_EVT_LINK_REQ);
       
-      /* Notify application: determine if link up or link down based on um_cmd. */
-      ioHdlcBroadcastFlagsApp(s, (cmd == IOHDLC_U_DISC) ? 
-                            IOHDLC_APP_LINK_DOWN : IOHDLC_APP_LINK_UP);
+      if (cmd != IOHDLC_U_DISC)
+        ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_LINK_UP);
       restart_t3 = true;
       
     } else if (u_cmd == IOHDLC_U_DM) {
@@ -742,9 +746,8 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       /* Re-trigger LINK_REQ (same rationale as UA path above). */
       ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_ST_CHG | IOHDLC_EVT_LINK_REQ);
       
-      /* DM closes a pending DISC, otherwise it refuses the pending link-up. */
-      ioHdlcBroadcastFlagsApp(s, (cmd == IOHDLC_U_DISC) ?
-                            IOHDLC_APP_LINK_DOWN : IOHDLC_APP_LINK_REFUSED);
+      if (cmd != IOHDLC_U_DISC)
+        ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_LINK_REFUSED);
       
     } else if (u_cmd == IOHDLC_U_FRMR) {
       /* FRMR received: peer detected protocol error.
