@@ -59,17 +59,17 @@ static THD_FUNCTION(blinker_thread, arg) {
   chRegSetThreadName("blinker");
 
   while (true) {
-    palToggleLine(LINE_LED_VITALITY);
+    palSetLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(80);
-    palToggleLine(LINE_LED_VITALITY);
+    palClearLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(120);
-    palToggleLine(LINE_LED_VITALITY);
+    palSetLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(120);
-    palToggleLine(LINE_LED_VITALITY);
+    palClearLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(120);
-    palToggleLine(LINE_LED_VITALITY);
+    palSetLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(160);
-    palToggleLine(LINE_LED_VITALITY);
+    palClearLine(LINE_LED_VITALITY);
     chThdSleepMilliseconds(600);
     chSysLock();
     wdgResetI(&WDGD0);

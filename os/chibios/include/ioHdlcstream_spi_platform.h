@@ -25,6 +25,8 @@
 #include "ioHdlcstream_spi.h"
 #include "ioHdlcstream_spi_platform_impl.h"
 
+void ioHdlcStreamSpiPlatformStart(ioHdlcStreamChibiosSpi *ctx);
+void ioHdlcStreamSpiPlatformStopI(ioHdlcStreamChibiosSpi *ctx);
 bool ioHdlcStreamSpiPlatformAbortSlaveI(ioHdlcStreamChibiosSpi *ctx);
 
 #if CH_KERNEL_MAJOR < 7

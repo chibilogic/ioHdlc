@@ -20,6 +20,26 @@
 
 #include "ioHdlcstream_spi_platform.h"
 
+/**
+ * @brief   Starts platform-specific SPI services.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+void ioHdlcStreamSpiPlatformStart(ioHdlcStreamChibiosSpi *ctx) {
+
+  (void)ctx;
+}
+
+/**
+ * @brief   Stops platform-specific SPI services from a locked context.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+void ioHdlcStreamSpiPlatformStopI(ioHdlcStreamChibiosSpi *ctx) {
+
+  (void)ctx;
+}
+
 bool ioHdlcStreamSpiPlatformAbortSlaveI(ioHdlcStreamChibiosSpi *ctx) {
 
   (void)ctx;

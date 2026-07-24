@@ -489,14 +489,8 @@ static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
   spiStart(ctx->spip, ctx->cfgp);
   if (ctx->is_master)
     spiUnselect(ctx->spip);
-#if defined(STM32G474xx)
-  if (!ctx->is_master) {
-    ctx->spip->spi->CR2 |= SPI_CR2_ERRIE;
-    if (ctx->spip == &SPID2)
-      nvicEnableVector(SPI2_IRQn, STM32_SPI_SPI2_IRQ_PRIORITY);
-  }
-#endif
   ctx->started = true;
+  ioHdlcStreamSpiPlatformStart(ctx);
   if (!ctx->is_master)
     chVTSet(&ctx->slave_watchdog_vt, TIME_US2I(IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US),
             chb_spi_slave_watchdog_cb, ctx);
@@ -529,6 +523,7 @@ static void chb_spi_stop(void *vctx) {
     palClearLine(ctx->dr_line);
   if (!ctx->is_master)
     slave_aborted = ioHdlcStreamSpiPlatformAbortSlaveI(ctx);
+  ioHdlcStreamSpiPlatformStopI(ctx);
   chSysUnlock();
 
   /* Stop any pending transactions. */

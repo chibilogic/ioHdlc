@@ -215,42 +215,49 @@
 #define SAMA_SPI0_USE_GCLK                  FALSE
 #define SAMA_SPI0_GCLK_SOURCE               SAMA_GCLK_MCK_CLK
 #define SAMA_SPI0_GCLK_DIV                  21
+#define SAMA_SPI_SPI0_IRQ_PRIORITY          5
 #define SAMA_SPI_SPI0_DMA_IRQ_PRIORITY      4
 
 #define SAMA_SPI_USE_SPI1                   TRUE
 #define SAMA_SPI1_USE_GCLK                  FALSE
 #define SAMA_SPI1_GCLK_SOURCE               SAMA_GCLK_MCK_CLK
 #define SAMA_SPI1_GCLK_DIV                  21
+#define SAMA_SPI_SPI1_IRQ_PRIORITY          5
 #define SAMA_SPI_SPI1_DMA_IRQ_PRIORITY      4
 
 #define SAMA_SPI_USE_FLEXCOM0               FALSE
 #define SAMA_FSPI0_USE_GCLK                 FALSE
 #define SAMA_FSPI0_GCLK_SOURCE              SAMA_GCLK_MCK_CLK
 #define SAMA_FSPI0_GCLK_DIV                 21
+#define SAMA_SPI_FLEXCOM0_IRQ_PRIORITY      5
 #define SAMA_SPI_FLEXCOM0_DMA_IRQ_PRIORITY  4
 
 #define SAMA_SPI_USE_FLEXCOM1               FALSE
 #define SAMA_FSPI1_USE_GCLK                 FALSE
 #define SAMA_FSPI1_GCLK_SOURCE              SAMA_GCLK_MCK_CLK
 #define SAMA_FSPI1_GCLK_DIV                 21
+#define SAMA_SPI_FLEXCOM1_IRQ_PRIORITY      5
 #define SAMA_SPI_FLEXCOM1_DMA_IRQ_PRIORITY  4
 
 #define SAMA_SPI_USE_FLEXCOM2               TRUE
 #define SAMA_FSPI2_USE_GCLK                 FALSE
 #define SAMA_FSPI2_GCLK_SOURCE              SAMA_GCLK_MCK_CLK
 #define SAMA_FSPI2_GCLK_DIV                 21
+#define SAMA_SPI_FLEXCOM2_IRQ_PRIORITY      5
 #define SAMA_SPI_FLEXCOM2_DMA_IRQ_PRIORITY  4
 
 #define SAMA_SPI_USE_FLEXCOM3               FALSE
 #define SAMA_FSPI3_USE_GCLK                 FALSE
 #define SAMA_FSPI3_GCLK_SOURCE              SAMA_GCLK_MCK_CLK
 #define SAMA_FSPI3_GCLK_DIV                 21
+#define SAMA_SPI_FLEXCOM3_IRQ_PRIORITY      5
 #define SAMA_SPI_FLEXCOM3_DMA_IRQ_PRIORITY  4
 
 #define SAMA_SPI_USE_FLEXCOM4               FALSE
 #define SAMA_FSPI4_USE_GCLK                 FALSE
 #define SAMA_FSPI4_GCLK_SOURCE              SAMA_GCLK_MCK_CLK
 #define SAMA_FSPI4_GCLK_DIV                 21
+#define SAMA_SPI_FLEXCOM4_IRQ_PRIORITY      5
 #define SAMA_SPI_FLEXCOM4_DMA_IRQ_PRIORITY  4
 
 #define SAMA_SPI_DMA_ERROR_HOOK(spip)       osalSysHalt("DMA failure")
