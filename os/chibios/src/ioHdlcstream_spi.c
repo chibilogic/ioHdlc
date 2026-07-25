@@ -303,13 +303,6 @@ static void chb_spi_data_cb(SPIDriver *spip) {
     /* ---- RX finished ---------------------------------------------------- */
     size_t rx_n = ctx->rx_n;
     iohdlc_dma_rx_complete(ctx->rx_ptr, ctx->rx_n);
-    ctx->rx_active = false;
-    ctx->rx_ptr    = NULL;
-    ctx->rx_n      = 0;
-    if (ctx->is_master && rx_n > 1U)
-      ctx->rx_allowed = false;
-    if (!ctx->is_master)
-      ctx->slave_tx_needs_prepare = true;
 
     chDbgAssert(ctx->cbs && ctx->cbs->on_rx,
                 "spi data_cb: on_rx not set");
@@ -319,9 +312,31 @@ static void chb_spi_data_cb(SPIDriver *spip) {
       spiUnselectI(spip);
 #endif
 
+    /*
+     * Keep master RX ownership through completion dispatch. This prevents a
+     * DATA_READY IRQ from starting another transfer before on_rx() has armed
+     * the next descriptor.
+     */
+    ctx->rx_ptr = NULL;
+    ctx->rx_n = 0U;
+    if (ctx->is_master) {
+      if (rx_n > 1U)
+        ctx->rx_allowed = false;
+    } else {
+      ctx->rx_active = false;
+      ctx->slave_tx_needs_prepare = true;
+    }
+
     ctx->cbs->on_rx(ctx->cbs->cb_ctx, 0);
-    if (ctx->is_master)
+
+    if (ctx->is_master) {
+      chSysLockFromISR();
+      ctx->rx_active = false;
+      (void)chb_spi_try_start_master_rx_i(ctx);
+      chSysUnlockFromISR();
+
       ctx->cbs->on_tx_ready_i(ctx->cbs->cb_ctx);
+    }
   }
 }
 
