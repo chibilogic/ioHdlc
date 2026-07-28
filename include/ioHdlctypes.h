@@ -31,8 +31,9 @@
 #ifndef IOHDLCTYPES_H_
 #define IOHDLCTYPES_H_
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 /* Include sys/types.h if available to get ssize_t from system headers */
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__) || \
@@ -59,6 +60,22 @@ typedef struct iohdlc_peer_list iohdlc_peer_list_t;
 typedef struct iohdlc_frame iohdlc_frame_t;
 typedef struct iohdlc_frame_q iohdlc_frame_q_t;
 typedef uint32_t iohdlc_timeout_t;
+
+/**
+ * @brief   Constant scatter/gather element used by vectored writes.
+ */
+typedef struct {
+  const void *iov_base;
+  size_t iov_len;
+} iohdlc_const_iovec_t;
+
+/**
+ * @brief   Scatter/gather element used by vectored reads.
+ */
+typedef struct {
+  void *iov_base;
+  size_t iov_len;
+} iohdlc_iovec_t;
 
 /**
  * @brief   Core receive callback type.

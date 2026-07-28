@@ -343,7 +343,7 @@ lossless transition record.
 
 ### TX Path (Application → Wire)
 
-Application calls `ioHdlcWriteTmo()` → data is enqueued and
+Application calls `ioHdlcWriteTmo()` or `ioHdlcWriteVTmo()` → data is enqueued and
 `IOHDLC_EVT_TX_IFRM_ENQ` is broadcast → the TX thread wakes and builds an
 I-frame → the core updates the per-send mutable protocol fields under the
 frame TX gate → the software driver serializes the frame or places it in its
@@ -356,7 +356,7 @@ transport and reports completion with `on_tx_done`.
 
 ### RX Path (Wire → Application)
 
-The stream port receives bytes → the software driver assembles a frame and validates wire-level integrity → `ioHdlcRxEntry()` pulls the completed frame through `hdlcRecvFrame()` → the mode-specific RX handler processes the control fields and hands accepted I-frames to the peer RX delivery endpoint → the current raw endpoint enqueues the payload in the peer byte-stream state and signals the RX stream predicate (`rx_cv`) → the application's `ioHdlcReadTmo()` call wakes and returns the data. `IOHDLC_EVT_I_RECVD` is also broadcast internally so the TX/core side can react to acknowledgements and receive-side state changes.
+The stream port receives bytes → the software driver assembles a frame and validates wire-level integrity → `ioHdlcRxEntry()` pulls the completed frame through `hdlcRecvFrame()` → the mode-specific RX handler processes the control fields and hands accepted I-frames to the peer RX delivery endpoint → the current raw endpoint enqueues the payload in the peer byte-stream state and signals the RX stream predicate (`rx_cv`) → the application's `ioHdlcReadTmo()` or `ioHdlcReadVTmo()` call wakes and returns the data. `IOHDLC_EVT_I_RECVD` is also broadcast internally so the TX/core side can react to acknowledgements and receive-side state changes.
 
 ![RX data flow](diagrams/svg/rx_data_flow.svg)
 
@@ -391,9 +391,16 @@ shutdown.
 
 ### Event-Driven Synchronization
 
+Each peer has one application write gate and one application read gate.
+Scalar calls use the same vectored engines and therefore the same gates.
+Same-direction calls are serialized for their complete logical operation,
+while read and write can proceed concurrently. Gate admission and subsequent
+condition-variable waits consume one timeout budget; the OS scheduler does not
+provide an API-level fairness guarantee.
+
 ```c
 // Application writes data
-ioHdlcWriteTmo(peer, data, len, tmo)
+ioHdlcWriteTmo(peer, data, len, tmo) or ioHdlcWriteVTmo(peer, iov, iovcnt, tmo)
     └─> Broadcast IOHDLC_EVT_TX_IFRM_ENQ
             └─> TX thread wakes up
                     └─> Transmits frame
@@ -408,8 +415,8 @@ Timer callback()
 rx_callback()
     └─> driver completes a frame
             └─> RX thread pulls it with hdlcRecvFrame()
-                    └─> Core enqueues I-frame and signals peer->i_recept_sem
-                            └─> ioHdlcReadTmo() returns data
+                    └─> Core enqueues I-frame and signals peer->rx_cv
+                            └─> ioHdlcReadTmo()/ioHdlcReadVTmo() returns data
 ```
 
 ## Memory Management

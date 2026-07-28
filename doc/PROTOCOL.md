@@ -502,9 +502,10 @@ ioHdlc handles this automatically: as soon as the LOW_WATER threshold is
 crossed while accepting an incoming I-frame, the station signals busy to
 the remote side by sending RNR. No application involvement is required.
 
-When the application consumes buffered frames via `ioHdlcReadTmo` and the
-pool recovers above the HIGH_WATER threshold (default: > 60% free), the
-station sends RR and the remote side resumes transmission.
+When the application consumes buffered frames via `ioHdlcReadTmo` or
+`ioHdlcReadVTmo` and the pool recovers above the HIGH_WATER threshold
+(default: > 60% free), the station sends RR and the remote side resumes
+transmission.
 
 The gap between LOW_WATER and HIGH_WATER (hysteresis) prevents rapid
 RNR/RR oscillations under sustained load.
@@ -519,7 +520,8 @@ RNR/RR oscillations under sustained load.
 ### Write-Side Backpressure
 
 The busy mechanism propagates upstream to the application automatically.
-`ioHdlcWriteTmo` blocks (subject to the caller-specified timeout) when:
+`ioHdlcWriteTmo` and `ioHdlcWriteVTmo` block (subject to the
+caller-specified timeout) when:
 
 - the number of unacknowledged frames pending acknowledgment is high, or
 - the frame pool is in LOW_WATER state.
@@ -527,6 +529,11 @@ The busy mechanism propagates upstream to the application automatically.
 As a result the application cannot outrun the link: memory pressure on the
 pool translates directly into back-pressure on the writer, without any
 frame loss.
+
+Scalar and vectored calls on the same peer share a write gate, so a complete
+logical write cannot be interleaved with another writer. The timeout budget
+also includes waiting for that gate. Vectored writes feed bytes directly from
+their entries into I-frames; vector boundaries are not protocol boundaries.
 
 ## Error Recovery
 
