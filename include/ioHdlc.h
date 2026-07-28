@@ -445,6 +445,8 @@ struct iohdlc_station_peer {
                                    Read waits on the stream predicate:
                                    partial frame available, queued RX data,
                                    or terminal peer state. */
+  iohdlc_binary_semaphore_t write_gate; /* Serializes complete logical writes. */
+  iohdlc_binary_semaphore_t read_gate;  /* Serializes complete logical reads. */
   iohdlc_mutex_t state_mutex;   /* Mutex protecting protocol state variables:
                                    nr, vr, vs, i_pending_count, queues (i_retrans_q, i_trans_q),
                                    chkpt_actioned, rej_actioned, ss_state,
@@ -603,14 +605,26 @@ extern "C" {
   ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *ioHdlcpeerp, const void *buf,
       size_t count, uint32_t timeout_ms);
 
+  ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *ioHdlcpeerp,
+      const iohdlc_const_iovec_t *iov, size_t iovcnt, uint32_t timeout_ms);
+
   ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *ioHdlcpeerp, void *buf,
       size_t count, uint32_t timeout_ms);
+
+  ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *ioHdlcpeerp,
+      const iohdlc_iovec_t *iov, size_t iovcnt, uint32_t timeout_ms);
 
   /* Convenience macros for blocking operations (infinite timeout). */
   /** @brief Convenience wrapper for blocking write with infinite timeout. */
   #define ioHdlcWrite(peer, buf, count) ioHdlcWriteTmo(peer, buf, count, IOHDLC_WAIT_FOREVER)
+  /** @brief Convenience wrapper for blocking vectored write. */
+  #define ioHdlcWriteV(peer, iov, iovcnt) \
+    ioHdlcWriteVTmo(peer, iov, iovcnt, IOHDLC_WAIT_FOREVER)
   /** @brief Convenience wrapper for blocking read with infinite timeout. */
   #define ioHdlcRead(peer, buf, count) ioHdlcReadTmo(peer, buf, count, IOHDLC_WAIT_FOREVER)
+  /** @brief Convenience wrapper for blocking vectored read. */
+  #define ioHdlcReadV(peer, iov, iovcnt) \
+    ioHdlcReadVTmo(peer, iov, iovcnt, IOHDLC_WAIT_FOREVER)
 
   int32_t ioHdlcAddPeer(iohdlc_station_t *ioHdlcsp, iohdlc_station_peer_t *peer, uint32_t addr);
   int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t kr);

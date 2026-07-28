@@ -519,6 +519,82 @@ bool test_read_never_connected_returns_enotconn(void) {
   return 0;
 }
 
+bool test_vectored_io_validation(void) {
+  iohdlc_station_t station;
+  uint8_t frame_arena[1024];
+  ioHdlcDriver mock_driver;
+  iohdlc_station_peer_t peer;
+  iohdlc_const_iovec_t write_iov[2];
+  iohdlc_iovec_t read_iov[2];
+  uint8_t byte = 0U;
+  int32_t result;
+  ssize_t transferred;
+
+  result = init_test_station(&station, frame_arena, &mock_driver, PRIMARY_ADDR);
+  TEST_ASSERT(result == 0, "Station init should succeed");
+  result = ioHdlcAddPeer(&station, &peer, SECONDARY_ADDR);
+  TEST_ASSERT(result == 0, "Peer add should succeed");
+
+  TEST_ASSERT(ioHdlcWriteVTmo(&peer, NULL, 0U, 0U) == 0,
+              "Empty vectored write should return zero");
+  TEST_ASSERT(ioHdlcReadVTmo(&peer, NULL, 0U, 0U) == 0,
+              "Empty vectored read should return zero");
+
+  iohdlc_errno = 0;
+  transferred = ioHdlcWriteVTmo(&peer, NULL, 1U, 0U);
+  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+              "Non-empty vectored write should require an iovec array");
+  iohdlc_errno = 0;
+  transferred = ioHdlcReadVTmo(&peer, NULL, 1U, 0U);
+  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+              "Non-empty vectored read should require an iovec array");
+
+  write_iov[0].iov_base = NULL;
+  write_iov[0].iov_len = 0U;
+  TEST_ASSERT(ioHdlcWriteVTmo(&peer, write_iov, 1U, 0U) == 0,
+              "Zero-length write vector should accept a null base");
+  read_iov[0].iov_base = NULL;
+  read_iov[0].iov_len = 0U;
+  TEST_ASSERT(ioHdlcReadVTmo(&peer, read_iov, 1U, 0U) == 0,
+              "Zero-length read vector should accept a null base");
+
+  write_iov[0].iov_len = 1U;
+  iohdlc_errno = 0;
+  transferred = ioHdlcWriteVTmo(&peer, write_iov, 1U, 0U);
+  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+              "Non-empty write vector should reject a null base");
+
+  read_iov[0].iov_len = 1U;
+  iohdlc_errno = 0;
+  transferred = ioHdlcReadVTmo(&peer, read_iov, 1U, 0U);
+  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+              "Non-empty read vector should reject a null base");
+
+  write_iov[0].iov_base = &byte;
+  write_iov[0].iov_len = (size_t)-1 >> 1;
+  write_iov[1].iov_base = &byte;
+  write_iov[1].iov_len = 1U;
+  iohdlc_errno = 0;
+  transferred = ioHdlcWriteVTmo(&peer, write_iov, 2U, 0U);
+  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+              "Vectored write should reject totals above SSIZE_MAX");
+
+  read_iov[0].iov_base = &byte;
+  read_iov[0].iov_len = (size_t)-1 >> 1;
+  read_iov[1].iov_base = &byte;
+  read_iov[1].iov_len = 1U;
+  iohdlc_errno = 0;
+  transferred = ioHdlcReadVTmo(&peer, read_iov, 2U, 0U);
+  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+              "Vectored read should reject totals above SSIZE_MAX");
+
+  iohdlc_errno = 0;
+  TEST_ASSERT(ioHdlcWriteTmo(&peer, &byte, 0U, 0U) == -1 &&
+              iohdlc_errno == EINVAL,
+              "Scalar zero-length write should retain EINVAL semantics");
+  return 0;
+}
+
 /*===========================================================================*/
 /* Test: SNRM Handshake - Two Connected Stations                            */
 /*===========================================================================*/
@@ -923,6 +999,122 @@ test_cleanup:
   ioHdlcStationDeinit(&station_primary);
   ioHdlcStationDeinit(&station_secondary);
   
+  return test_result;
+}
+
+bool test_vectored_io_exchange(const test_adapter_t *adapter) {
+  int test_result = 0;
+  test_link_pair_t pair;
+  uint8_t expected[250];
+  uint8_t rx_head[1];
+  uint8_t rx_body[80];
+  uint8_t rx_tail[169];
+  uint8_t partial_head[2];
+  uint8_t partial_tail[10];
+  iohdlc_const_iovec_t write_iov[4];
+  iohdlc_iovec_t read_iov[4];
+  iohdlc_iovec_t partial_iov[2];
+  int32_t result;
+  ssize_t transferred;
+  size_t i;
+
+  result = init_test_link_pair(adapter, &pair,
+                               IOHDLC_OM_NDM, IOHDLC_FLG_PRI,
+                               IOHDLC_OM_NDM, 0);
+  TEST_ASSERT(result == 0, "Vectored I/O pair init failed");
+
+  result = ioHdlcRunnerStart(&pair.station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
+  result = ioHdlcRunnerStart(&pair.station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
+  ioHdlc_sleep_ms(50);
+
+  result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
+                               IOHDLC_OM_NRM);
+  TEST_ASSERT_GOTO(result == 0, "LinkUp should succeed for vectored I/O");
+
+  for (i = 0U; i < sizeof expected; ++i)
+    expected[i] = (uint8_t)(i * 37U + 11U);
+
+  write_iov[0].iov_base = expected;
+  write_iov[0].iov_len = 3U;
+  write_iov[1].iov_base = NULL;
+  write_iov[1].iov_len = 0U;
+  write_iov[2].iov_base = expected + 3U;
+  write_iov[2].iov_len = 117U;
+  write_iov[3].iov_base = expected + 120U;
+  write_iov[3].iov_len = sizeof expected - 120U;
+
+  transferred = ioHdlcWriteVTmo(&pair.peer_at_primary, write_iov, 4U, 1000U);
+  TEST_ASSERT_GOTO(transferred == (ssize_t)sizeof expected,
+                   "Vectored write should queue the complete stream");
+
+  memset(rx_head, 0, sizeof rx_head);
+  memset(rx_body, 0, sizeof rx_body);
+  memset(rx_tail, 0, sizeof rx_tail);
+  read_iov[0].iov_base = rx_head;
+  read_iov[0].iov_len = sizeof rx_head;
+  read_iov[1].iov_base = rx_body;
+  read_iov[1].iov_len = sizeof rx_body;
+  read_iov[2].iov_base = NULL;
+  read_iov[2].iov_len = 0U;
+  read_iov[3].iov_base = rx_tail;
+  read_iov[3].iov_len = sizeof rx_tail;
+
+  transferred = ioHdlcReadVTmo(&pair.peer_at_secondary, read_iov, 4U, 1000U);
+  TEST_ASSERT_GOTO(transferred == (ssize_t)sizeof expected,
+                   "Vectored read should fill the complete destination");
+  TEST_ASSERT_GOTO(memcmp(rx_head, expected, sizeof rx_head) == 0,
+                   "Vectored read head should match");
+  TEST_ASSERT_GOTO(memcmp(rx_body, expected + sizeof rx_head,
+                          sizeof rx_body) == 0,
+                   "Vectored read body should match");
+  TEST_ASSERT_GOTO(memcmp(rx_tail,
+                          expected + sizeof rx_head + sizeof rx_body,
+                          sizeof rx_tail) == 0,
+                   "Vectored read tail should match");
+
+  TEST_ASSERT_GOTO(
+      iohdlc_bsem_wait_timeout(&pair.peer_at_primary.write_gate, 0U) == MSG_OK,
+      "Write gate should initially be available");
+  iohdlc_errno = 0;
+  transferred = ioHdlcWriteVTmo(&pair.peer_at_primary, write_iov, 1U, 0U);
+  TEST_ASSERT_GOTO(transferred == -1 && iohdlc_errno == ETIMEDOUT,
+                   "Competing write should time out at the write gate");
+  iohdlc_bsem_signal(&pair.peer_at_primary.write_gate);
+
+  TEST_ASSERT_GOTO(
+      iohdlc_bsem_wait_timeout(&pair.peer_at_secondary.read_gate, 0U) == MSG_OK,
+      "Read gate should initially be available");
+  iohdlc_errno = 0;
+  transferred = ioHdlcReadVTmo(&pair.peer_at_secondary, read_iov, 1U, 0U);
+  TEST_ASSERT_GOTO(transferred == -1 && iohdlc_errno == ETIMEDOUT,
+                   "Competing read should time out at the read gate");
+  iohdlc_bsem_signal(&pair.peer_at_secondary.read_gate);
+
+  transferred = ioHdlcWriteTmo(&pair.peer_at_primary, expected, 7U, 1000U);
+  TEST_ASSERT_GOTO(transferred == 7, "Partial-read source write should succeed");
+
+  memset(partial_head, 0, sizeof partial_head);
+  memset(partial_tail, 0, sizeof partial_tail);
+  partial_iov[0].iov_base = partial_head;
+  partial_iov[0].iov_len = sizeof partial_head;
+  partial_iov[1].iov_base = partial_tail;
+  partial_iov[1].iov_len = sizeof partial_tail;
+  iohdlc_errno = EAGAIN;
+  transferred = ioHdlcReadVTmo(&pair.peer_at_secondary, partial_iov, 2U, 100U);
+  TEST_ASSERT_GOTO(transferred == 7,
+                   "Vectored read timeout should return transferred bytes");
+  TEST_ASSERT_GOTO(iohdlc_errno == EAGAIN,
+                   "Partial vectored read should preserve iohdlc_errno");
+  TEST_ASSERT_GOTO(memcmp(partial_head, expected, sizeof partial_head) == 0,
+                   "Partial vectored read head should match");
+  TEST_ASSERT_GOTO(memcmp(partial_tail, expected + sizeof partial_head, 5U) == 0,
+                   "Partial vectored read tail should match");
+
+test_cleanup:
+  ioHdlcStationDeinit(&pair.station_primary);
+  ioHdlcStationDeinit(&pair.station_secondary);
   return test_result;
 }
 

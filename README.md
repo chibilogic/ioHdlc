@@ -32,9 +32,14 @@ communication, ISO 13239 compliant data link layer.
   frame and eliminating the need for end-flag byte scanning
 
 ### Application Interface
-- **Byte-stream read/write API** (`ioHdlcReadTmo` / `ioHdlcWriteTmo`): the
-  application reads and writes raw bytes with POSIX-style blocking and timeout
-  semantics — I-frame fragmentation and reassembly are transparent.
+- **Byte-stream scalar and vectored I/O** (`ioHdlcReadTmo`,
+  `ioHdlcWriteTmo`, `ioHdlcReadVTmo`, and `ioHdlcWriteVTmo`): applications
+  exchange raw bytes with POSIX-style blocking, partial-result, and timeout
+  semantics. I-frame fragmentation and reassembly are transparent.
+- **Logical operation serialization**: a vectored write cannot interleave with
+  another write on the same peer, and a vectored read prevents another reader
+  from consuming bytes until the call completes. Read and write remain
+  independent.
 - **Integrated backpressure**: writes block not only on a full sliding window
   but also when the frame pool reaches its low watermark, propagating memory
   pressure to the application automatically.
@@ -168,10 +173,23 @@ ioHdlcWriteTmo(&peer, tx_buf, sizeof tx_buf, IOHDLC_WAIT_FOREVER);
 uint8_t rx_buf[64];
 ssize_t n = ioHdlcReadTmo(&peer, rx_buf, sizeof rx_buf, 5000);
 
+/* Vectored I/O avoids an aggregate header/payload staging buffer. */
+iohdlc_const_iovec_t tx_iov[] = {
+    { .iov_base = header,  .iov_len = sizeof header },
+    { .iov_base = payload, .iov_len = payload_len },
+};
+ioHdlcWriteVTmo(&peer, tx_iov, 2, 5000);
+
 /* 6. Disconnect and stop */
 ioHdlcStationLinkDown(&station, 0x02);
 ioHdlcStationDeinit(&station);
 ```
+
+Vectored calls treat all entries as one logical byte sequence. Zero-length
+entries are ignored and may have a null base; non-empty entries require a
+non-null base. The aggregate length must fit in `ssize_t`. A single timeout
+budget covers serialization and stream/flow-control waits. Iovec boundaries do
+not define or constrain I-frame boundaries.
 
 ---
 

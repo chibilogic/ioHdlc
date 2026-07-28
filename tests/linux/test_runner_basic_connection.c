@@ -42,6 +42,7 @@ int main(void) {
   RUN_TEST(test_swdriver_rejects_unsupported_modulo);
   RUN_TEST(test_read_zero_length_returns_zero);
   RUN_TEST(test_read_never_connected_returns_enotconn);
+  RUN_TEST(test_vectored_io_validation);
   
   /* Each adapter test gets fresh streams to avoid cross-test contamination */
   mock_adapter.init();
@@ -62,6 +63,10 @@ int main(void) {
   
   mock_adapter.init();
   RUN_TEST_ADAPTER(test_data_exchange, &mock_adapter);
+  mock_adapter.deinit();
+
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_vectored_io_exchange, &mock_adapter);
   mock_adapter.deinit();
 
   mock_adapter.init();

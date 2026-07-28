@@ -84,6 +84,8 @@
 #define EIO             5    /* I/O error */
 #endif
 
+#define IOHDLC_SSIZE_MAX  (((size_t)-1) >> 1)
+
 /*===========================================================================*/
 /* Module exported variables.                                                */
 /*===========================================================================*/
@@ -92,9 +94,25 @@
 /* Module local variables and types.                                         */
 /*===========================================================================*/
 
+typedef struct {
+  uint32_t start_ms;
+  uint32_t timeout_ms;
+} iohdlc_api_timeout_t;
+
 /*===========================================================================*/
 /* Module local functions.                                                   */
 /*===========================================================================*/
+
+static inline uint32_t s_api_timeout_remaining(const iohdlc_api_timeout_t *timeoutp) {
+  uint32_t elapsed_ms;
+
+  if (timeoutp->timeout_ms == IOHDLC_WAIT_FOREVER)
+    return IOHDLC_WAIT_FOREVER;
+
+  elapsed_ms = iohdlc_time_now_ms() - timeoutp->start_ms;
+  return elapsed_ms < timeoutp->timeout_ms ?
+         timeoutp->timeout_ms - elapsed_ms : 0U;
+}
 
 /**
  * @brief   Derive the API safety timeout for a link-management transaction.
@@ -645,6 +663,8 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   /* Initialize flow control condition variables and mutex */
   iohdlc_condvar_init(&peer->tx_cv);            /* TX flow control (used with state_mutex) */
   iohdlc_condvar_init(&peer->rx_cv);            /* RX stream predicate (used with state_mutex) */
+  iohdlc_bsem_init(&peer->write_gate, false);   /* Available. */
+  iohdlc_bsem_init(&peer->read_gate, false);    /* Available. */
   iohdlc_mutex_init(&peer->state_mutex);        /* Mutex for state */
   
   /* Initialize virtual timers (reply and I-frame reply) */
@@ -1303,6 +1323,167 @@ static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
 #define W_WAIT_COND(s, p) \
 	          (p->i_pending_count >= writer_pending_limit(p) || \
 	          hdlcPoolGetState(&s->frame_pool) != IOHDLC_POOL_NORMAL)
+
+/**
+ * @brief   Write a logical byte sequence described by multiple vectors.
+ * @details Serializes the complete operation against other writers on the
+ *          peer, greedily fills I-frames across vector boundaries, and applies
+ *          one timeout budget to admission and flow-control waits.
+ *
+ * @param[in] peer        Peer descriptor.
+ * @param[in] iov         Constant input vector array.
+ * @param[in] iovcnt      Number of vector entries.
+ * @param[in] timeout_ms  Total timeout in milliseconds.
+ *
+ * @return                Bytes queued, or -1 on error.
+ *
+ * @note Zero-length entries are ignored and may have a null base. The
+ *       aggregate length must fit in ssize_t.
+ * @note Vector boundaries do not constrain I-frame boundaries.
+ */
+ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
+                        const iohdlc_const_iovec_t *iov, size_t iovcnt,
+                        uint32_t timeout_ms) {
+  iohdlc_api_timeout_t timeout;
+  iohdlc_station_t *s;
+  iohdlc_frame_t *fp;
+  uint8_t *info_ptr;
+  size_t total = 0U;
+  size_t remaining;
+  size_t iov_index = 0U;
+  size_t iov_offset = 0U;
+  size_t chunk_size;
+  size_t frame_copied;
+  size_t i;
+  ssize_t result;
+  bool signal_tx = false;
+
+  if (peer == NULL || (iov == NULL && iovcnt != 0U)) {
+    iohdlc_errno = EINVAL;
+    return -1;
+  }
+
+  for (i = 0U; i < iovcnt; ++i) {
+    if (iov[i].iov_base == NULL && iov[i].iov_len != 0U) {
+      iohdlc_errno = EINVAL;
+      return -1;
+    }
+    if (iov[i].iov_len > IOHDLC_SSIZE_MAX - total) {
+      iohdlc_errno = EINVAL;
+      return -1;
+    }
+    total += iov[i].iov_len;
+  }
+
+  if (total == 0U)
+    return 0;
+
+  if (IOHDLC_PEER_DISC(peer)) {
+    iohdlc_errno = ENOTCONN;
+    return -1;
+  }
+
+  timeout.timeout_ms = timeout_ms;
+  timeout.start_ms = timeout_ms == IOHDLC_WAIT_FOREVER ?
+                     0U : iohdlc_time_now_ms();
+  if (iohdlc_bsem_wait_timeout(&peer->write_gate,
+                               s_api_timeout_remaining(&timeout)) != MSG_OK) {
+    iohdlc_errno = ETIMEDOUT;
+    return -1;
+  }
+
+  s = peer->stationp;
+  remaining = total;
+  result = 0;
+
+  while (remaining > 0U) {
+    iohdlc_mutex_lock(&peer->state_mutex);
+
+    while (!IOHDLC_PEER_DISC(peer) && W_WAIT_COND(s, peer)) {
+      msg_t wait_result;
+
+      if (signal_tx) {
+        ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
+        signal_tx = false;
+      }
+      wait_result = iohdlc_condvar_wait_timeout(
+          &peer->tx_cv, &peer->state_mutex,
+          s_api_timeout_remaining(&timeout));
+      if (wait_result == MSG_TIMEOUT)
+        iohdlc_mutex_lock(&peer->state_mutex);
+      if (wait_result == MSG_TIMEOUT && W_WAIT_COND(s, peer)) {
+        iohdlc_errno = ETIMEDOUT;
+        result = total != remaining ? (ssize_t)(total - remaining) : -1;
+        iohdlc_mutex_unlock(&peer->state_mutex);
+        goto write_done;
+      }
+    }
+
+    if (IOHDLC_PEER_DISC(peer)) {
+      result = (ssize_t)(total - remaining);
+      iohdlc_mutex_unlock(&peer->state_mutex);
+      goto write_done;
+    }
+
+    chunk_size = remaining < peer->mifls ? remaining : peer->mifls;
+
+    /* FFF TYPE0 cannot encode a frame length equal to the flag octet. */
+    if (s->framing.frame_offset == 1U && chunk_size > 1U) {
+      uint32_t frame_total = s->framing.frame_offset + 1U +
+                             s->framing.ctrl_size + chunk_size + s->fcs_size;
+      if ((frame_total & 0xFFU) == 0x7EU)
+        chunk_size /= 2U;
+    }
+
+    fp = hdlcTakeFrame(&s->frame_pool);
+    iohdlc_mutex_unlock(&peer->state_mutex);
+    if (fp == NULL)
+      continue;
+
+    IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
+    IOHDLC_FRAME_CTRL(s, fp, 0) = IOHDLC_I_ID;
+    info_ptr = IOHDLC_FRAME_INFO(s, fp);
+
+    frame_copied = 0U;
+    while (frame_copied < chunk_size) {
+      size_t bytes_to_copy;
+      const uint8_t *src;
+
+      while (iov_index < iovcnt &&
+             iov_offset == iov[iov_index].iov_len) {
+        iov_index++;
+        iov_offset = 0U;
+      }
+
+      bytes_to_copy = iov[iov_index].iov_len - iov_offset;
+      if (bytes_to_copy > chunk_size - frame_copied)
+        bytes_to_copy = chunk_size - frame_copied;
+      src = (const uint8_t *)iov[iov_index].iov_base + iov_offset;
+      memcpy(info_ptr + frame_copied, src, bytes_to_copy);
+      frame_copied += bytes_to_copy;
+      iov_offset += bytes_to_copy;
+    }
+
+    fp->elen = (uint16_t)(info_ptr + chunk_size - fp->frame);
+
+    iohdlc_mutex_lock(&peer->state_mutex);
+    ioHdlc_frameq_insert(&peer->i_trans_q, &fp->q);
+    peer->i_pending_count++;
+    iohdlc_mutex_unlock(&peer->state_mutex);
+
+    signal_tx = true;
+    remaining -= chunk_size;
+  }
+
+  result = (ssize_t)total;
+
+write_done:
+  if (signal_tx)
+    ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
+  iohdlc_bsem_signal(&peer->write_gate);
+  return result;
+}
+
 /**
  * @brief   Write data to peer via HDLC I-frames.
  * @details Fragments data into I-frames if necessary, queues for transmission.
@@ -1318,136 +1499,186 @@ static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
  * @retval count         All data successfully queued
  * @retval -1            Error occurred (check iohdlc_errno)
  * 
- * @note Blocks if i_pending_count >= 2*ks OR pool is LOW_WATER.
+ * @note Blocks when the writer pending limit is reached or the pool is not in
+ *       its normal state.
  * @note Sets initial address and I-frame ID; N(S), N(R), P/F and ABM address
  *       selection are finalized during TX.
  * @note Automatically fragments data if count > mifls.
- * @note Multiple threads can call Write concurrently on same peer.
- *       Flow control is thread-safe, but frame transmission ORDER is not guaranteed
- *       between concurrent writers. If ordering matters, serialize writes externally.
+ * @note Concurrent writes on the same peer are serialized as complete logical
+ *       operations.
  * 
  */
-ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf, 
-                        size_t count, uint32_t timeout_ms) {
-  iohdlc_station_t *s = peer->stationp;
-  iohdlc_frame_t *fp;
-  const uint8_t *data = (const uint8_t *)buf;
-  size_t remaining = count;
-  uint8_t *info_ptr;
-  size_t chunk_size;
-  bool signal_tx = false;
-  
-  /* Validate parameters */
-  if (buf == NULL || count == 0) {
+ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
+                       size_t count, uint32_t timeout_ms) {
+  iohdlc_const_iovec_t iov;
+
+  if (peer == NULL || buf == NULL || count == 0U) {
     iohdlc_errno = EINVAL;
     return -1;
   }
-  
-  /* Check if connected */
-  if (IOHDLC_PEER_DISC(peer)) {
-    iohdlc_errno = ENOTCONN;
+
+  iov.iov_base = buf;
+  iov.iov_len = count;
+  return ioHdlcWriteVTmo(peer, &iov, 1U, timeout_ms);
+}
+
+/**
+ * @brief   Read a logical byte sequence into multiple vectors.
+ * @details Serializes the complete operation against other readers on the
+ *          peer, distributes the stream consecutively across vector
+ *          boundaries, and applies one timeout budget to admission and data
+ *          waits.
+ *
+ * @param[in] peer        Peer descriptor.
+ * @param[out] iov        Output vector array.
+ * @param[in] iovcnt      Number of vector entries.
+ * @param[in] timeout_ms  Total timeout in milliseconds.
+ *
+ * @return                Bytes read, 0 on orderly EOF, or -1 on error.
+ *
+ * @note Zero-length entries are ignored and may have a null base. The
+ *       aggregate length must fit in ssize_t.
+ * @note Buffered data is returned before orderly EOF or an aborted-link error.
+ */
+ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
+                       const iohdlc_iovec_t *iov, size_t iovcnt,
+                       uint32_t timeout_ms) {
+  iohdlc_api_timeout_t timeout;
+  iohdlc_station_t *s;
+  iohdlc_frame_t *fp;
+  uint8_t *info_ptr;
+  size_t total = 0U;
+  size_t total_read = 0U;
+  size_t iov_index = 0U;
+  size_t iov_offset = 0U;
+  size_t info_len;
+  size_t available_bytes;
+  size_t i;
+  ssize_t result;
+
+  if (peer == NULL || (iov == NULL && iovcnt != 0U)) {
+    iohdlc_errno = EINVAL;
     return -1;
   }
-  
-  /* Loop to send all bytes, fragmenting if necessary.
-     Uses condition variable for flow control: wait on actual condition
-     (window full OR pool low).
-     Coalesce IOHDLC_EVT_TX_IFRM_ENQ signals. */
-  while (remaining > 0) {
-    /* Acquire mutex for condition check and frame construction */
-    iohdlc_mutex_lock(&peer->state_mutex);
-    
-    /* Flow control: wait while exceeding pending frames exist OR pool low.
-       Condition variable automatically releases mutex during wait
-       and re-acquires it before returning. */
-    while (!IOHDLC_PEER_DISC(peer) && W_WAIT_COND(s, peer)) {
-      if (signal_tx) {
-        /* Signal TX task that frames are ready */
-        ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
-        signal_tx = false;  /* Avoid redundant signals while waiting */
-      }
-      msg_t result = iohdlc_condvar_wait_timeout(&peer->tx_cv,
-                                                  &peer->state_mutex,
-                                                  timeout_ms);
-      if (result == MSG_TIMEOUT)
-        iohdlc_mutex_lock(&peer->state_mutex);
-      if ((result == MSG_TIMEOUT) && W_WAIT_COND(s, peer)) {
-         /* Timeout occurred and condition still not satisfied */
-        iohdlc_errno = ETIMEDOUT;
-        ssize_t t = count -remaining;
-        iohdlc_mutex_unlock(&peer->state_mutex);
-        return t != 0 ? t : -1;  /* Return bytes written so far */
-      }
-    }
 
-    if (IOHDLC_PEER_DISC(peer)) {
-        iohdlc_mutex_unlock(&peer->state_mutex);
-        return count - remaining;  /* Return bytes written so far */
+  for (i = 0U; i < iovcnt; ++i) {
+    if (iov[i].iov_base == NULL && iov[i].iov_len != 0U) {
+      iohdlc_errno = EINVAL;
+      return -1;
     }
-    
-    /* Condition satisfied: window has space AND pool is normal.
-       Calculate chunk size for this frame (max mifls). */
-    chunk_size = (remaining < peer->mifls) ? remaining : peer->mifls;
-    
-    /* Avoid creating frames with FFF == FLAG (0x7E)
-       when FFF TYPE0 present and chunk_size > 1 */
-    if (s->framing.frame_offset == 1 && chunk_size > 1) {
-      uint32_t frame_total = s->framing.frame_offset + 1 + s->framing.ctrl_size + chunk_size + s->fcs_size;
-      if ((frame_total & 0xFF) == 0x7E) {
-         chunk_size = chunk_size / 2;
-      }
+    if (iov[i].iov_len > IOHDLC_SSIZE_MAX - total) {
+      iohdlc_errno = EINVAL;
+      return -1;
     }
-
-    /* Allocate frame from pool */
-    fp = hdlcTakeFrame(&s->frame_pool);
-    iohdlc_mutex_unlock(&peer->state_mutex);
-    if (fp == NULL) {
-      /* Pool exhausted - this could still happen due to low-level driver
-         read activity */
-      continue;
-    }
-    
-    /* Build frame outside mutex (no shared state accessed) */
-    
-    /* Set address field: commands use peer address, responses use station address.
-       In ABM, the final address is overwritten at TX time based on the
-       command/response decision (see ioHdlcConnectedTx I-frame loop). */
-    IOHDLC_FRAME_ADDR(s, fp) = IOHDLC_IS_PRI(s) ? peer->addr : s->addr;
-    
-    /* Set control field: I-frame ID */
-    IOHDLC_FRAME_CTRL(s, fp, 0) = IOHDLC_I_ID;
-    
-    /* Copy data to info field */
-    info_ptr = IOHDLC_FRAME_INFO(s, fp);
-    memcpy(info_ptr, data, chunk_size);
-    
-    /* Calculate elen: FFF + ADDR + CTRL + INFO */
-    uint8_t *end = info_ptr + chunk_size;
-    fp->elen = (uint16_t)(end - fp->frame);
-    
-    /* FFF will be valorized by driver */
-    
-    /* Re-acquire mutex to enqueue frame and update state */
-    iohdlc_mutex_lock(&peer->state_mutex);
-    
-    /* Queue frame for transmission */
-    ioHdlc_frameq_insert(&peer->i_trans_q, &fp->q);
-    signal_tx = true;
-
-    /* Increment pending count for flow control */
-    peer->i_pending_count++;
-    
-    iohdlc_mutex_unlock(&peer->state_mutex);
-    
-    /* Update loop variables */
-    data += chunk_size;
-    remaining -= chunk_size;
+    total += iov[i].iov_len;
   }
-  
-  /* Signal TX task that frames are ready */
-  ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
-  
-  return (ssize_t)count;
+
+  if (total == 0U)
+    return 0;
+
+  timeout.timeout_ms = timeout_ms;
+  timeout.start_ms = timeout_ms == IOHDLC_WAIT_FOREVER ?
+                     0U : iohdlc_time_now_ms();
+  if (iohdlc_bsem_wait_timeout(&peer->read_gate,
+                               s_api_timeout_remaining(&timeout)) != MSG_OK) {
+    iohdlc_errno = ETIMEDOUT;
+    return -1;
+  }
+
+  s = peer->stationp;
+  result = 0;
+  iohdlc_mutex_lock(&peer->state_mutex);
+  peer->ss_state |= IOHDLC_SS_RECVING;
+
+  while (total_read < total) {
+    while (!s_peer_rx_has_data(peer) && !IOHDLC_PEER_DISC(peer)) {
+      msg_t wait_result = iohdlc_condvar_wait_timeout(
+          &peer->rx_cv, &peer->state_mutex,
+          s_api_timeout_remaining(&timeout));
+
+      if (wait_result == MSG_TIMEOUT)
+        iohdlc_mutex_lock(&peer->state_mutex);
+      if (wait_result == MSG_TIMEOUT &&
+          !s_peer_rx_has_data(peer) && !IOHDLC_PEER_DISC(peer)) {
+        if (total_read != 0U)
+          goto read_done;
+        iohdlc_errno = ETIMEDOUT;
+        result = -1;
+        goto read_done;
+      }
+    }
+
+    if (!s_peer_rx_has_data(peer)) {
+      if (total_read != 0U)
+        goto read_done;
+      if (IOHDLC_PEER_ORDERLY_CLOSED(peer))
+        goto read_done;
+      if (IOHDLC_PEER_ABORTED(peer)) {
+        iohdlc_errno = ECONNRESET;
+        result = -1;
+        goto read_done;
+      }
+      iohdlc_errno = ENOTCONN;
+      result = -1;
+      goto read_done;
+    }
+
+    fp = peer->partial_read_frame;
+    if (fp == NULL) {
+      iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&peer->i_recept_q);
+      fp = IOHDLC_FRAME_FROM_Q(qh);
+      peer->partial_read_offset = 0U;
+    }
+
+    info_ptr = IOHDLC_FRAME_INFO(s, fp);
+    info_len = fp->elen -
+               (s->framing.frame_offset + 1U + s->framing.ctrl_size);
+    available_bytes = info_len - peer->partial_read_offset;
+
+    while (available_bytes > 0U && total_read < total) {
+      size_t bytes_to_copy;
+      uint8_t *dest;
+
+      while (iov_index < iovcnt &&
+             iov_offset == iov[iov_index].iov_len) {
+        iov_index++;
+        iov_offset = 0U;
+      }
+
+      bytes_to_copy = iov[iov_index].iov_len - iov_offset;
+      if (bytes_to_copy > available_bytes)
+        bytes_to_copy = available_bytes;
+      dest = (uint8_t *)iov[iov_index].iov_base + iov_offset;
+      memcpy(dest, info_ptr + peer->partial_read_offset, bytes_to_copy);
+
+      iov_offset += bytes_to_copy;
+      peer->partial_read_offset += bytes_to_copy;
+      total_read += bytes_to_copy;
+      available_bytes -= bytes_to_copy;
+    }
+
+    if (peer->partial_read_offset < info_len) {
+      peer->partial_read_frame = fp;
+      goto read_done;
+    }
+
+    hdlcReleaseFrame(&s->frame_pool, fp);
+    peer->partial_read_frame = NULL;
+    peer->partial_read_offset = 0U;
+
+    if (IOHDLC_IS_BUSY(s) &&
+        hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_NORMAL)
+      ioHdlcBroadcastFlags(s, IOHDLC_EVT_POOL_ST_CHG);
+  }
+
+read_done:
+  peer->ss_state &= ~IOHDLC_SS_RECVING;
+  iohdlc_mutex_unlock(&peer->state_mutex);
+  iohdlc_bsem_signal(&peer->read_gate);
+
+  if (result == 0)
+    result = (ssize_t)total_read;
+  return result;
 }
 
 /**
@@ -1457,151 +1688,42 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
  *          On orderly close, returns 0 once all buffered data has been read.
  *          On aborted links, returns an error once buffered data has been read.
  *          Supports partial frame reads by preserving a shared stream cursor.
- *          
+ *
  * @param[in] peer       Peer descriptor
  * @param[out] buf       Buffer to receive data
  * @param[in] count      Maximum bytes to read
  * @param[in] timeout_ms Timeout in milliseconds (IOHDLC_WAIT_FOREVER for blocking)
- * 
+ *
  * @return               Bytes read on success, 0 on orderly EOF, -1 on error
  * @retval >0            Number of bytes read
  * @retval 0             No more data: peer closed orderly and RX drained
  * @retval -1            Error occurred (check iohdlc_errno)
- * 
+ *
  * @note Blocks until the stream predicate changes or timeout expires.
  * @note Releases frame back to pool when fully consumed (may trigger watermark).
  * @note Supports partial reads: call multiple times to consume large frames.
- * @note Multiple threads can call Read concurrently on same peer.
- *       Partial read state and queued RX data are protected by state_mutex.
- *       Frames are consumed in-order as received from peer.
- * 
+ * @note Concurrent reads on the same peer are serialized as complete logical
+ *       operations.
+ *
  */
-ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf, 
+ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
                       size_t count, uint32_t timeout_ms) {
-  iohdlc_station_t *s = peer->stationp;
-  iohdlc_frame_t *fp;
-  uint8_t *info_ptr;
-  uint8_t *dest = (uint8_t *)buf;
-  size_t info_len;
-  size_t available_bytes;
-  size_t bytes_to_copy;
-  size_t space_remaining;
-  ssize_t total_bytes_read = 0;
-  msg_t wait_result;
-  uint32_t deadline_ms;
+  iohdlc_iovec_t iov;
 
-  /* Validate parameters */
-  if (count == 0U) {
-    return 0;
+  if (peer == NULL) {
+    iohdlc_errno = EINVAL;
+    return -1;
   }
+  if (count == 0U)
+    return 0;
   if (buf == NULL) {
     iohdlc_errno = EINVAL;
     return -1;
   }
 
-  deadline_ms = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
-                  IOHDLC_WAIT_FOREVER :
-                  (iohdlc_time_now_ms() + timeout_ms);
-  
-  iohdlc_mutex_lock(&peer->state_mutex);
-  peer->ss_state |= IOHDLC_SS_RECVING;  /* In receiving I-frames from the peer. */
-  
-  /* Greedy consumption loop: drain buffered data until count, EOF, terminal
-     error, or timeout. The stream predicate is evaluated only while holding
-     state_mutex, so multiple readers observe a single ordered stream. */
-  while (total_bytes_read < (ssize_t)count) {
-    while (!s_peer_rx_has_data(peer) && !IOHDLC_PEER_DISC(peer)) {
-      uint32_t remaining_ms;
-
-      if (deadline_ms == IOHDLC_WAIT_FOREVER) {
-        remaining_ms = IOHDLC_WAIT_FOREVER;
-      } else {
-        uint32_t now_ms = iohdlc_time_now_ms();
-        remaining_ms = (now_ms < deadline_ms) ? (deadline_ms - now_ms) : 0U;
-      }
-
-      wait_result = iohdlc_condvar_wait_timeout(&peer->rx_cv,
-                                                &peer->state_mutex,
-                                                remaining_ms);
-      if (wait_result == MSG_TIMEOUT)
-        iohdlc_mutex_lock(&peer->state_mutex);
-      if (wait_result == MSG_TIMEOUT &&
-          !s_peer_rx_has_data(peer) &&
-          !IOHDLC_PEER_DISC(peer)) {
-        if (total_bytes_read > 0)
-          goto read_done;
-        iohdlc_errno = ETIMEDOUT;
-        total_bytes_read = -1;
-        goto read_done;
-      }
-    }
-
-    if (!s_peer_rx_has_data(peer)) {
-      if (total_bytes_read > 0)
-        goto read_done;
-      if (IOHDLC_PEER_ORDERLY_CLOSED(peer))
-        goto read_done;
-      if (IOHDLC_PEER_ABORTED(peer)) {
-        iohdlc_errno = ECONNRESET;
-        total_bytes_read = -1;
-        goto read_done;
-      }
-      iohdlc_errno = ENOTCONN;
-      total_bytes_read = -1;
-      goto read_done;
-    }
-
-    fp = peer->partial_read_frame;
-    if (fp == NULL) {
-      iohdlc_frame_q_t *qh = ioHdlc_frameq_remove(&peer->i_recept_q);
-      fp = IOHDLC_FRAME_FROM_Q(qh);
-      peer->partial_read_offset = 0;
-    }
-    
-    /* Get info field pointer and calculate total length */
-    info_ptr = IOHDLC_FRAME_INFO(s, fp);
-    info_len = fp->elen - (s->framing.frame_offset + 1 + s->framing.ctrl_size);
-
-    /* Calculate available bytes from current offset */
-    available_bytes = info_len - peer->partial_read_offset;
-    
-    /* Copy as many bytes as fit in remaining buffer space */
-    space_remaining = count - (size_t)total_bytes_read;
-    bytes_to_copy = (available_bytes < space_remaining) ? available_bytes : space_remaining;
-    memcpy(dest, info_ptr + peer->partial_read_offset, bytes_to_copy);
-
-    /* Update read state */
-    peer->partial_read_offset += bytes_to_copy;
-    
-    dest += bytes_to_copy;
-    total_bytes_read += bytes_to_copy;
-
-    /* Check if frame fully consumed (still holding mutex from line 850) */
-    if (peer->partial_read_offset < info_len) {
-      /* Frame partially read: save for next call and exit loop */
-      peer->partial_read_frame = fp;
-      goto read_done;
-    }
-    /* Frame fully read: release back to pool (still holding mutex).
-       Mutex held during release to ensure framepool callback
-       (on_normal) executes with proper synchronization for tx_cv broadcast. */
-    hdlcReleaseFrame(&s->frame_pool, fp);
-    peer->partial_read_frame = NULL;
-    peer->partial_read_offset = 0;
-
-    /* Check if pool returned to normal if we are busy.
-       Generate event to wake TX thread so it can send RR. */
-    if (IOHDLC_IS_BUSY(s) && 
-        hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_NORMAL) {
-      ioHdlcBroadcastFlags(s, IOHDLC_EVT_POOL_ST_CHG);
-    }
-  }
-
-read_done:
-  peer->ss_state &= ~IOHDLC_SS_RECVING;  /* Done receiving I-frames from the peer. */
-  iohdlc_mutex_unlock(&peer->state_mutex);
-  
-  return total_bytes_read;
+  iov.iov_base = buf;
+  iov.iov_len = count;
+  return ioHdlcReadVTmo(peer, &iov, 1U, timeout_ms);
 }
 
 /** @} */
