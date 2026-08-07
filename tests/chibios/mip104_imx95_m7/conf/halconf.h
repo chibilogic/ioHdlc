@@ -15,9 +15,9 @@
 */
 
 /**
- * @file    demos/NXP/IMX95-SMARC-M7/cfg/halconf.h
+ * @file    tests/chibios/mip104_imx95_m7/conf/halconf.h
  * @brief   HAL configuration header.
- * @details HAL configuration file for the i.MX95 SMARC M7 reference demo.
+ * @details HAL configuration file for the MIP104 i.MX95 M7 exchange test.
  *          The demo uses the generic PAL and Serial subsystems on top of
  *          the native i.MX95 low level drivers; the remaining generic HAL
  *          subsystems stay disabled for now.

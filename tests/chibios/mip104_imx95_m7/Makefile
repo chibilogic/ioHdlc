@@ -1,5 +1,5 @@
 ##############################################################################
-# ioHdlc Test Suite - ChibiOS/ARM frontend for NXP IMX95 SMARC M7
+# ioHdlc Test Suite - ChibiOS/ARM frontend for MIP104 i.MX95 M7
 ##############################################################################
 
 .DEFAULT_GOAL := shell-spi
@@ -20,7 +20,7 @@ CHIBIOS ?= $(abspath $(ROOT_DIR)/../ChibiOS)
 BUILDDIR := build
 DEPDIR := .dep
 
-TARGET_LABEL = IMX95-SMARC-M7
+TARGET_LABEL = MIP104-IMX95-M7
 
 ##############################################################################
 # Build global options
@@ -94,7 +94,7 @@ include $(CHIBIOS)/os/license/license.mk
 include $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk/startup_mimx95_cm7.mk
 include $(CHIBIOS)/os/hal/hal.mk
 include $(CHIBIOS)/os/hal/ports/NXP/iMX95/platform.mk
-include $(CHIBIOS)/os/hal/boards/IMX_IMX95_SMARC_M7/board.mk
+include $(CHIBIOS)/os/hal/boards/MIP104_IMX95/board.mk
 include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
 include $(CHIBIOS)/os/rt/rt.mk
 include $(CHIBIOS)/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk
@@ -179,7 +179,7 @@ CPPWARN = -Wall -Wextra -Wundef
 
 UDEFS = -DCHPRINTF_USE_FLOAT=1 \
         -DMIMX9596 \
-        -DCPU_MIMX9596CVZXN_cm7 \
+        -DCPU_MIMX9596CVTXN_cm7 \
         -DIMX95_DEMO_USE_DDR=$(DEMO_USE_DDR) \
         -DIMX95_DEMO_STACKS_DTCM=$(DEMO_STACKS_DTCM) \
         -DIOHDLC_FRAME_PAYLOAD_ALIGNMENT=32U \
@@ -191,7 +191,7 @@ UDEFS = -DCHPRINTF_USE_FLOAT=1 \
         -DSHELL_CONFIG_FILE
 
 UADEFS = -DMIMX9596 \
-         -DCPU_MIMX9596CVZXN_cm7 \
+         -DCPU_MIMX9596CVTXN_cm7 \
          -DIMX95_DEMO_USE_DDR=$(DEMO_USE_DDR) \
          -DIMX95_DEMO_STACKS_DTCM=$(DEMO_STACKS_DTCM)
 UINCDIR =

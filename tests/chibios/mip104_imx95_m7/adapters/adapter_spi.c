@@ -15,7 +15,7 @@
  */
 /**
  * @file    adapter_spi.c
- * @brief   Hardware SPI adapter for the IMX95 SMARC M7 frontend.
+ * @brief   Hardware SPI adapter for the MIP104 i.MX95 M7 frontend.
  */
 
 #include "ch.h"
@@ -49,7 +49,7 @@ static void adapter_spi_init(void) {
 
   actual_baud = spi_lld_config_set_timing(&TEST_SPI_ENDPOINT_A, &spi_cfg_a,
                                           TEST_SPI_BAUD);
-  chDbgAssert(actual_baud != 0U, "invalid LPSPI6 timing");
+  chDbgAssert(actual_baud != 0U, "invalid LPSPI timing");
 
   ioHdlcStreamPortChibiosSpiObjectInit(&port_a,
                                        &spi_endpoint_a_obj,

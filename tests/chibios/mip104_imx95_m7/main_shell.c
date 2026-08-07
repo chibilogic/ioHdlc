@@ -15,7 +15,7 @@
  */
 /**
  * @file    main_shell.c
- * @brief   ChibiOS interactive shell for ioHdlc tests on IMX95 SMARC M7.
+ * @brief   ChibiOS interactive shell for ioHdlc tests on MIP104 i.MX95 M7.
  */
 
 #include "ch.h"

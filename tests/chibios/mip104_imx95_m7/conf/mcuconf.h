@@ -43,12 +43,12 @@
 /**
  * @brief   Enables a DDR no-cache area for DMA/shared buffers.
  */
-#define IMX95_NOCACHE_ENABLE                TRUE
+#define IMX95_NOCACHE_ENABLE                IMX95_DEMO_USE_DDR
 
 /**
  * @brief   Enables explicit DDR cache attributes.
  */
-#define IMX95_DDR_CACHE_ENABLE              TRUE
+#define IMX95_DDR_CACHE_ENABLE              IMX95_DEMO_USE_DDR
 
 /**
  * @brief   DDR cache policy used by this demo.
@@ -86,14 +86,24 @@
 /*===========================================================================*/
 
 /**
- * @brief   LPUART3 clock parent selection.
+ * @brief   LPUART2 clock parent selection.
  */
-#define IMX95_LPUART3SEL                    IMX95_LPUART3SEL_OSC24M
+#define IMX95_LPUART2SEL                    IMX95_LPUART2SEL_OSC24M
 
 /**
- * @brief   LPUART3 functional clock in Hertz.
+ * @brief   LPUART2 functional clock in Hertz.
  */
-#define IMX95_LPUART3CLK_FREQUENCY          24000000U
+#define IMX95_LPUART2CLK_FREQUENCY          24000000U
+
+/**
+ * @brief   LPSPI3 clock parent selection.
+ */
+#define IMX95_LPSPI3SEL                     IMX95_LPSPI3SEL_SYSPLL1_PFD1_DIV2
+
+/**
+ * @brief   LPSPI3 functional clock in Hertz.
+ */
+#define IMX95_LPSPI3CLK_FREQUENCY           200000000U
 
 /**
  * @brief   LPSPI6 clock parent selection.
@@ -126,7 +136,8 @@
 /**
  * @brief   Enables DMA5_2 support for the DDR DMA self-test.
  */
-#define IMX95_EDMA_USE_DMA5_2               IMX95_SPI_USE_LPSPI6
+#define IMX95_EDMA_USE_DMA5_2               (IMX95_SPI_USE_LPSPI3 ||       \
+                                              IMX95_SPI_USE_LPSPI6)
 
 /**
  * @brief   Enables verbose DMA self-test diagnostics.
@@ -143,14 +154,18 @@
 /*===========================================================================*/
 
 /**
- * @brief   LPUART3 driver enable switch.
+ * @brief   LPUART driver enable switches.
  */
-#define IMX95_SERIAL_USE_LPUART3            TRUE
+#define IMX95_SERIAL_USE_LPUART1            FALSE
+#define IMX95_SERIAL_USE_LPUART2            TRUE
+#define IMX95_SERIAL_USE_LPUART3            FALSE
+#define IMX95_SERIAL_USE_LPUART4            FALSE
+#define IMX95_SERIAL_USE_LPUART5            FALSE
 
 /**
- * @brief   LPUART3 interrupt priority level.
+ * @brief   LPUART2 interrupt priority level.
  */
-#define IMX95_SERIAL_LPUART3_PRIORITY       9U
+#define IMX95_SERIAL_LPUART2_PRIORITY       9U
 
 /**
  * @brief   Number of bytes preloaded into the TX FIFO per service cycle.
@@ -162,9 +177,20 @@
 /*===========================================================================*/
 
 /**
- * @brief   LPSPI6 driver enable switch.
+ * @brief   LPSPI driver enable switches.
  */
+#define IMX95_SPI_USE_LPSPI3                TRUE
+#define IMX95_SPI_USE_LPSPI4                FALSE
+#define IMX95_SPI_USE_LPSPI5                FALSE
 #define IMX95_SPI_USE_LPSPI6                TRUE
+#define IMX95_SPI_USE_LPSPI7                FALSE
+#define IMX95_SPI_USE_LPSPI8                FALSE
+
+/**
+ * @brief   DMA5_2 RX/TX channels assigned to LPSPI3.
+ */
+#define IMX95_SPI_LPSPI3_RX_DMA_CHANNEL     0U
+#define IMX95_SPI_LPSPI3_TX_DMA_CHANNEL     1U
 
 /**
  * @brief   DMA5_2 RX channel assigned to LPSPI6.
