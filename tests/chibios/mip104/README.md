@@ -47,4 +47,4 @@ PA10 <-> PB16
 ```
 
 The same wiring supports both SPI targets; changing the target reverses the
-master/slave roles and signal directions.
+master/slave roles and the board's DATA_READY signal directions.

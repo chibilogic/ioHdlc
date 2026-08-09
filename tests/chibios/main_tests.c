@@ -186,7 +186,8 @@ static THD_FUNCTION(TestRunner, arg) {
              "❌ Some Tests Failed\r\n\r\n");
   }
   /* Deinitialize test adapter */
-  TEST_ADAPTER->deinit();
+  if (TEST_ADAPTER->deinit)
+    TEST_ADAPTER->deinit();
   /* Tests completed - loop forever */
   while (true) {
     chThdSleepMilliseconds(1000);

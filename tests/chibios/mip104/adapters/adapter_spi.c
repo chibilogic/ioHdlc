@@ -43,40 +43,13 @@ static ioHdlcStreamChibiosSpi spi_endpoint_b_obj;
 static ioHdlcStreamPort port_a;
 static ioHdlcStreamPort port_b;
 
-static void spi_dr_callback(void *arg) {
-  chSysLockFromISR();
-  ioHdlcStreamSpiDataReadyI((ioHdlcStreamChibiosSpi *)arg);
-  chSysUnlockFromISR();
-}
-
 static void adapter_spi_init(void) {
-  palDisableLineEvent(TEST_SPI_DR_LINE_A);
-  palClearLine(TEST_SPI_DR_LINE_A);
-  palClearLine(TEST_SPI_DR_LINE_B);
-  palSetLineMode(TEST_SPI_DR_LINE_A,
-                 PAL_MODE_INPUT_PULLDOWN | PAL_MODE_SECURE);
-  palSetLineMode(TEST_SPI_DR_LINE_B,
-                 PAL_MODE_OUTPUT_PUSHPULL | PAL_MODE_SECURE);
-
   ioHdlcStreamPortChibiosSpiObjectInit(&port_a, &spi_endpoint_a_obj,
                                        &TEST_SPI_ENDPOINT_A, &spi_cfg_a,
                                        true, TEST_SPI_DR_LINE_A);
   ioHdlcStreamPortChibiosSpiObjectInit(&port_b, &spi_endpoint_b_obj,
                                        &TEST_SPI_ENDPOINT_B, &spi_cfg_b,
                                        false, TEST_SPI_DR_LINE_B);
-  palSetLineCallback(TEST_SPI_DR_LINE_A, spi_dr_callback,
-                     &spi_endpoint_a_obj);
-  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_BOTH_EDGES);
-}
-
-static void adapter_spi_deinit(void) {
-  palDisableLineEvent(TEST_SPI_DR_LINE_A);
-  palClearLine(TEST_SPI_DR_LINE_A);
-  palClearLine(TEST_SPI_DR_LINE_B);
-  palSetLineMode(TEST_SPI_DR_LINE_A,
-                 PAL_MODE_INPUT_PULLDOWN | PAL_MODE_SECURE);
-  palSetLineMode(TEST_SPI_DR_LINE_B,
-                 PAL_MODE_INPUT_PULLDOWN | PAL_MODE_SECURE);
 }
 
 static void adapter_spi_configure_timing(uint32_t reply_timeout_ms) {
@@ -95,7 +68,7 @@ static ioHdlcStreamPort adapter_spi_get_port_b(void) {
 const test_adapter_t spi_adapter = {
   .name = TEST_SPI_ADAPTER_NAME,
   .init = adapter_spi_init,
-  .deinit = adapter_spi_deinit,
+  .deinit = NULL,
   .reset = NULL,
   .configure_timing = adapter_spi_configure_timing,
   .get_port_a = adapter_spi_get_port_a,

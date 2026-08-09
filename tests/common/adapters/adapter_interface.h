@@ -45,6 +45,7 @@ typedef struct {
   
   /**
    * @brief Deinitialize adapter and release resources.
+   * @details Optional: If NULL, no teardown is required.
    */
   void (*deinit)(void);
   

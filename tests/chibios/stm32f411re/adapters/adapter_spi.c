@@ -87,14 +87,6 @@ static ioHdlcStreamPort port_b;
 /* Adapter implementation                                                    */
 /*===========================================================================*/
 
-static void spi_dr_callback(void *arg) {
-  /* Called from PAL/EXTI ISR when slave asserts DATA_READY.
-   * I-class functions inside DataReadyI require the system lock. */
-  chSysLockFromISR();
-  ioHdlcStreamSpiDataReadyI((ioHdlcStreamChibiosSpi *)arg);
-  chSysUnlockFromISR();
-}
-
 static void adapter_spi_init(void) {
   /* Endpoint A: SPI master */
   ioHdlcStreamPortChibiosSpiObjectInit(&port_a, &spi_endpoint_a_obj,
@@ -105,15 +97,6 @@ static void adapter_spi_init(void) {
   ioHdlcStreamPortChibiosSpiObjectInit(&port_b, &spi_endpoint_b_obj,
                                        &TEST_SPI_ENDPOINT_B, &spi_cfg_b,
                                        false, TEST_SPI_DR_LINE_B);
-
-  /* Register DATA_READY callback and keep EXTI permanently enabled.  Both
-   * edges delimit the physical slave-packet epoch. */
-  palSetLineCallback(TEST_SPI_DR_LINE_A, spi_dr_callback, &spi_endpoint_a_obj);
-  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_BOTH_EDGES);
-}
-
-static void adapter_spi_deinit(void) {
-  palDisableLineEvent(TEST_SPI_DR_LINE_A);
 }
 
 static ioHdlcStreamPort adapter_spi_get_port_a(void) {
@@ -131,7 +114,7 @@ static ioHdlcStreamPort adapter_spi_get_port_b(void) {
 const test_adapter_t spi_adapter = {
   .name                    =  "SPI Hardware",
   .init                    =  adapter_spi_init,
-  .deinit                  =  adapter_spi_deinit,
+  .deinit                  =  NULL,
   .reset                   =  NULL,
   .get_port_a              =  adapter_spi_get_port_a,
   .get_port_b              =  adapter_spi_get_port_b,

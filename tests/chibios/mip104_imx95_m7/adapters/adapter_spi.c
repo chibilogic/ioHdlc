@@ -38,12 +38,6 @@ static SPIConfig spi_cfg_a = {
 static ioHdlcStreamChibiosSpi spi_endpoint_a_obj;
 static ioHdlcStreamPort port_a;
 
-static void spi_dr_callback(void *arg) {
-  chSysLockFromISR();
-  ioHdlcStreamSpiDataReadyI((ioHdlcStreamChibiosSpi *)arg);
-  chSysUnlockFromISR();
-}
-
 static void adapter_spi_init(void) {
   uint32_t actual_baud;
 
@@ -57,13 +51,6 @@ static void adapter_spi_init(void) {
                                        &spi_cfg_a,
                                        true,
                                        TEST_SPI_DR_LINE_A);
-
-  palSetLineCallback(TEST_SPI_DR_LINE_A, spi_dr_callback, &spi_endpoint_a_obj);
-  palEnableLineEvent(TEST_SPI_DR_LINE_A, PAL_EVENT_MODE_BOTH_EDGES);
-}
-
-static void adapter_spi_deinit(void) {
-  palDisableLineEvent(TEST_SPI_DR_LINE_A);
 }
 
 static ioHdlcStreamPort adapter_spi_get_port_a(void) {
@@ -79,7 +66,7 @@ static ioHdlcStreamPort adapter_spi_get_port_b(void) {
 const test_adapter_t spi_adapter = {
   .name = "SPI Hardware",
   .init = adapter_spi_init,
-  .deinit = adapter_spi_deinit,
+  .deinit = NULL,
   .reset = NULL,
   .configure_timing = NULL,
   .get_port_a = adapter_spi_get_port_a,
