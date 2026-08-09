@@ -22,7 +22,8 @@
  *          exclusive. DATA_READY is part of the SPI physical protocol: masters
  *          wait for the slave notification before clocking RX data.
  *
- * @note    The adapter installs the SPI completion callbacks at start time.
+ * @note    The board configures the DATA_READY pin mode and idle level. The
+ *          port installs SPI and DATA_READY callbacks at start time.
  * @note    SPI links transmit octets MSB-first, following the usual SPI wire
  *          convention. Timing and select-mode fields remain under caller and
  *          platform control.
@@ -87,8 +88,9 @@ typedef struct ioHdlcStreamChibiosSpi {
  * @param[out] obj        object storage provided by the caller
  * @param[in]  spip       ChibiOS SPI driver instance (e.g. &SPID1)
  * @param[in]  cfgp       SPI configuration; completion callbacks are installed
- *                        by the adapter at start time
+ *                        by the port at start time
  * @param[in]  is_master  true if this node drives the SPI clock
+ * @param[in]  dr_line    board-configured DATA_READY line
  */
 void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
                                           ioHdlcStreamChibiosSpi *obj,
@@ -104,13 +106,6 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
  */
 void ioHdlcStreamSpiSetSlaveWatchdogDelay(ioHdlcStreamChibiosSpi *obj,
                                           uint32_t delay_us);
-
-/**
- * @brief   Called from a PAL event callback on DATA_READY edges.
- * @note    Must be called from ISR context (PAL callback).
- * @param[in] ctx  master SPI context registered for this DATA_READY line.
- */
-void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx);
 
 void ioHdlcStreamSpiSlaveOverrunI(ioHdlcStreamChibiosSpi *ctx);
 

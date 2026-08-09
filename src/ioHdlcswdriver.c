@@ -1121,15 +1121,14 @@ static void s_on_tx_done(void *cb_ctx, void *framep) {
  * @details Unlike @ref s_on_tx_done, this callback does not complete an
  *          in-flight frame. It only retries the swdriver raw TX queue after a
  *          non-TX transport condition stopped blocking transmission.
+ * @note    Called with the OSAL system lock held and returns with it held.
  */
 static void s_on_tx_ready_i(void *cb_ctx) {
 #ifndef IOHDLC_USE_MOCK_ADAPTER
   ioHdlcSwDriver *drv = (ioHdlcSwDriver *)cb_ctx;
   iohdlc_frame_t *failed_fp;
 
-  iohdlc_sys_lock_isr();
   failed_fp = s_try_start_next_tx_i(drv, true);
-  iohdlc_sys_unlock_isr();
 
   if (failed_fp)
     hdlcReleaseFrame(drv->fpp, failed_fp);

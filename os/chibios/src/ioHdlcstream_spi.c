@@ -333,9 +333,8 @@ static void chb_spi_data_cb(SPIDriver *spip) {
       chSysLockFromISR();
       ctx->rx_active = false;
       (void)chb_spi_try_start_master_rx_i(ctx);
-      chSysUnlockFromISR();
-
       ctx->cbs->on_tx_ready_i(ctx->cbs->cb_ctx);
+      chSysUnlockFromISR();
     }
   }
 }
@@ -442,6 +441,55 @@ void ioHdlcStreamSpiSlaveOverrunI(ioHdlcStreamChibiosSpi *ctx) {
   }
 }
 
+/**
+ * @brief   Handles a change on the slave DATA_READY line.
+ * @details A rising edge grants one clocking credit. The falling edge closes
+ *          the physical slave-packet epoch and releases TX-collision recovery.
+ *          START RX consumes the captured edge; CONTINUE RX is allowed while
+ *          the credit remains.
+ * @note    Must be called from I-class context with the system lock held.
+ */
+static void chb_spi_data_ready_i(ioHdlcStreamChibiosSpi *ctx) {
+  bool dr_high;
+
+  chDbgAssert(ctx->is_master, "spi DR event on slave");
+
+  if (!ctx->started)
+    return;
+
+  dr_high = palReadLine(ctx->dr_line) != PAL_LOW;
+  if (!dr_high) {
+    ctx->dr_epoch_active = false;
+    ctx->dr_captured = false;
+    ctx->dr_collision = false;
+    ctx->rx_allowed = false;
+    ctx->cbs->on_tx_ready_i(ctx->cbs->cb_ctx);
+    return;
+  }
+
+  ctx->dr_epoch_active = true;
+
+  if (ctx->tx_active) {
+    void *tx_framep = chb_spi_abort_master_tx_i(ctx);
+    ctx->cbs->on_tx_error_i(ctx->cbs->cb_ctx, tx_framep, IOHDLC_STREAM_ERR_OTHER);
+    return;
+  }
+
+  if (ctx->dr_collision)
+    return;
+
+  if (!ctx->rx_allowed)
+    ctx->dr_captured = true;
+
+  (void)chb_spi_try_start_master_rx_i(ctx);
+}
+
+static void chb_spi_dr_cb(void *arg) {
+  chSysLockFromISR();
+  chb_spi_data_ready_i((ioHdlcStreamChibiosSpi *)arg);
+  chSysUnlockFromISR();
+}
+
 /*===========================================================================*/
 /* Port ops implementation.                                                  */
 /*===========================================================================*/
@@ -506,7 +554,11 @@ static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
     spiUnselect(ctx->spip);
   ctx->started = true;
   ioHdlcStreamSpiPlatformStart(ctx);
-  if (!ctx->is_master)
+  if (ctx->is_master) {
+    palSetLineCallback(ctx->dr_line, chb_spi_dr_cb, ctx);
+    palEnableLineEvent(ctx->dr_line, PAL_EVENT_MODE_BOTH_EDGES);
+  }
+  else
     chVTSet(&ctx->slave_watchdog_vt, TIME_US2I(IOHDLC_SPI_SLAVE_WATCHDOG_PERIOD_US),
             chb_spi_slave_watchdog_cb, ctx);
 }
@@ -514,6 +566,9 @@ static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
 static void chb_spi_stop(void *vctx) {
   ioHdlcStreamChibiosSpi *ctx = (ioHdlcStreamChibiosSpi *)vctx;
   bool slave_aborted = false;
+
+  if (ctx->is_master)
+    palDisableLineEvent(ctx->dr_line);
 
   /* Disarm the software state before aborting the hardware transfer.  A
    * DATA_READY IRQ can otherwise re-enter and submit RX during teardown. */
@@ -725,50 +780,6 @@ static void chb_spi_rx_cancel(void *vctx) {
   }
 }
 
-/**
- * @brief   Called from a board-level PAL event callback when the slave
- *          DATA_READY line changes state.
- * @details DATA_READY rising edge grants one clocking credit. The falling edge
- *          closes the physical slave-packet epoch and releases TX-collision
- *          recovery. START RX consumes the captured edge; CONTINUE RX is
- *          allowed while the credit remains.
- * @note    Must be called from ISR context.
- */
-void ioHdlcStreamSpiDataReadyI(ioHdlcStreamChibiosSpi *ctx) {
-  bool dr_high;
-
-  chDbgAssert(ctx->is_master, "spi DR event on slave");
-
-  if (!ctx->started)
-    return;
-
-  dr_high = palReadLine(ctx->dr_line) != PAL_LOW;
-  if (!dr_high) {
-    ctx->dr_epoch_active = false;
-    ctx->dr_captured = false;
-    ctx->dr_collision = false;
-    ctx->rx_allowed = false;
-    ctx->cbs->on_tx_ready_i(ctx->cbs->cb_ctx);
-    return;
-  }
-
-  ctx->dr_epoch_active = true;
-
-  if (ctx->tx_active) {
-    void *tx_framep = chb_spi_abort_master_tx_i(ctx);
-    ctx->cbs->on_tx_error_i(ctx->cbs->cb_ctx, tx_framep, IOHDLC_STREAM_ERR_OTHER);
-    return;
-  }
-
-  if (ctx->dr_collision)
-    return;
-
-  if (!ctx->rx_allowed)
-    ctx->dr_captured = true;
-
-  (void)chb_spi_try_start_master_rx_i(ctx);
-}
-
 static const ioHdlcStreamPortOps chibios_spi_ops = {
   .get_caps  = chb_spi_get_caps,
   .start     = chb_spi_start,
@@ -791,6 +802,7 @@ static const ioHdlcStreamPortOps chibios_spi_ops = {
  * @param[in]  spip       ChibiOS SPI driver instance
  * @param[in]  cfgp       SPI configuration (callbacks are set at start time)
  * @param[in]  is_master  true if this node drives the SPI clock
+ * @param[in]  dr_line    board-configured DATA_READY line
  */
 void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
                                           ioHdlcStreamChibiosSpi *obj,
