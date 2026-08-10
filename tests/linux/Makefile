@@ -15,6 +15,7 @@ COMMON_SCENARIOS_DIR = $(COMMON_DIR)/scenarios
 
 include $(ROOT_DIR)/mk/ioHdlc_version.mk
 include $(ROOT_DIR)/mk/ioHdlc_sources.mk
+include $(ROOT_DIR)/utils/link_manager/ioHdlcLinkManager.mk
 
 # Output
 BUILD_DIR = build
@@ -32,6 +33,7 @@ CFLAGS += -I$(MOCKS_DIR)
 CFLAGS += -I$(COMMON_DIR)
 CFLAGS += -I$(COMMON_DIR)/adapters
 CFLAGS += -I$(LINUX_DIR)
+CFLAGS += -I$(IOHDLC_LINK_MANAGER_INC)
 CFLAGS += -DIOHDLC_USE_POSIX
 CFLAGS += -DIOHDLC_ENABLE_STATISTICS
 CFLAGS += $(IOHDLC_VERSION_DEFS)
@@ -104,6 +106,7 @@ TEST_BASIC_CONNECTION_ABM = test_basic_connection_abm
 TEST_MOD128_ABM = test_mod128_abm
 TEST_OSAL_BSEM = test_osal_bsem
 TEST_OSAL_EVENTS = test_osal_events
+TEST_LINK_MANAGER = test_link_manager
 
 # Object files
 CORE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
@@ -112,6 +115,7 @@ MOCK_OBJS = $(patsubst $(MOCKS_DIR)/%.c,$(OBJ_DIR)/mock_%.o,$(MOCK_SRCS))
 ADAPTER_OBJS = $(patsubst $(COMMON_DIR)/adapters/%.c,$(OBJ_DIR)/%.o,$(ADAPTER_SRCS))
 LINUX_CONFIG_OBJS = $(patsubst $(LINUX_DIR)/%.c,$(OBJ_DIR)/%.o,$(LINUX_CONFIG_SRCS))
 COMMON_OBJS = $(patsubst $(COMMON_DIR)/%.c,$(OBJ_DIR)/common_%.o,$(COMMON_SRCS))
+LINK_MANAGER_OBJS = $(patsubst $(IOHDLC_LINK_MANAGER_DIR)/src/%.c,$(OBJ_DIR)/link_manager_%.o,$(IOHDLC_LINK_MANAGER_SRCS))
 
 # Common test scenario objects (OS-agnostic test logic)
 COMMON_TEST_OBJS = $(patsubst $(COMMON_SCENARIOS_DIR)/%.c,$(OBJ_DIR)/%.o,$(COMMON_TEST_SRCS))
@@ -134,6 +138,7 @@ AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_BSEM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION_ABM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_MOD128_ABM)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_LINK_MANAGER)
 
 # Manual test tools (require command-line parameters)
 MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_EXCHANGE)
@@ -201,6 +206,11 @@ $(OBJ_DIR)/test_runner_%.o: $(LINUX_DIR)/test_runner_%.c | dirs
 	@echo "CC $< (runner)"
 	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
+# Compile optional utility sources
+$(OBJ_DIR)/link_manager_%.o: $(IOHDLC_LINK_MANAGER_DIR)/src/%.c | dirs
+	@echo "CC $< (link manager utility)"
+	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
 # Link test binaries
 $(BIN_DIR)/$(TEST_MOCK_STREAM): $(OBJ_DIR)/test_mock_stream.o $(MOCK_OBJS) $(COMMON_OBJS) $(OSAL_MINIMAL) $(OBJ_DIR)/ioHdlcll.o
 	@echo "LD $@"
@@ -252,6 +262,10 @@ $(BIN_DIR)/$(TEST_OSAL_BSEM): $(OBJ_DIR)/test_osal_bsem.o $(OSAL_MINIMAL) $(COMM
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
 $(BIN_DIR)/$(TEST_OSAL_EVENTS): $(OBJ_DIR)/test_osal_events.o $(OSAL_MINIMAL) $(COMMON_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/$(TEST_LINK_MANAGER): $(OBJ_DIR)/test_link_manager.o $(LINK_MANAGER_OBJS) $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 

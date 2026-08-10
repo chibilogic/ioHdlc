@@ -118,6 +118,7 @@ ifeq ($(SHELL_TARGET),1)
 endif
 
 include $(OS_CHIBIOS_DIR)/ioHdlcBinding.mk
+include $(ROOT_DIR)/utils/link_manager/ioHdlcLinkManager.mk
 
 LDSCRIPT = $(TARGET_LDSCRIPT)
 
@@ -163,6 +164,7 @@ endif
 
 CSRC = $(ALLCSRC) \
        $(IOHDLC_CORE_SRCS) \
+       $(IOHDLC_LINK_MANAGER_SRCS) \
        $(CHIBIOS_CONFIG_SRCS) \
        $(COMMON_TEST_SRCS) \
        $(FRONTEND_SRCS) \
@@ -180,6 +182,7 @@ ASMXSRC = $(ALLXASMSRC)
 
 INCDIR = $(CONFDIR) \
          $(INCLUDE_DIR) \
+         $(IOHDLC_LINK_MANAGER_INC) \
          $(OS_CHIBIOS_DIR)/include \
          $(COMMON_DIR) \
          $(COMMON_DIR)/mocks \

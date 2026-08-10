@@ -21,7 +21,7 @@
 #define TEST_SPI_BUS_SISP1    1U
 
 #ifndef TEST_SPI_BUS
-#define TEST_SPI_BUS          TEST_SPI_BUS_SISP0
+#define TEST_SPI_BUS          TEST_SPI_BUS_SISP1
 #endif
 
 #if TEST_SPI_BUS == TEST_SPI_BUS_SISP0
