@@ -443,28 +443,60 @@ void ioHdlcStreamSpiSlaveOverrunI(ioHdlcStreamChibiosSpi *ctx) {
 
 /**
  * @brief   Handles a change on the slave DATA_READY line.
- * @details A rising edge grants one clocking credit. The falling edge closes
- *          the physical slave-packet epoch and releases TX-collision recovery.
- *          START RX consumes the captured edge; CONTINUE RX is allowed while
- *          the credit remains.
+ * @details The previous and current levels distinguish individual edges from
+ *          a low pulse completed before this callback runs. A rising edge
+ *          grants one clocking credit and a falling edge closes the physical
+ *          slave-packet epoch. START RX consumes the captured edge; CONTINUE
+ *          RX is allowed while the credit remains.
  * @note    Must be called from I-class context with the system lock held.
  */
 static void chb_spi_data_ready_i(ioHdlcStreamChibiosSpi *ctx) {
   bool dr_high;
+  bool dr_was_high;
 
   chDbgAssert(ctx->is_master, "spi DR event on slave");
 
   if (!ctx->started)
     return;
 
+  dr_was_high = ctx->dr_last_high;
   dr_high = palReadLine(ctx->dr_line) != PAL_LOW;
-  if (!dr_high) {
+  ctx->dr_last_high = dr_high;
+
+  /* A complete high pulse was compressed before the callback ran. */
+  if (!dr_was_high && !dr_high) {
+    if (ctx->tx_active) {
+      void *tx_framep = chb_spi_abort_master_tx_i(ctx);
+
+      ctx->dr_collision = false;
+      ctx->dr_epoch_active = false;
+      ctx->dr_captured = false;
+      ctx->rx_allowed = false;
+      ctx->cbs->on_tx_error_i(ctx->cbs->cb_ctx, tx_framep,
+                              IOHDLC_STREAM_ERR_OTHER);
+    }
+    else {
+      ctx->dr_epoch_active = false;
+      ctx->dr_captured = false;
+      ctx->dr_collision = false;
+      ctx->rx_allowed = false;
+      ctx->cbs->on_tx_ready_i(ctx->cbs->cb_ctx);
+    }
+    return;
+  }
+
+  /* Equal high levels imply a falling edge followed by a rising edge. */
+  if (dr_was_high) {
     ctx->dr_epoch_active = false;
     ctx->dr_captured = false;
     ctx->dr_collision = false;
     ctx->rx_allowed = false;
-    ctx->cbs->on_tx_ready_i(ctx->cbs->cb_ctx);
-    return;
+    if (!dr_high) {
+      ctx->cbs->on_tx_ready_i(ctx->cbs->cb_ctx);
+      return;
+    }
+    /* The sampled rising starts this epoch; discard its pending duplicate. */
+    ioHdlcStreamSpiPlatformClearDrPendingI(ctx);
   }
 
   ctx->dr_epoch_active = true;
@@ -528,6 +560,7 @@ static void chb_spi_start(void *vctx, const ioHdlcStreamCallbacks *cbs,
   ctx->slave_rx_watchdog_ticks = 0U;
   ctx->slave_tx_watchdog_ticks = 0U;
   ctx->rx_allowed = false;
+  ctx->dr_last_high = false;
   ctx->dr_epoch_active = false;
   ctx->dr_captured = false;
   ctx->dr_collision = false;
@@ -574,6 +607,7 @@ static void chb_spi_stop(void *vctx) {
    * DATA_READY IRQ can otherwise re-enter and submit RX during teardown. */
   chSysLock();
   ctx->started   = false;
+  ctx->dr_last_high = false;
   ctx->dr_epoch_active = false;
   ctx->dr_captured = false;
   ctx->dr_collision = false;
@@ -817,6 +851,7 @@ void ioHdlcStreamPortChibiosSpiObjectInit(ioHdlcStreamPort *port,
   ioHdlcStreamSpiPlatformPrepareConfig(obj);
   obj->started   = false;
   obj->dr_line   = dr_line;
+  obj->dr_last_high = false;
   obj->dr_epoch_active = false;
   obj->dr_captured = false;
   obj->dr_collision = false;

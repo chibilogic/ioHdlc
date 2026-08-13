@@ -76,6 +76,7 @@ typedef struct ioHdlcStreamChibiosSpi {
   /* Master: input monitored via PAL event; slave: output asserted on TX send.  */
   ioline_t                      dr_line;    /**< DATA_READY GPIO line           */
   /* Master only: DATA_READY edge state. */
+  bool                          dr_last_high; /**< Last observed DATA_READY level */
   bool                          dr_epoch_active; /**< DATA_READY physical epoch */
   bool                          dr_captured; /**< Unconsumed DATA_READY edge     */
   bool                          dr_collision; /**< DR seen while master was TX   */

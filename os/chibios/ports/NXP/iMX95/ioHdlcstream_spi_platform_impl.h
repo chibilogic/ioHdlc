@@ -24,6 +24,21 @@ static inline void ioHdlcStreamSpiPlatformPrepareConfig(
 }
 
 /**
+ * @brief   Clears a pending DATA_READY event already consumed by the adapter.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+static inline void ioHdlcStreamSpiPlatformClearDrPendingI(
+    ioHdlcStreamChibiosSpi *ctx) {
+  ioportid_t port = PAL_PORT(ctx->dr_line);
+  ioportmask_t mask = PAL_PORT_BIT(PAL_PAD(ctx->dr_line));
+
+  /* RGPIO has separate low and high interrupt status banks. */
+  port->ISFR[0U] = mask;
+  port->ISFR[1U] = mask;
+}
+
+/**
  * @brief   Prepares a slave RX transfer.
  *
  * @param[in] ctx       SPI stream context

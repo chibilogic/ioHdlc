@@ -24,6 +24,19 @@ static inline void ioHdlcStreamSpiPlatformPrepareConfig(
 }
 
 /**
+ * @brief   Handles a pending DATA_READY event already consumed by the adapter.
+ * @details SAMA PIO status is read-to-clear for the whole port, so no safe
+ *          selective clear is available.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+static inline void ioHdlcStreamSpiPlatformClearDrPendingI(
+    ioHdlcStreamChibiosSpi *ctx) {
+
+  (void)ctx;
+}
+
+/**
  * @brief   Stops both DMA channels and clears the SPI FIFOs.
  *
  * @param[in] ctx       SPI stream context

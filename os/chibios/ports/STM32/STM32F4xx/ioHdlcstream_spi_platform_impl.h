@@ -22,6 +22,16 @@ static inline void ioHdlcStreamSpiPlatformPrepareConfig(ioHdlcStreamChibiosSpi *
 }
 
 /**
+ * @brief   Clears a pending DATA_READY event already consumed by the adapter.
+ *
+ * @param[in] ctx       SPI stream context
+ */
+static inline void ioHdlcStreamSpiPlatformClearDrPendingI(
+    ioHdlcStreamChibiosSpi *ctx) {
+  extiClearGroup1(EXTI_MASK1(PAL_PAD(ctx->dr_line)));
+}
+
+/**
  * @brief   Prepares a slave RX transfer.
  *
  * @param[in] ctx       SPI stream context
