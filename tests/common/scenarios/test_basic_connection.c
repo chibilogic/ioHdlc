@@ -57,6 +57,30 @@ typedef struct {
   size_t last_total_len;
 } test_fcs_backend_probe_t;
 
+typedef struct {
+  iohdlc_station_peer_t *peerp;
+  iohdlc_binary_semaphore_t started;
+  const uint8_t *datap;
+  size_t size;
+  ssize_t result;
+  int error;
+} reset_write_context_t;
+
+static uint8_t reset_write_payload[2U * FRAME_SIZE];
+
+/**
+ * @brief   Runs the logical write interrupted by the recovery SNRM test.
+ */
+static void *reset_write_thread(void *arg) {
+  reset_write_context_t *contextp = arg;
+
+  iohdlc_bsem_signal(&contextp->started);
+  contextp->result = ioHdlcWriteTmo(contextp->peerp, contextp->datap,
+                                    contextp->size, 1000U);
+  contextp->error = iohdlc_errno;
+  return NULL;
+}
+
 static bool test_fcs_backend_check(void *fcs_backend_ctx, uint8_t fcs_size,
                                    const uint8_t *buf, size_t total_len) {
   test_fcs_backend_probe_t *probe = (test_fcs_backend_probe_t *)fcs_backend_ctx;
@@ -517,6 +541,192 @@ bool test_read_never_connected_returns_enotconn(void) {
   TEST_ASSERT(iohdlc_errno == ENOTCONN, "Never-connected read should report ENOTCONN");
 
   return 0;
+}
+
+bool test_read_reports_pending_terminal(void) {
+  iohdlc_station_t station;
+  uint8_t frame_arena[1024];
+  ioHdlcDriver mock_driver;
+  iohdlc_station_peer_t peer;
+  char dummy = 0;
+  int32_t result;
+  ssize_t received;
+
+  result = init_test_station(&station, frame_arena, &mock_driver, PRIMARY_ADDR);
+  TEST_ASSERT(result == 0, "Station init should succeed");
+
+  result = ioHdlcAddPeer(&station, &peer, SECONDARY_ADDR);
+  TEST_ASSERT(result == 0, "Peer add should succeed");
+
+  peer.ss_state = IOHDLC_SS_ST_CONN;
+  peer.stream_terminal_pending = IOHDLC_SS_TERM_ABORTED |
+                                 IOHDLC_STREAM_TX_RESET_PENDING;
+  received = ioHdlcReadTmo(&peer, &dummy, 1U, 0U);
+  TEST_ASSERT(received == -1,
+              "Reconnected read should report the pending abort");
+  TEST_ASSERT(iohdlc_errno == ECONNRESET,
+              "Pending abort should report ECONNRESET");
+  TEST_ASSERT(peer.stream_terminal_pending ==
+              IOHDLC_STREAM_TX_RESET_PENDING,
+              "Reader should only consume the pending RX abort");
+
+  peer.stream_terminal_pending = IOHDLC_SS_TERM_ORDERLY;
+  received = ioHdlcReadTmo(&peer, &dummy, 1U, 0U);
+  TEST_ASSERT(received == 0,
+              "Reconnected read should report the pending orderly EOF");
+  TEST_ASSERT(peer.stream_terminal_pending == 0U,
+              "Reader should consume the pending orderly EOF");
+
+  return 0;
+}
+
+bool test_connected_snrm_resets_stream_io(const test_adapter_t *adapter) {
+  int test_result = 0;
+  test_link_pair_t pair;
+  reset_write_context_t write_context = {0};
+  reset_write_context_t queued_write_context = {0};
+  iohdlc_thread_t *write_thread = NULL;
+  iohdlc_thread_t *queued_write_thread = NULL;
+  const char message[] = "New HDLC stream";
+  const char queued_message[] = "Queued after reset";
+  char receive_buffer[sizeof message];
+  char queued_receive_buffer[sizeof queued_message];
+  char dummy;
+  uint32_t writer_margin;
+  uint32_t writer_limit;
+  uint32_t wait_count;
+  ssize_t transferred;
+  int32_t result;
+  bool write_active = false;
+
+  result = init_test_link_pair(adapter, &pair,
+                               IOHDLC_OM_NDM, IOHDLC_FLG_PRI,
+                               IOHDLC_OM_NDM, 0U);
+  TEST_ASSERT_GOTO(result == 0, "Link pair init failed");
+
+  result = ioHdlcRunnerStart(&pair.station_primary);
+  TEST_ASSERT_GOTO(result == 0, "Primary runner start failed");
+  result = ioHdlcRunnerStart(&pair.station_secondary);
+  TEST_ASSERT_GOTO(result == 0, "Secondary runner start failed");
+  ioHdlc_sleep_ms(50U);
+
+  result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
+                               IOHDLC_OM_NRM);
+  TEST_ASSERT_GOTO(result == 0, "Initial LinkUp failed");
+
+  /* Let one fragment enter the old stream, then hold the second fragment in
+     flow control until the recovery SNRM terminates the active write. */
+  writer_margin = pair.peer_at_secondary.ks /
+                  IOHDLC_WRITER_PENDING_MARGIN_DIVISOR;
+  if (writer_margin < IOHDLC_WRITER_PENDING_MARGIN_MIN)
+    writer_margin = IOHDLC_WRITER_PENDING_MARGIN_MIN;
+  writer_limit = pair.peer_at_secondary.ks + writer_margin;
+  TEST_ASSERT_GOTO(pair.peer_at_secondary.mifls + 1U <=
+                   sizeof reset_write_payload,
+                   "Reset write payload is too small");
+  iohdlc_mutex_lock(&pair.peer_at_secondary.state_mutex);
+  pair.peer_at_secondary.i_pending_count = writer_limit - 1U;
+  iohdlc_mutex_unlock(&pair.peer_at_secondary.state_mutex);
+  write_context.peerp = &pair.peer_at_secondary;
+  write_context.datap = reset_write_payload;
+  write_context.size = pair.peer_at_secondary.mifls + 1U;
+  iohdlc_bsem_init(&write_context.started, true);
+  write_thread = iohdlc_thread_create("reset_writer", 0U, 0,
+                                      reset_write_thread, &write_context);
+  TEST_ASSERT_GOTO(write_thread != NULL, "Reset writer creation failed");
+  TEST_ASSERT_GOTO(iohdlc_bsem_wait_timeout(&write_context.started, 1000U) ==
+                   MSG_OK, "Reset writer did not start");
+  for (wait_count = 0U; wait_count < 1000U; ++wait_count) {
+    iohdlc_mutex_lock(&pair.peer_at_secondary.state_mutex);
+    write_active = (pair.peer_at_secondary.ss_state &
+                    IOHDLC_SS_SENDING) != 0U;
+    iohdlc_mutex_unlock(&pair.peer_at_secondary.state_mutex);
+    if (write_active)
+      break;
+    ioHdlc_sleep_ms(1U);
+  }
+  TEST_ASSERT_GOTO(write_active, "Reset writer was not admitted");
+
+  /* This complete write remains behind write_gate. It has not entered the old
+     stream and must be admitted on the connection established by the SNRM. */
+  queued_write_context.peerp = &pair.peer_at_secondary;
+  queued_write_context.datap = (const uint8_t *)queued_message;
+  queued_write_context.size = sizeof queued_message;
+  iohdlc_bsem_init(&queued_write_context.started, true);
+  queued_write_thread = iohdlc_thread_create(
+      "queued_writer", 0U, 0, reset_write_thread, &queued_write_context);
+  TEST_ASSERT_GOTO(queued_write_thread != NULL,
+                   "Queued writer creation failed");
+  TEST_ASSERT_GOTO(
+      iohdlc_bsem_wait_timeout(&queued_write_context.started, 1000U) ==
+      MSG_OK, "Queued writer did not start");
+  ioHdlc_sleep_ms(10U);
+
+  /* Model asymmetric NRM loss: only the primary detects the failure. The
+     secondary remains connected until the next SNRM resets its session. */
+  iohdlc_mutex_lock(&pair.peer_at_primary.state_mutex);
+  pair.peer_at_primary.ss_state &= (uint8_t)~IOHDLC_SS_ST_CONN;
+  pair.peer_at_primary.ss_state |= IOHDLC_SS_TERM_ABORTED;
+  pair.station_primary.connected_count--;
+  iohdlc_mutex_unlock(&pair.peer_at_primary.state_mutex);
+
+  result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
+                               IOHDLC_OM_NRM);
+  TEST_ASSERT_GOTO(result == 0, "Recovery LinkUp failed");
+  iohdlc_thread_join(write_thread);
+  write_thread = NULL;
+  iohdlc_thread_join(queued_write_thread);
+  queued_write_thread = NULL;
+  TEST_ASSERT_GOTO(write_context.result == -1,
+                   "Old-stream write should fail across connected SNRM");
+  TEST_ASSERT_GOTO(write_context.error == ECONNRESET,
+                   "Old-stream write should report ECONNRESET");
+  TEST_ASSERT_GOTO(queued_write_context.result ==
+                   (ssize_t)sizeof queued_message,
+                   "Writer waiting at the gate should enter the new stream");
+  TEST_ASSERT_GOTO(pair.peer_at_secondary.stream_terminal_pending ==
+                   IOHDLC_SS_TERM_ABORTED,
+                   "Connected SNRM should terminate the previous RX stream");
+
+  transferred = ioHdlcReadTmo(&pair.peer_at_primary, queued_receive_buffer,
+                               sizeof queued_receive_buffer, 500U);
+  TEST_ASSERT_GOTO(transferred == (ssize_t)sizeof queued_message,
+                   "Queued new-stream write was not delivered");
+  TEST_ASSERT_GOTO(memcmp(queued_receive_buffer, queued_message,
+                          sizeof queued_message) == 0,
+                   "Queued new-stream data mismatch");
+
+  transferred = ioHdlcReadTmo(&pair.peer_at_secondary, &dummy, 1U, 0U);
+  TEST_ASSERT_GOTO(transferred == -1,
+                   "First read after connected SNRM should fail");
+  TEST_ASSERT_GOTO(iohdlc_errno == ECONNRESET,
+                   "Connected SNRM should report ECONNRESET");
+
+  transferred = ioHdlcWriteTmo(&pair.peer_at_primary, message,
+                                sizeof message, 500U);
+  TEST_ASSERT_GOTO(transferred == (ssize_t)sizeof message,
+                   "New-stream write failed");
+  transferred = ioHdlcReadTmo(&pair.peer_at_secondary, receive_buffer,
+                               sizeof receive_buffer, 500U);
+  TEST_ASSERT_GOTO(transferred == (ssize_t)sizeof message,
+                   "New-stream read failed");
+  TEST_ASSERT_GOTO(memcmp(receive_buffer, message, sizeof message) == 0,
+                   "New-stream data mismatch");
+
+test_cleanup:
+  if (write_thread != NULL || queued_write_thread != NULL) {
+    iohdlc_mutex_lock(&pair.peer_at_secondary.state_mutex);
+    pair.peer_at_secondary.stream_terminal_pending |=
+        IOHDLC_STREAM_TX_RESET_PENDING;
+    pair.peer_at_secondary.i_pending_count = 0U;
+    iohdlc_condvar_broadcast(&pair.peer_at_secondary.tx_cv);
+    iohdlc_mutex_unlock(&pair.peer_at_secondary.state_mutex);
+  }
+  iohdlc_thread_join(write_thread);
+  iohdlc_thread_join(queued_write_thread);
+  ioHdlcStationDeinit(&pair.station_primary);
+  ioHdlcStationDeinit(&pair.station_secondary);
+  return test_result;
 }
 
 bool test_vectored_io_validation(void) {
@@ -1485,6 +1695,9 @@ bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(ioHdlcPeerGetState(&peer_at_primary) ==
                    IOHDLC_PEER_STATE_ORDERLY_CLOSED,
                    "Primary peer should report orderly-closed state");
+  TEST_ASSERT_GOTO(peer_at_primary.stream_terminal_pending ==
+                   IOHDLC_SS_TERM_ORDERLY,
+                   "Orderly close should publish a pending RX terminal");
 
   memset(recv_buf, 0, sizeof recv_buf);
   received = ioHdlcReadTmo(&peer_at_primary, recv_buf, sizeof recv_buf, 100);
@@ -1492,9 +1705,14 @@ bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter) {
                    "Primary should still read buffered data after orderly close");
   TEST_ASSERT_GOTO(memcmp(recv_buf, test_msg, msg_len) == 0,
                    "Buffered data should survive orderly close");
+  TEST_ASSERT_GOTO(peer_at_primary.stream_terminal_pending ==
+                   IOHDLC_SS_TERM_ORDERLY,
+                   "Buffered RX should not consume the pending terminal");
   received = ioHdlcReadTmo(&peer_at_primary, recv_buf, sizeof recv_buf, 0);
   TEST_ASSERT_GOTO(received == 0,
                    "Primary should observe EOF once orderly-close RX is drained");
+  TEST_ASSERT_GOTO(peer_at_primary.stream_terminal_pending == 0U,
+                   "Orderly EOF should consume the pending RX terminal");
 
 test_cleanup:
   if (listener_registered)
@@ -1766,6 +1984,21 @@ bool test_connected_link_timeout_emits_lost(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(ioHdlcPeerGetState(&pair.peer_at_primary) ==
                    IOHDLC_PEER_STATE_ABORTED,
                    "Lost peer should report aborted state");
+  TEST_ASSERT_GOTO(pair.peer_at_primary.stream_terminal_pending ==
+                   IOHDLC_SS_TERM_ABORTED,
+                   "Link loss should publish a pending RX abort");
+
+  {
+    char dummy = 0;
+    ssize_t received = ioHdlcReadTmo(&pair.peer_at_primary, &dummy, 1U, 0U);
+
+    TEST_ASSERT_GOTO(received == -1,
+                     "Read should report the pending link loss");
+    TEST_ASSERT_GOTO(iohdlc_errno == ECONNRESET,
+                     "Pending link loss should report ECONNRESET");
+    TEST_ASSERT_GOTO(pair.peer_at_primary.stream_terminal_pending == 0U,
+                     "Read should consume the pending link loss");
+  }
 
 test_cleanup:
   if (listener_registered)

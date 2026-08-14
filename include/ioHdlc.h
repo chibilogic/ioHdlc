@@ -212,7 +212,15 @@
 #define IOHDLC_SS_NEED_P       0x08  /**< Hint that the next suitable command frame should carry P. */
 #define IOHDLC_SS_TERM_ORDERLY 0x10  /**< Peer has been closed orderly; buffered RX data remains readable. */
 #define IOHDLC_SS_TERM_ABORTED 0x20  /**< Peer has terminated abnormally; buffered RX data is stale. */
+#define IOHDLC_SS_SENDING      0x40  /**< A logical stream write is currently admitted. */
 #define IOHDLC_SS_ST_CONN      0x80  /**< Peer is currently connected. */
+
+/* stream_terminal_pending definitions. */
+/** @brief RX terminal results retained across reconnection. */
+#define IOHDLC_STREAM_RX_TERMINAL_MASK    (IOHDLC_SS_TERM_ORDERLY | \
+                                           IOHDLC_SS_TERM_ABORTED)
+/** @brief Reset notification for the currently admitted logical write. */
+#define IOHDLC_STREAM_TX_RESET_PENDING    0x01
 
 /* helper macros */
 /** @brief Test whether the local station is secondary. */
@@ -420,6 +428,7 @@ struct iohdlc_station_peer {
   iohdlc_frame_t *um_rsp_frame; /* Prebuilt/retained frame for an unnumbered response. */
   bool ui_tx_pending;           /* A UI value is pending for transmission. */
   bool ui_rx_pending;           /* A new UI value has been received. */
+  uint8_t stream_terminal_pending; /* Independent RX/TX terminal notifications. */
   uint32_t ui_tx_value;         /* Last UI value requested by the application. */
   uint32_t ui_rx_value;         /* Last UI value received from the peer. */
   const iohdlc_peer_rx_ops_t *rx_ops; /* RX delivery endpoint for accepted I-frames. */
@@ -450,7 +459,8 @@ struct iohdlc_station_peer {
   iohdlc_mutex_t state_mutex;   /* Mutex protecting protocol state variables:
                                    nr, vr, vs, i_pending_count, queues (i_retrans_q, i_trans_q),
                                    chkpt_actioned, rej_actioned, ss_state,
-				   partial_read_frame/offset, and RX stream state. */
+                                   stream_terminal_pending,
+                                   partial_read_frame/offset, and RX stream state. */
   /* partial read state. */
   iohdlc_frame_t *partial_read_frame;  /* Frame being read partially (NULL if none). */
   size_t partial_read_offset;          /* Offset within partial_read_frame's info field. */

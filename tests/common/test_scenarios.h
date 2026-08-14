@@ -52,6 +52,8 @@ bool test_swdriver_fcs_backend_capabilities(void);
 bool test_swdriver_rejects_unsupported_modulo(void);
 bool test_read_zero_length_returns_zero(void);
 bool test_read_never_connected_returns_enotconn(void);
+bool test_read_reports_pending_terminal(void);
+bool test_connected_snrm_resets_stream_io(const test_adapter_t *adapter);
 bool test_vectored_io_validation(void);
 bool test_snrm_handshake(const test_adapter_t *adapter);
 bool test_test_command_disconnected(const test_adapter_t *adapter);

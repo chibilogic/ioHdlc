@@ -1328,7 +1328,9 @@ static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
  * @brief   Write a logical byte sequence described by multiple vectors.
  * @details Serializes the complete operation against other writers on the
  *          peer, greedily fills I-frames across vector boundaries, and applies
- *          one timeout budget to admission and flow-control waits.
+ *          one timeout budget to admission and flow-control waits. A connection
+ *          boundary aborts the complete logical write; its remaining vectors
+ *          are never continued on the new byte stream.
  *
  * @param[in] peer        Peer descriptor.
  * @param[in] iov         Constant input vector array.
@@ -1378,11 +1380,6 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
   if (total == 0U)
     return 0;
 
-  if (IOHDLC_PEER_DISC(peer)) {
-    iohdlc_errno = ENOTCONN;
-    return -1;
-  }
-
   timeout.timeout_ms = timeout_ms;
   timeout.start_ms = timeout_ms == IOHDLC_WAIT_FOREVER ?
                      0U : iohdlc_time_now_ms();
@@ -1395,11 +1392,25 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
   s = peer->stationp;
   remaining = total;
   result = 0;
+  iohdlc_mutex_lock(&peer->state_mutex);
+  if (IOHDLC_PEER_DISC(peer)) {
+    iohdlc_errno = ENOTCONN;
+    result = -1;
+    iohdlc_mutex_unlock(&peer->state_mutex);
+    goto write_gate_done;
+  }
+  IOHDLC_ASSERT((peer->stream_terminal_pending &
+                 IOHDLC_STREAM_TX_RESET_PENDING) == 0U,
+                "stale TX stream terminal");
+  peer->ss_state |= IOHDLC_SS_SENDING;
+  iohdlc_mutex_unlock(&peer->state_mutex);
 
   while (remaining > 0U) {
     iohdlc_mutex_lock(&peer->state_mutex);
 
-    while (!IOHDLC_PEER_DISC(peer) && W_WAIT_COND(s, peer)) {
+    while ((peer->stream_terminal_pending &
+            IOHDLC_STREAM_TX_RESET_PENDING) == 0U &&
+           !IOHDLC_PEER_DISC(peer) && W_WAIT_COND(s, peer)) {
       msg_t wait_result;
 
       if (signal_tx) {
@@ -1411,12 +1422,24 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
           s_api_timeout_remaining(&timeout));
       if (wait_result == MSG_TIMEOUT)
         iohdlc_mutex_lock(&peer->state_mutex);
-      if (wait_result == MSG_TIMEOUT && W_WAIT_COND(s, peer)) {
+      if (wait_result == MSG_TIMEOUT &&
+          (peer->stream_terminal_pending &
+           IOHDLC_STREAM_TX_RESET_PENDING) == 0U &&
+          !IOHDLC_PEER_DISC(peer) && W_WAIT_COND(s, peer)) {
         iohdlc_errno = ETIMEDOUT;
         result = total != remaining ? (ssize_t)(total - remaining) : -1;
         iohdlc_mutex_unlock(&peer->state_mutex);
         goto write_done;
       }
+    }
+
+    if (peer->stream_terminal_pending &
+        IOHDLC_STREAM_TX_RESET_PENDING) {
+      iohdlc_errno = ECONNRESET;
+      result = -1;
+      signal_tx = false;
+      iohdlc_mutex_unlock(&peer->state_mutex);
+      goto write_done;
     }
 
     if (IOHDLC_PEER_DISC(peer)) {
@@ -1467,6 +1490,19 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
     fp->elen = (uint16_t)(info_ptr + chunk_size - fp->frame);
 
     iohdlc_mutex_lock(&peer->state_mutex);
+    if ((peer->stream_terminal_pending &
+         IOHDLC_STREAM_TX_RESET_PENDING) || IOHDLC_PEER_DISC(peer)) {
+      bool stream_reset = (peer->stream_terminal_pending &
+                           IOHDLC_STREAM_TX_RESET_PENDING) != 0U;
+
+      iohdlc_mutex_unlock(&peer->state_mutex);
+      hdlcReleaseFrame(&s->frame_pool, fp);
+      iohdlc_errno = stream_reset ? ECONNRESET : ENOTCONN;
+      result = -1;
+      if (stream_reset)
+        signal_tx = false;
+      goto write_done;
+    }
     ioHdlc_frameq_insert(&peer->i_trans_q, &fp->q);
     peer->i_pending_count++;
     iohdlc_mutex_unlock(&peer->state_mutex);
@@ -1478,8 +1514,20 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
   result = (ssize_t)total;
 
 write_done:
+  iohdlc_mutex_lock(&peer->state_mutex);
+  if (peer->stream_terminal_pending & IOHDLC_STREAM_TX_RESET_PENDING) {
+    peer->stream_terminal_pending &=
+        (uint8_t)~IOHDLC_STREAM_TX_RESET_PENDING;
+    iohdlc_errno = ECONNRESET;
+    result = -1;
+    signal_tx = false;
+  }
+  peer->ss_state &= (uint8_t)~IOHDLC_SS_SENDING;
+  iohdlc_mutex_unlock(&peer->state_mutex);
+
   if (signal_tx)
     ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
+write_gate_done:
   iohdlc_bsem_signal(&peer->write_gate);
   return result;
 }
@@ -1506,6 +1554,8 @@ write_done:
  * @note Automatically fragments data if count > mifls.
  * @note Concurrent writes on the same peer are serialized as complete logical
  *       operations.
+ * @note A connection reset during the operation returns -1 with ECONNRESET,
+ *       even when part of the logical write had already entered the old stream.
  * 
  */
 ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
@@ -1591,7 +1641,9 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
   peer->ss_state |= IOHDLC_SS_RECVING;
 
   while (total_read < total) {
-    while (!s_peer_rx_has_data(peer) && !IOHDLC_PEER_DISC(peer)) {
+    while (!s_peer_rx_has_data(peer) && !IOHDLC_PEER_DISC(peer) &&
+           (peer->stream_terminal_pending &
+            IOHDLC_STREAM_RX_TERMINAL_MASK) == 0U) {
       msg_t wait_result = iohdlc_condvar_wait_timeout(
           &peer->rx_cv, &peer->state_mutex,
           s_api_timeout_remaining(&timeout));
@@ -1599,7 +1651,9 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
       if (wait_result == MSG_TIMEOUT)
         iohdlc_mutex_lock(&peer->state_mutex);
       if (wait_result == MSG_TIMEOUT &&
-          !s_peer_rx_has_data(peer) && !IOHDLC_PEER_DISC(peer)) {
+          !s_peer_rx_has_data(peer) && !IOHDLC_PEER_DISC(peer) &&
+          (peer->stream_terminal_pending &
+           IOHDLC_STREAM_RX_TERMINAL_MASK) == 0U) {
         if (total_read != 0U)
           goto read_done;
         iohdlc_errno = ETIMEDOUT;
@@ -1608,12 +1662,36 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
       }
     }
 
+    /* A reconnect starts a new byte stream. Report the previous terminal
+       result before consuming data belonging to the new connection. */
+    if (!IOHDLC_PEER_DISC(peer) &&
+        (peer->stream_terminal_pending &
+         IOHDLC_STREAM_RX_TERMINAL_MASK) != 0U) {
+      uint8_t terminal = peer->stream_terminal_pending &
+                         IOHDLC_STREAM_RX_TERMINAL_MASK;
+
+      if (total_read != 0U)
+        goto read_done;
+      peer->stream_terminal_pending &=
+          (uint8_t)~IOHDLC_STREAM_RX_TERMINAL_MASK;
+      if (terminal & IOHDLC_SS_TERM_ABORTED) {
+        iohdlc_errno = ECONNRESET;
+        result = -1;
+      }
+      goto read_done;
+    }
+
     if (!s_peer_rx_has_data(peer)) {
       if (total_read != 0U)
         goto read_done;
-      if (IOHDLC_PEER_ORDERLY_CLOSED(peer))
+      if (IOHDLC_PEER_ORDERLY_CLOSED(peer)) {
+        peer->stream_terminal_pending &=
+            (uint8_t)~IOHDLC_STREAM_RX_TERMINAL_MASK;
         goto read_done;
+      }
       if (IOHDLC_PEER_ABORTED(peer)) {
+        peer->stream_terminal_pending &=
+            (uint8_t)~IOHDLC_STREAM_RX_TERMINAL_MASK;
         iohdlc_errno = ECONNRESET;
         result = -1;
         goto read_done;
@@ -1700,6 +1778,9 @@ read_done:
  * @retval -1            Error occurred (check iohdlc_errno)
  *
  * @note Blocks until the stream predicate changes or timeout expires.
+ * @note A terminal result remains pending across reconnection until a reader
+ *       observes it, preventing data from distinct connections from being
+ *       joined into one logical read.
  * @note Releases frame back to pool when fully consumed (may trigger watermark).
  * @note Supports partial reads: call multiple times to consume large frames.
  * @note Concurrent reads on the same peer are serialized as complete logical

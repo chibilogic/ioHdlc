@@ -375,6 +375,7 @@ void test_dump_station_state(iohdlc_station_t *station, const char *label) {
     if (peer->ss_state & IOHDLC_SS_ST_CONN) test_printf(" CONNECTED");
     if (peer->ss_state & IOHDLC_SS_TERM_ORDERLY) test_printf(" ORDERLY");
     if (peer->ss_state & IOHDLC_SS_TERM_ABORTED) test_printf(" ABORTED");
+    if (peer->ss_state & IOHDLC_SS_SENDING) test_printf(" SENDING");
     if (peer->ss_state & IOHDLC_SS_RECVING) test_printf(" RECEIVING");
     if (peer->ss_state & IOHDLC_SS_REJPEND) test_printf(" REJ-TO-SEND");
     if (peer->ss_state & IOHDLC_SS_BUSY) test_printf(" BUSY");

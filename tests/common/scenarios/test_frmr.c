@@ -293,6 +293,14 @@ bool test_frmr_invalid_nr(const test_adapter_t *adapter) {
 
   TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary not connected after recovery");
   TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_secondary), "Secondary not connected after recovery");
+
+  {
+    char dummy;
+    ssize_t received = ioHdlcReadTmo(&peer_at_secondary, &dummy, 1U, 0U);
+
+    TEST_ASSERT_GOTO(received == 0,
+                     "Recovery should preserve the previous stream EOF");
+  }
   test_printf("  ✅ FRMR cleared, link re-established\r\n");
 
   /* Step 7: Verify normal exchange resumes. */

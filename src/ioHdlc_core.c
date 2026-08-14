@@ -139,6 +139,9 @@ static void setPFInCtrl(iohdlc_station_t *s, uint8_t *ctrl, bool pf) {
 
 /**
  * @brief   Mark a peer as disconnected and publish its terminal state.
+ * @details A terminal result from an active connection remains pending for
+ *          the stream reader. An admitted writer is notified separately so
+ *          its logical write cannot continue across a reconnection.
  * @param[in] p           Peer state to update.
  * @param[in] term_bits   One of IOHDLC_SS_TERM_ORDERLY, IOHDLC_SS_TERM_ABORTED,
  *                        or zero for a neutral disconnected state.
@@ -146,6 +149,9 @@ static void setPFInCtrl(iohdlc_station_t *s, uint8_t *ctrl, bool pf) {
 static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p, uint8_t term_bits) {
   if (p->ss_state & IOHDLC_SS_ST_CONN) {
     p->stationp->connected_count--;
+    p->stream_terminal_pending |= term_bits;
+    if (p->ss_state & IOHDLC_SS_SENDING)
+      p->stream_terminal_pending |= IOHDLC_STREAM_TX_RESET_PENDING;
   }
   p->ss_state &= (uint8_t)~(IOHDLC_SS_ST_CONN |
                             IOHDLC_SS_TERM_ORDERLY |
@@ -227,7 +233,8 @@ static void resetPeerProtocolState(iohdlc_station_peer_t *p) {
   p->t3_expected_nr = 0;
   p->ss_state &= (uint8_t)(IOHDLC_SS_ST_CONN |
                            IOHDLC_SS_TERM_ORDERLY |
-                           IOHDLC_SS_TERM_ABORTED);
+                           IOHDLC_SS_TERM_ABORTED |
+                           IOHDLC_SS_SENDING);
   p->poll_retry_count = 0;
   p->frmr_condition = false;
   p->um_rsp = 0;
@@ -322,9 +329,18 @@ static bool handleTimeoutRetry(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
  * @brief   Reset peer protocol state, timers, and owned queues.
  * @details This is the heavy-weight reset path used after mode changes,
  *          accepted disconnects, and similar protocol boundary transitions.
+ *          Pending stream terminal results are intentionally retained because
+ *          they belong to active I/O rather than to the new protocol session.
  * @param[in] p   Peer state to reset.
  */
 static void resetPeerVars(iohdlc_station_peer_t *p) {
+  if (p->ss_state & IOHDLC_SS_ST_CONN) {
+    p->stream_terminal_pending |= IOHDLC_SS_TERM_ABORTED;
+    if (p->ss_state & IOHDLC_SS_SENDING)
+      p->stream_terminal_pending |= IOHDLC_STREAM_TX_RESET_PENDING;
+    iohdlc_condvar_broadcast(&p->rx_cv);
+    iohdlc_condvar_broadcast(&p->tx_cv);
+  }
   resetPeerProtocolState(p);
   p->ss_state = 0;
   clearPeerTxQueues(p);

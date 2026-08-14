@@ -39,7 +39,9 @@ communication, ISO 13239 compliant data link layer.
 - **Logical operation serialization**: a vectored write cannot interleave with
   another write on the same peer, and a vectored read prevents another reader
   from consuming bytes until the call completes. Read and write remain
-  independent.
+  independent. A connection reset aborts the write currently admitted to the
+  stream; writers still waiting for admission can proceed on the new
+  connection.
 - **Integrated backpressure**: writes block not only on a full sliding window
   but also when the frame pool reaches its low watermark, propagating memory
   pressure to the application automatically.

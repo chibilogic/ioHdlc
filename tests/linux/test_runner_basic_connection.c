@@ -42,7 +42,12 @@ int main(void) {
   RUN_TEST(test_swdriver_rejects_unsupported_modulo);
   RUN_TEST(test_read_zero_length_returns_zero);
   RUN_TEST(test_read_never_connected_returns_enotconn);
+  RUN_TEST(test_read_reports_pending_terminal);
   RUN_TEST(test_vectored_io_validation);
+
+  mock_adapter.init();
+  RUN_TEST_ADAPTER(test_connected_snrm_resets_stream_io, &mock_adapter);
+  mock_adapter.deinit();
   
   /* Each adapter test gets fresh streams to avoid cross-test contamination */
   mock_adapter.init();
