@@ -20,11 +20,8 @@
 static inline void ioHdlcStreamSpiPlatformPrepareConfig(
     ioHdlcStreamChibiosSpi *ctx) {
 
-#if SAMA_SPI_CACHE_USER_MANAGED == FALSE
-  ctx->cfgp->cache_user_managed = true;
-#else
-  (void)ctx;
-#endif
+  ctx->cfgp->options |= SAMA_SPI_CFG_USE_FIFO |
+                        SAMA_SPI_CFG_CACHE_USER_MANAGED;
 }
 
 /**
