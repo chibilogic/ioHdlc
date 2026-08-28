@@ -261,7 +261,7 @@
 #define SAMA_SPI_FLEXCOM4_DMA_IRQ_PRIORITY  4
 
 #define SAMA_SPI_DMA_ERROR_HOOK(spip)       osalSysHalt("DMA failure")
-#define SAMA_SPI_CACHE_USER_MANAGED         TRUE
+#define SAMA_SPI_CACHE_USER_MANAGED         FALSE
 
 /*
  * ST driver settings.
