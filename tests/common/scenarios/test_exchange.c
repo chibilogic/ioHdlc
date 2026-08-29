@@ -642,10 +642,22 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     }
   }
 
-  s_exchange_resolve_retry_config(&config);
   reply_timeout_ms = config.reply_timeout_ms != 0U ?
       config.reply_timeout_ms :
       IOHDLC_REPLY_TIMEOUT_MS_DEFAULT;
+  if (config.idle_poll_timeout_ms != 0U) {
+    if (config.mode != IOHDLC_OM_NRM) {
+      test_printf("Error: --idle-poll-timeout is valid only in NRM mode.\r\n");
+      return 1;
+    }
+    if (config.idle_poll_timeout_ms < reply_timeout_ms ||
+        config.idle_poll_timeout_ms > UINT16_MAX) {
+      test_printf("Error: --idle-poll-timeout must be between T1 (%u ms) and %u ms.\r\n",
+                  reply_timeout_ms, (unsigned)UINT16_MAX);
+      return 1;
+    }
+  }
+  s_exchange_resolve_retry_config(&config);
 
   /* Enable HDLC logging if compiled in */
 #if IOHDLC_LOG_LEVEL > 0
@@ -757,6 +769,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     station_config.phydriver_config = NULL;
     station_config.reply_timeout_ms = config.reply_timeout_ms;
     station_config.poll_retry_max = config.poll_retry_max;
+    station_config.idle_poll_timeout_ms = config.idle_poll_timeout_ms;
 
     result = ioHdlcStationInit(&station_primary, &station_config);
     if (result != 0) {
@@ -793,6 +806,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     station_config.phydriver_config = NULL;
     station_config.reply_timeout_ms = config.reply_timeout_ms;
     station_config.poll_retry_max = config.poll_retry_max;
+    station_config.idle_poll_timeout_ms = config.idle_poll_timeout_ms;
 
     result = ioHdlcStationInit(&station_secondary, &station_config);
     if (result != 0) {

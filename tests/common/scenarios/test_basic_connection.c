@@ -168,6 +168,10 @@ static void mock_start(void *instance, void *phyp, void *phyconfigp, ioHdlcFrame
   (void)instance; (void)phyp; (void)phyconfigp; (void)fpp;
 }
 
+static void mock_stop(void *instance) {
+  (void)instance;
+}
+
 static int32_t mock_send_frame(void *instance, iohdlc_frame_t *fp) {
   (void)instance; (void)fp;
   return 0;
@@ -180,6 +184,7 @@ static iohdlc_frame_t* mock_recv_frame(void *instance, iohdlc_timeout_t tmo) {
 
 static const struct _iohdlc_driver_vmt mock_vmt = {
   .start = mock_start,
+  .stop = mock_stop,
   .send_frame = mock_send_frame,
   .recv_frame = mock_recv_frame,
   .get_capabilities = mock_get_caps,
@@ -323,6 +328,82 @@ bool test_station_creation(void) {
   TEST_ASSERT(station.driver == &mock_driver, "Driver should be set");
 
   test_printf("✅ Station creation and initialization successful\n");
+  return 0;
+}
+
+bool test_idle_poll_timeout_config(void) {
+  iohdlc_station_t station;
+  iohdlc_station_config_t config;
+  uint8_t frame_arena[1024];
+  ioHdlcDriver mock_driver;
+  int32_t result;
+
+  memset(&mock_driver, 0, sizeof mock_driver);
+  mock_driver.vmt = &mock_vmt;
+
+  memset(&config, 0, sizeof config);
+  config.mode = IOHDLC_OM_NDM;
+  config.flags = IOHDLC_FLG_PRI;
+  config.log2mod = 3;
+  config.addr = PRIMARY_ADDR;
+  config.driver = &mock_driver;
+  config.frame_arena = frame_arena;
+  config.frame_arena_size = sizeof frame_arena;
+  config.fff_type = 1;
+
+  memset(&station, 0, sizeof station);
+  result = ioHdlcStationInit(&station, &config);
+  TEST_ASSERT(result == 0, "Default idle-poll timeout should be accepted");
+  TEST_ASSERT(station.reply_timeout_ms == IOHDLC_REPLY_TIMEOUT_MS_DEFAULT,
+              "Default T1 should be resolved");
+  TEST_ASSERT(station.idle_poll_timeout_ms ==
+              IOHDLC_REPLY_TIMEOUT_MS_DEFAULT *
+              IOHDLC_DFL_T3_IDLE_T1_RATIO,
+              "Default idle-poll timeout should resolve to 2*T1");
+  ioHdlcStationDeinit(&station);
+
+  config.reply_timeout_ms = 10U;
+  config.idle_poll_timeout_ms = 10U;
+  memset(&station, 0, sizeof station);
+  result = ioHdlcStationInit(&station, &config);
+  TEST_ASSERT(result == 0, "Idle-poll timeout equal to T1 should be accepted");
+  TEST_ASSERT(station.idle_poll_timeout_ms == 10U,
+              "Explicit idle-poll timeout should be preserved");
+  ioHdlcStationDeinit(&station);
+
+  config.idle_poll_timeout_ms = 9U;
+  memset(&station, 0, sizeof station);
+  result = ioHdlcStationInit(&station, &config);
+  TEST_ASSERT(result == -1, "Idle-poll timeout below T1 should be rejected");
+  TEST_ASSERT(iohdlc_errno == EINVAL,
+              "Idle-poll timeout below T1 should report EINVAL");
+
+  config.idle_poll_timeout_ms = (uint32_t)UINT16_MAX + 1U;
+  memset(&station, 0, sizeof station);
+  result = ioHdlcStationInit(&station, &config);
+  TEST_ASSERT(result == -1,
+              "Explicit idle-poll timeout above UINT16_MAX should be rejected");
+  TEST_ASSERT(iohdlc_errno == EINVAL,
+              "Oversized idle-poll timeout should report EINVAL");
+
+  config.reply_timeout_ms = UINT16_MAX;
+  config.idle_poll_timeout_ms = 0U;
+  memset(&station, 0, sizeof station);
+  result = ioHdlcStationInit(&station, &config);
+  TEST_ASSERT(result == 0, "Default idle-poll timeout must preserve wide fallback");
+  TEST_ASSERT(station.idle_poll_timeout_ms ==
+              (uint32_t)UINT16_MAX * IOHDLC_DFL_T3_IDLE_T1_RATIO,
+              "Default idle-poll timeout must not be truncated to 16 bits");
+  ioHdlcStationDeinit(&station);
+
+  config.mode = IOHDLC_OM_ADM;
+  config.reply_timeout_ms = 10U;
+  config.idle_poll_timeout_ms = 9U;
+  memset(&station, 0, sizeof station);
+  result = ioHdlcStationInit(&station, &config);
+  TEST_ASSERT(result == 0, "ADM should ignore the NRM idle-poll setting");
+  ioHdlcStationDeinit(&station);
+
   return 0;
 }
 

@@ -370,6 +370,17 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     ioHdlcsp->reply_timeout_ms = base_tmo;
   }
 
+  ioHdlcsp->idle_poll_timeout_ms =
+      (uint32_t)ioHdlcsp->reply_timeout_ms * IOHDLC_DFL_T3_IDLE_T1_RATIO;
+  if (mode == IOHDLC_OM_NDM && ioHdlcsconfp->idle_poll_timeout_ms != 0U) {
+    if (ioHdlcsconfp->idle_poll_timeout_ms < ioHdlcsp->reply_timeout_ms ||
+        ioHdlcsconfp->idle_poll_timeout_ms > UINT16_MAX) {
+      iohdlc_errno = EINVAL;
+      return -1;
+    }
+    ioHdlcsp->idle_poll_timeout_ms = ioHdlcsconfp->idle_poll_timeout_ms;
+  }
+
   /* Poll retry max: store config value for later use when adding peers */
   ioHdlcsp->poll_retry_max_cfg = (ioHdlcsconfp->poll_retry_max != 0) ?
                                   ioHdlcsconfp->poll_retry_max :
@@ -852,8 +863,7 @@ int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
         s->pf_state |= IOHDLC_F_RCVED;
       if (IOHDLC_IS_NRM(s) && IOHDLC_IS_PRI(s) && !IOHDLC_PEER_DISC(peer))
         ioHdlcStartReplyTimer(peer, IOHDLC_TIMER_T3,
-                              s->reply_timeout_ms *
-                              IOHDLC_DFL_T3_IDLE_T1_RATIO);
+                              s->idle_poll_timeout_ms);
       signal_tx = true;
     }
     if (rsp_fp == NULL)

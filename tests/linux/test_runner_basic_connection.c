@@ -36,6 +36,7 @@ int main(void) {
   test_printf("═══════════════════════════════════════════════\n\n");
 
   RUN_TEST(test_station_creation);
+  RUN_TEST(test_idle_poll_timeout_config);
   RUN_TEST(test_peer_creation);
   RUN_TEST(test_application_event_listener);
   RUN_TEST(test_swdriver_fcs_backend_capabilities);

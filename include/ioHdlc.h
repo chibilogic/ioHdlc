@@ -507,6 +507,7 @@ struct iohdlc_station {
                                    See ISO13239 Table 16. Maintains ISO format for XID. */
   uint16_t  reply_timeout_ms;   /* Reply timer timeout value in milliseconds. Default: 100ms. */
   uint8_t   poll_retry_max_cfg; /* Configured max poll retries (from station config). Default: 8. */
+  uint32_t  idle_poll_timeout_ms; /* Resolved NRM idle-poll T3 timeout in milliseconds. */
   uint32_t  port_constraints;  /* Transport constraints copied from phydriver at init. IOHDLC_PORT_CONSTR_* */
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
@@ -562,6 +563,9 @@ struct iohdlc_station_config {
                                       peer_processing + margin.              */
   uint8_t poll_retry_max; /**< @brief max retry attempts after a poll
                                       (0 = default 8)                        */
+  uint32_t idle_poll_timeout_ms; /**< @brief NRM idle-poll T3 timeout in ms.
+                                      0 selects 2*T1; explicit values must be
+                                      between T1 and UINT16_MAX.             */
 };
 
 /*===========================================================================*/

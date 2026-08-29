@@ -667,10 +667,11 @@ T1 >= (7 × 1.28) + 0.1 + 2 + 5 = 16.06 ms  →  use T1 = 20 ms
 mode, it is used either to keep the link alive during idle periods or to recover
 unacknowledged I-frames.
 
-**Duration**: T3 is derived from T1, with separate defaults for its two roles:
-`T1 × IOHDLC_DFL_T3_IDLE_T1_RATIO` in NRM idle-poll mode (default ratio = 2),
-and `T1 × IOHDLC_DFL_T3_IFRAME_T1_RATIO` for I-frame acknowledgement recovery
-(default ratio = 5).
+**Duration**: In NRM idle-poll mode, `idle_poll_timeout_ms` selects T3
+independently from T1. A value of zero preserves the default
+`T1 × IOHDLC_DFL_T3_IDLE_T1_RATIO` (default ratio = 2). An explicit value must
+be between T1 and `UINT16_MAX`, inclusive. For I-frame acknowledgement recovery
+in ARM/ABM, T3 remains `T1 × IOHDLC_DFL_T3_IFRAME_T1_RATIO` (default ratio = 5).
 
 **NRM idle-poll lifecycle:**
 
@@ -829,15 +830,17 @@ Single byte:  0xFF = 11111111 (all-stations)
 **Default Values:**
 ```c
 reply_timeout_ms = 100;      // T1: IOHDLC_REPLY_TIMEOUT_MS_DEFAULT
+idle_poll_timeout_ms = 0;    // NRM idle-poll T3: default 2*T1
 poll_retry_max = 8;          // IOHDLC_POLL_RETRY_MAX_DEFAULT
 ```
 
 The final retry window uses `IOHDLC_LAST_RETRY_T1_RATIO` (default 5) and
 `IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS` (default 100 ms).
 
-`T3` is derived from T1 through role-specific ratios. In NRM it is used as the
-idle-poll timer (`IOHDLC_DFL_T3_IDLE_T1_RATIO`). In ARM/ABM it is used as the
-I-frame acknowledgement timeout (`IOHDLC_DFL_T3_IFRAME_T1_RATIO`).
+In NRM, `idle_poll_timeout_ms` configures the idle-poll T3 independently. Zero
+selects the default `T1 × IOHDLC_DFL_T3_IDLE_T1_RATIO`. In ARM/ABM, the I-frame
+acknowledgement T3 remains derived from T1 through
+`IOHDLC_DFL_T3_IFRAME_T1_RATIO`.
 
 **Platform-Specific:**
 - Linux: POSIX timers (timer_create)

@@ -66,6 +66,8 @@ static void print_usage(const char *progname) {
   printf("  --error-rate=N      Error injection rate 0-100%% (default: 0=disabled)\n");
   printf("  --reply-timeout=N   Reply timeout in ms (default: 0=library default %u)\n",
          (unsigned)IOHDLC_REPLY_TIMEOUT_MS_DEFAULT);
+  printf("  --idle-poll-timeout=N NRM idle-poll T3 in ms (default: 0=2*T1, range: T1-%u)\n",
+         (unsigned)UINT16_MAX);
   printf("  --poll-retry-max=N  Max poll retries 0-%u (default: 0=auto around 25s total)\n",
          (unsigned)TEST_POLL_RETRY_MAX_LIMIT);
   printf("  --progress-interval=ms  Progress update interval in ms (default: 1000)\n");
@@ -101,6 +103,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
   cfg->error_rate = 0;  /* Disabled by default */
   cfg->reply_timeout_ms = 0;  /* Use default (100ms) */
+  cfg->idle_poll_timeout_ms = 0;  /* Use default (2*T1) */
   cfg->poll_retry_max = 0;  /* Auto from reply-timeout */
   cfg->poll_retry_max_auto = false;
   cfg->poll_retry_total_timeout_ms = 0;
@@ -127,6 +130,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
     {"endpoint",  required_argument, 0, 'E'},
     {"error-rate",required_argument, 0, 'r'},
     {"reply-timeout",required_argument, 0, 'T'},
+    {"idle-poll-timeout",required_argument, 0, 'I'},
     {"poll-retry-max",required_argument, 0, 'R'},
     {"progress-interval", required_argument, 0, 'p'},
     {"watermark-delay", required_argument, 0, 'w'},
@@ -138,7 +142,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   int opt;
   int option_index = 0;
   
-  while ((opt = getopt_long(argc, argv, "m:M:asc:t:e:z:d:E:r:T:R:p:w:K:h",
+  while ((opt = getopt_long(argc, argv, "m:M:asc:t:e:z:d:E:r:T:I:R:p:w:K:h",
                             long_options, &option_index)) != -1) {
     switch (opt) {
       case 'm':  /* --mode */
@@ -292,6 +296,19 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
         exchange_option_seen = true;
         cfg->reply_timeout_ms = atoi(optarg);
         break;
+
+      case 'I': {  /* --idle-poll-timeout */
+        uint32_t timeout;
+
+        exchange_option_seen = true;
+        if (!parse_u32_arg(optarg, &timeout) || timeout > UINT16_MAX) {
+          fprintf(stderr, "Error: Invalid idle poll timeout (must be 0-%u)\n",
+                  (unsigned)UINT16_MAX);
+          return false;
+        }
+        cfg->idle_poll_timeout_ms = timeout;
+        break;
+      }
         
       case 'R': {  /* --poll-retry-max */
         int retries = atoi(optarg);

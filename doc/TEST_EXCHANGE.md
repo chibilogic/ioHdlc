@@ -53,6 +53,7 @@ Unless noted otherwise, the semantics are identical on Linux and in the shell. T
 | `--endpoint=EP` | both | Local endpoint selection: `both`, `a`, `b` (aliases: `primary`, `secondary`) |
 | `--error-rate=N` | 0 | Error injection rate 0-100% (mock adapter only) |
 | `--reply-timeout=N` | `0` (`IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`) | HDLC reply timeout in ms |
+| `--idle-poll-timeout=N` | `0` (`2*T1`) | NRM idle-poll T3 in ms; explicit range `T1`-65535 |
 | `--poll-retry-max=N` | `0` (auto) | Max poll retries before link failure, range 0-31; `0` auto-calculates it from `--reply-timeout` for about 25 s cumulative retry timeout |
 | `--krs=N` | modmask | Window size (`ks = kr = N`) |
 | `--progress-interval=N` | 1000 | Progress report interval in ms |
@@ -150,6 +151,7 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 ### Protocol Tuning
 
 - `--reply-timeout`: time the protocol waits for a response before retransmitting. Lower values increase retransmission aggressiveness. `0` uses `IOHDLC_REPLY_TIMEOUT_MS_DEFAULT`.
+- `--idle-poll-timeout`: NRM idle-poll interval. `0` uses `2*T1`; an explicit value must be between the resolved T1 and 65535 ms. Non-zero values are rejected in ABM.
 - `--poll-retry-max`: maximum retransmission attempts before declaring link failure. `0` makes the exchange tool choose the value from `--reply-timeout`.
 - `--reply-timeout` and `--poll-retry-max` interact geometrically, not linearly: reply-timeout recovery doubles T1 before each retry. After the last retry, the response window is bounded to `max(IOHDLC_LAST_RETRY_T1_RATIO * reply_timeout, IOHDLC_LAST_RETRY_TIMEOUT_MIN_MS)`. With `--poll-retry-max=0`, the tool chooses N2 so the cumulative timeout stays close to 25 s. An explicit non-zero value bypasses this auto calculation.
 - Hardware adapters may also use the resolved `--reply-timeout` value to tune backend-local guard timings. For example, the ChibiOS SPI adapter derives its slave RX/TX watchdog from T1 so stale SPI transactions are recovered before the HDLC retry window expires.
@@ -157,8 +159,8 @@ When `--watermark-delay` is non-zero, reader threads pause for the specified dur
 
 ## Platform-Specific Defaults
 
-- Linux runtime defaults: `--count=10`, `--mode=nrm`, `--modulo=8`, `--tws`, `--endpoint=both`, `--reply-timeout=0`, `--poll-retry-max=0`
-- ChibiOS shell defaults: `--count=100`, `--mode=nrm`, `--modulo=8`, `--tws`, `--endpoint=both`, `--reply-timeout=0`, `--poll-retry-max=0`
+- Linux runtime defaults: `--count=10`, `--mode=nrm`, `--modulo=8`, `--tws`, `--endpoint=both`, `--reply-timeout=0`, `--idle-poll-timeout=0`, `--poll-retry-max=0`
+- ChibiOS shell defaults: `--count=100`, `--mode=nrm`, `--modulo=8`, `--tws`, `--endpoint=both`, `--reply-timeout=0`, `--idle-poll-timeout=0`, `--poll-retry-max=0`
 - ChibiOS standalone defaults are compile-time:
   `TEST_MODE=IOHDLC_OM_NRM`, `TEST_MODULO=8`, `TEST_USE_TWA=0`, `TEST_ENDPOINT=TEST_ENDPOINT_BOTH`, `TEST_DURATION_TYPE=TEST_BY_COUNT`, `TEST_DURATION_VALUE=1000`
 

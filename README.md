@@ -159,6 +159,7 @@ iohdlc_station_config_t cfg = {
     .frame_arena      = arena,
     .frame_arena_size = sizeof arena,
     .reply_timeout_ms = 1000,
+    .idle_poll_timeout_ms = 0,       /* NRM T3 defaults to 2*T1 */
 };
 ioHdlcStationInit(&station, &cfg);
 

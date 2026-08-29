@@ -100,7 +100,7 @@ static bool iFrameReplyTimerUsed(const iohdlc_station_t *s) {
 }
 
 static uint32_t idlePollTimeoutMs(const iohdlc_station_t *s) {
-  return s->reply_timeout_ms * IOHDLC_DFL_T3_IDLE_T1_RATIO;
+  return s->idle_poll_timeout_ms;
 }
 
 static uint32_t iFrameReplyTimeoutMs(const iohdlc_station_t *s) {

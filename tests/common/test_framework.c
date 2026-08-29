@@ -235,6 +235,17 @@ void test_print_config(const test_config_t *cfg) {
   } else {
     test_printf("Reply timeout: %u ms\n", reply_timeout_ms);
   }
+  if (cfg->mode == IOHDLC_OM_NRM) {
+    uint32_t idle_poll_timeout_ms = cfg->idle_poll_timeout_ms != 0U ?
+        cfg->idle_poll_timeout_ms :
+        reply_timeout_ms * IOHDLC_DFL_T3_IDLE_T1_RATIO;
+
+    if (cfg->idle_poll_timeout_ms == 0U)
+      test_printf("Idle poll T3: %u ms (default 2*T1)\n",
+                  idle_poll_timeout_ms);
+    else
+      test_printf("Idle poll T3: %u ms\n", idle_poll_timeout_ms);
+  }
   if (cfg->poll_retry_max_auto) {
     test_printf("Poll retry max: %u (auto, total timeout ~%u ms)\n",
                 cfg->poll_retry_max,

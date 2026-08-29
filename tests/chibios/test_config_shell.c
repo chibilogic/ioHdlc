@@ -85,6 +85,8 @@ static void print_usage(void) {
   test_printf("  --endpoint=EP      Local endpoint: both|a|b (aliases: primary|secondary)\r\n");
   test_printf("  --reply-timeout=N   Reply timeout in ms (default: 0=library default %u)\r\n",
               (unsigned)IOHDLC_REPLY_TIMEOUT_MS_DEFAULT);
+  test_printf("  --idle-poll-timeout=N NRM idle-poll T3 in ms (default: 0=2*T1, range: T1-%u)\r\n",
+              (unsigned)UINT16_MAX);
   test_printf("  --poll-retry-max=N  Max poll retries 0-%u (default: 0=auto around 25s total)\r\n",
               (unsigned)TEST_POLL_RETRY_MAX_LIMIT);
   test_printf("  --mode=MODE         Mode: nrm|abm (default: nrm)\r\n");
@@ -133,6 +135,7 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
   cfg->endpoint_mode = TEST_ENDPOINT_BOTH;
   cfg->error_rate = 0;
   cfg->reply_timeout_ms = 0;        /* Use library default (100ms) */
+  cfg->idle_poll_timeout_ms = 0;    /* Use default (2*T1) */
   cfg->poll_retry_max = 0;          /* Auto from reply-timeout */
   cfg->poll_retry_max_auto = false;
   cfg->poll_retry_total_timeout_ms = 0;
@@ -331,6 +334,19 @@ bool test_parse_config(test_config_t *cfg, int argc, char **argv) {
           return false;
         }
       }
+    }
+    /* --idle-poll-timeout=N */
+    else if (arg_starts_with(arg, "--idle-poll-timeout=")) {
+      uint32_t timeout;
+
+      exchange_option_seen = true;
+      value = get_arg_value(arg);
+      if (!parse_u32_arg(value, &timeout) || timeout > UINT16_MAX) {
+        test_printf("Error: Invalid idle poll timeout (must be 0-%u)\r\n",
+                    (unsigned)UINT16_MAX);
+        return false;
+      }
+      cfg->idle_poll_timeout_ms = timeout;
     }
     /* --mode=MODE */
     else if (arg_starts_with(arg, "--mode=")) {

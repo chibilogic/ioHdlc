@@ -46,6 +46,7 @@ int test_exhaust_pool(void);
 /*===========================================================================*/
 
 bool test_station_creation(void);
+bool test_idle_poll_timeout_config(void);
 bool test_peer_creation(void);
 bool test_application_event_listener(void);
 bool test_swdriver_fcs_backend_capabilities(void);

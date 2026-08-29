@@ -86,6 +86,7 @@ typedef struct {
   
   /* HDLC protocol parameters */
   uint16_t reply_timeout_ms;            /**< Reply timeout in ms (0=default 100ms) */
+  uint32_t idle_poll_timeout_ms;        /**< NRM idle-poll T3 in ms (0=2*T1) */
   uint8_t poll_retry_max;               /**< Max poll retries (0=auto in exchange tool) */
   bool poll_retry_max_auto;             /**< true if the exchange tool computed poll_retry_max */
   uint32_t poll_retry_total_timeout_ms; /**< Cumulative retry budget estimate */
