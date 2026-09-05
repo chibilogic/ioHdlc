@@ -1345,7 +1345,8 @@ static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
  * @param[in] peer        Peer descriptor.
  * @param[in] iov         Constant input vector array.
  * @param[in] iovcnt      Number of vector entries.
- * @param[in] timeout_ms  Total timeout in milliseconds.
+ * @param[in] timeout_ms  Total timeout in milliseconds, zero for a
+ *                        non-blocking operation.
  *
  * @return                Bytes queued, or -1 on error.
  *
@@ -1421,15 +1422,22 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
     while ((peer->stream_terminal_pending &
             IOHDLC_STREAM_TX_RESET_PENDING) == 0U &&
            !IOHDLC_PEER_DISC(peer) && W_WAIT_COND(s, peer)) {
+      uint32_t remaining_ms;
       msg_t wait_result;
 
       if (signal_tx) {
         ioHdlcBroadcastFlags(s, IOHDLC_EVT_TX_IFRM_ENQ);
         signal_tx = false;
       }
+      remaining_ms = s_api_timeout_remaining(&timeout);
+      if (remaining_ms == 0U) {
+        iohdlc_errno = ETIMEDOUT;
+        result = total != remaining ? (ssize_t)(total - remaining) : -1;
+        iohdlc_mutex_unlock(&peer->state_mutex);
+        goto write_done;
+      }
       wait_result = iohdlc_condvar_wait_timeout(
-          &peer->tx_cv, &peer->state_mutex,
-          s_api_timeout_remaining(&timeout));
+          &peer->tx_cv, &peer->state_mutex, remaining_ms);
       if (wait_result == MSG_TIMEOUT)
         iohdlc_mutex_lock(&peer->state_mutex);
       if (wait_result == MSG_TIMEOUT &&
@@ -1551,7 +1559,8 @@ write_gate_done:
  * @param[in] peer       Peer descriptor
  * @param[in] buf        Data buffer to transmit
  * @param[in] count      Number of bytes to send
- * @param[in] timeout_ms Timeout in milliseconds (IOHDLC_WAIT_FOREVER for blocking)
+ * @param[in] timeout_ms Timeout in milliseconds, zero for non-blocking, or
+ *                       IOHDLC_WAIT_FOREVER for blocking.
  * 
  * @return               Bytes written on success, -1 on error
  * @retval count         All data successfully queued
@@ -1592,7 +1601,8 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
  * @param[in] peer        Peer descriptor.
  * @param[out] iov        Output vector array.
  * @param[in] iovcnt      Number of vector entries.
- * @param[in] timeout_ms  Total timeout in milliseconds.
+ * @param[in] timeout_ms  Total timeout in milliseconds, zero for a
+ *                        non-blocking operation.
  *
  * @return                Bytes read, 0 on orderly EOF, or -1 on error.
  *
@@ -1654,9 +1664,18 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
     while (!s_peer_rx_has_data(peer) && !IOHDLC_PEER_DISC(peer) &&
            (peer->stream_terminal_pending &
             IOHDLC_STREAM_RX_TERMINAL_MASK) == 0U) {
-      msg_t wait_result = iohdlc_condvar_wait_timeout(
-          &peer->rx_cv, &peer->state_mutex,
-          s_api_timeout_remaining(&timeout));
+      uint32_t remaining_ms = s_api_timeout_remaining(&timeout);
+      msg_t wait_result;
+
+      if (remaining_ms == 0U) {
+        if (total_read != 0U)
+          goto read_done;
+        iohdlc_errno = ETIMEDOUT;
+        result = -1;
+        goto read_done;
+      }
+      wait_result = iohdlc_condvar_wait_timeout(
+          &peer->rx_cv, &peer->state_mutex, remaining_ms);
 
       if (wait_result == MSG_TIMEOUT)
         iohdlc_mutex_lock(&peer->state_mutex);
@@ -1780,7 +1799,8 @@ read_done:
  * @param[in] peer       Peer descriptor
  * @param[out] buf       Buffer to receive data
  * @param[in] count      Maximum bytes to read
- * @param[in] timeout_ms Timeout in milliseconds (IOHDLC_WAIT_FOREVER for blocking)
+ * @param[in] timeout_ms Timeout in milliseconds, zero for non-blocking, or
+ *                       IOHDLC_WAIT_FOREVER for blocking.
  *
  * @return               Bytes read on success, 0 on orderly EOF, -1 on error
  * @retval >0            Number of bytes read

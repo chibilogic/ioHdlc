@@ -661,6 +661,74 @@ bool test_read_reports_pending_terminal(void) {
   return 0;
 }
 
+bool test_immediate_stream_io(void) {
+  iohdlc_station_t station;
+  uint8_t frame_arena[1024];
+  ioHdlcDriver mock_driver;
+  iohdlc_station_peer_t peer;
+  iohdlc_frame_q_t *fqp;
+  uint8_t input = 0x5AU;
+  uint8_t output[2] = {0U, 0U};
+  uint32_t writer_margin;
+  ssize_t transferred;
+  int32_t result;
+
+  result = init_test_station(&station, frame_arena, &mock_driver, PRIMARY_ADDR);
+  TEST_ASSERT(result == 0, "Station init should succeed");
+  result = ioHdlcAddPeer(&station, &peer, SECONDARY_ADDR);
+  TEST_ASSERT(result == 0, "Peer add should succeed");
+  peer.ss_state = IOHDLC_SS_ST_CONN;
+
+  iohdlc_errno = 0;
+  transferred = ioHdlcReadTmo(&peer, output, sizeof output, 0U);
+  TEST_ASSERT(transferred == -1 && iohdlc_errno == ETIMEDOUT,
+              "Immediate read without data should time out");
+  TEST_ASSERT((peer.ss_state & IOHDLC_SS_RECVING) == 0U,
+              "Immediate read timeout should clear receive state");
+
+  writer_margin = peer.ks / IOHDLC_WRITER_PENDING_MARGIN_DIVISOR;
+  if (writer_margin < IOHDLC_WRITER_PENDING_MARGIN_MIN)
+    writer_margin = IOHDLC_WRITER_PENDING_MARGIN_MIN;
+  peer.i_pending_count = peer.ks + writer_margin;
+  iohdlc_errno = 0;
+  transferred = ioHdlcWriteTmo(&peer, &input, sizeof input, 0U);
+  TEST_ASSERT(transferred == -1 && iohdlc_errno == ETIMEDOUT,
+              "Immediate flow-controlled write should time out");
+  TEST_ASSERT(ioHdlc_frameq_isempty(&peer.i_trans_q),
+              "Timed-out immediate write should not queue a frame");
+  TEST_ASSERT((peer.ss_state & IOHDLC_SS_SENDING) == 0U,
+              "Immediate write timeout should clear sending state");
+
+  peer.i_pending_count = 0U;
+  transferred = ioHdlcWriteTmo(&peer, &input, sizeof input, 0U);
+  TEST_ASSERT(transferred == (ssize_t)sizeof input,
+              "Immediate write should use available capacity");
+  TEST_ASSERT(peer.i_pending_count == 1U &&
+              !ioHdlc_frameq_isempty(&peer.i_trans_q),
+              "Immediate write should queue one frame");
+
+  fqp = ioHdlc_frameq_remove(&peer.i_trans_q);
+  peer.i_pending_count--;
+  ioHdlc_frameq_insert(&peer.i_recept_q, fqp);
+  iohdlc_errno = EAGAIN;
+  transferred = ioHdlcReadTmo(&peer, output, sizeof output, 0U);
+  TEST_ASSERT(transferred == (ssize_t)sizeof input && output[0] == input,
+              "Immediate read should return all available data");
+  TEST_ASSERT(iohdlc_errno == EAGAIN,
+              "Partial immediate read should preserve iohdlc_errno");
+  TEST_ASSERT(ioHdlc_frameq_isempty(&peer.i_recept_q),
+              "Immediate read should release a consumed frame");
+
+  TEST_ASSERT(iohdlc_bsem_wait_timeout(&peer.read_gate, 0U) == MSG_OK,
+              "Immediate read should release its gate");
+  iohdlc_bsem_signal(&peer.read_gate);
+  TEST_ASSERT(iohdlc_bsem_wait_timeout(&peer.write_gate, 0U) == MSG_OK,
+              "Immediate write should release its gate");
+  iohdlc_bsem_signal(&peer.write_gate);
+
+  return 0;
+}
+
 bool test_connected_snrm_resets_stream_io(const test_adapter_t *adapter) {
   int test_result = 0;
   test_link_pair_t pair;

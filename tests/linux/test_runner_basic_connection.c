@@ -44,6 +44,7 @@ int main(void) {
   RUN_TEST(test_read_zero_length_returns_zero);
   RUN_TEST(test_read_never_connected_returns_enotconn);
   RUN_TEST(test_read_reports_pending_terminal);
+  RUN_TEST(test_immediate_stream_io);
   RUN_TEST(test_vectored_io_validation);
 
   mock_adapter.init();
