@@ -150,6 +150,10 @@
 #define IOHDLC_RX_ENTRY_RECV_TIMEOUT_MS 500U
 #endif
 
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
+
 #endif /* IOHDLC_CONF_H_ */
 
 /** @} */
