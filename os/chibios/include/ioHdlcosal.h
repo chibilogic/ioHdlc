@@ -490,8 +490,12 @@ static inline iohdlc_thread_t* iohdlc_thread_create(
   
   /* Suppress cast warning: iohdlc_thread_fn_t returns void* for Linux compatibility,
    * but ChibiOS tfunc_t returns void. The cast is safe because return value is unused. */
+
+
 #pragma GCC diagnostic push
+#if defined(__GNUC__) && __GNUC__ >= 8
 #pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
   thread->handle = chThdCreateFromHeap(NULL, wsize, name, prio,
                                        (tfunc_t)entry, arg);
 #pragma GCC diagnostic pop
