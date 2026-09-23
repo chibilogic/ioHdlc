@@ -145,6 +145,7 @@ static void setPFInCtrl(iohdlc_station_t *s, uint8_t *ctrl, bool pf) {
  * @param[in] p           Peer state to update.
  * @param[in] term_bits   One of IOHDLC_SS_TERM_ORDERLY, IOHDLC_SS_TERM_ABORTED,
  *                        or zero for a neutral disconnected state.
+ * @note    The caller holds the peer state and station mode mutexes.
  */
 static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p, uint8_t term_bits) {
   if (p->ss_state & IOHDLC_SS_ST_CONN) {
@@ -164,6 +165,7 @@ static void ioHdlcSetDisconnected(iohdlc_station_peer_t *p, uint8_t term_bits) {
 /**
  * @brief   Mark a peer as connected and wake blocked transmitters.
  * @param[in] p   Peer state to update.
+ * @note    The caller holds the peer state and station mode mutexes.
  */
 static void ioHdlcSetConnected(iohdlc_station_peer_t *p) {
   if (!(p->ss_state & IOHDLC_SS_ST_CONN)) {
@@ -268,12 +270,14 @@ static void closePeerOrderly(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
 
   resetPeerProtocolState(p);
   clearPeerTxQueues(p);
+  iohdlc_mutex_lock(&s->mode_mutex);
   ioHdlcSetDisconnected(p, IOHDLC_SS_TERM_ORDERLY);
 
   if (s->connected_count == 0) {
     s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
     applyModeState(s, s->mode);
   }
+  iohdlc_mutex_unlock(&s->mode_mutex);
 
   if (was_connected)
     ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_LINK_DOWN);
@@ -282,12 +286,15 @@ static void closePeerOrderly(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
 static void abortPeerLink(iohdlc_station_t *s, iohdlc_station_peer_t *p) {
   resetPeerProtocolState(p);
   clearPeerTxQueues(p);
+  iohdlc_mutex_lock(&s->mode_mutex);
   ioHdlcSetDisconnected(p, IOHDLC_SS_TERM_ABORTED);
 
   if (s->connected_count == 0) {
     s->mode = IOHDLC_IS_NRM(s) ? IOHDLC_OM_NDM : IOHDLC_OM_ADM;
     applyModeState(s, s->mode);
   }
+  iohdlc_mutex_unlock(&s->mode_mutex);
+  ioHdlcFinishLinkUp(p);
 }
 
 /**
@@ -342,7 +349,8 @@ static void resetPeerVars(iohdlc_station_peer_t *p) {
     iohdlc_condvar_broadcast(&p->tx_cv);
   }
   resetPeerProtocolState(p);
-  p->ss_state = 0;
+  /* Retain this peer's existing contribution to connected_count. */
+  p->ss_state &= IOHDLC_SS_ST_CONN;
   clearPeerTxQueues(p);
   clearPeerRxBuffered(p);
 }
@@ -496,6 +504,27 @@ static bool responseShouldSetF(iohdlc_station_t *s, bool is_i_frame, bool is_las
 /*===========================================================================*/
 /* Module exported functions.                                                */
 /*===========================================================================*/
+
+/**
+ * @brief   Release station-wide LinkUp ownership after API and core completion.
+ * @note    The caller holds the peer state mutex. The mode lock is always
+ *          acquired after that mutex, including in core transition paths.
+ */
+void ioHdlcFinishLinkUp(iohdlc_station_peer_t *p) {
+  iohdlc_station_t *s = p->stationp;
+
+  if (p->um_api_busy || p->um_cmd != 0 || (p->um_state & IOHDLC_UM_SENT))
+    return;
+
+  iohdlc_mutex_lock(&s->mode_mutex);
+  if (s->linkup_peer == p) {
+    if (s->connected_count == 0 && s->mode == s->linkup_requested_mode &&
+        s->linkup_previous_mode != s->linkup_requested_mode)
+      s->mode = s->linkup_previous_mode;
+    s->linkup_peer = NULL;
+  }
+  iohdlc_mutex_unlock(&s->mode_mutex);
+}
 
 /**
  * @brief   Peer round-robin helper.
@@ -659,10 +688,12 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     if (om) {
       /* Set mode command (SNRM/SARM/SABM).
          Per 6.11.4.1.1: Secondary accepts, changes mode, resets variables. */
+      resetPeerVars(p);
+      iohdlc_mutex_lock(&s->mode_mutex);
       s->mode = om;
       applyModeState(s, om);
-      resetPeerVars(p);
       ioHdlcSetConnected(p);
+      iohdlc_mutex_unlock(&s->mode_mutex);
       ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_LINK_UP);
       p->um_rsp = IOHDLC_U_UA;
     } else if (u_cmd == IOHDLC_U_DISC) {
@@ -732,9 +763,13 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
         /* Reset peer variables. */
         resetPeerVars(p);
         /* Connection command accepted (SNRM/SARM/SABM).
-           Mode was already set by linkup() before sending command. */
+           Reapply the requested mode if the last other peer closed while
+           this command was pending. LinkUp selected it before transmission. */
+        iohdlc_mutex_lock(&s->mode_mutex);
+        s->mode = IOHDLC_UCMD_TO_MODE(cmd);
         applyModeState(s, s->mode);
         ioHdlcSetConnected(p);
+        iohdlc_mutex_unlock(&s->mode_mutex);
       }
       
       /* Clear UM state. */
@@ -755,7 +790,9 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
       if (cmd == IOHDLC_U_DISC) {
         closePeerOrderly(s, p);
       } else {
+        iohdlc_mutex_lock(&s->mode_mutex);
         ioHdlcSetDisconnected(p, 0U);
+        iohdlc_mutex_unlock(&s->mode_mutex);
         resetPeerUm(p);
       }
       
@@ -783,7 +820,8 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     }
     p->um_state &= ~IOHDLC_UM_SENT;
   }
-  
+
+  ioHdlcFinishLinkUp(p);
   iohdlc_mutex_unlock(&p->state_mutex);
   if (release_frame)
     hdlcReleaseFrame(&s->frame_pool, fp);
@@ -2169,15 +2207,15 @@ void ioHdlcTxEntry(void *stationp) {
         /* Log U-frame transmission */
         IOHDLC_LOG_UFRAME(IOHDLC_LOG_TX, s->addr, log_addr, log_fun, setf);
 
-        if (p->um_cmd == IOHDLC_U_TEST) {
-          if (!(p->um_state & IOHDLC_UM_SENT))
-            p->um_cmd = 0;
-          p->um_rsp = 0;
-        } else if (p->um_cmd == IOHDLC_U_DISC) {
+        if (p->um_cmd == IOHDLC_U_DISC) {
           /* DISC has been received: disconnect the link. */
           closePeerOrderly(s, p); /* Do not reset the queues to allow */
                                   /* the reading of remaining frames */
         }
+        if (!(p->um_state & IOHDLC_UM_SENT))
+          p->um_cmd = 0;
+        p->um_rsp = 0;
+        ioHdlcFinishLinkUp(p);
       }
     }
 

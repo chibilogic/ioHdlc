@@ -42,14 +42,6 @@
 typedef int ssize_t;
 
 /**
- * @brief   Thread-local errno access.
- * @details ChibiOS uses standard errno (thread-local if newlib configured with reentrant).
- *          This macro provides consistent interface across platforms.
- * @note    Ensure newlib is configured with --enable-newlib-reent-thread-local for TLS errno.
- */
-#define iohdlc_errno errno
-
-/**
  * @brief   Platform-independent snprintf.
  * @details Maps to ChibiOS chsnprintf for consistent formatted printing.
  */

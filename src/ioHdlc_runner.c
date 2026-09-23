@@ -62,18 +62,17 @@ static void *HdlcRxThread(void *arg) {
  *          The station remains owned by the caller; the runner only owns the
  *          runtime contexts it creates around it.
  * @param[in] station   Station to start runner for.
- * @return              0 on success, -1 on failure (check iohdlc_errno)
+ * @return              0 on success, a negative errno-style error on failure
  * @retval 0            Success
- * @retval -1           Failure (errno: ENOMEM=out of memory, EAGAIN=thread creation failed)
+ * @retval -ENOMEM      Out of memory.
+ * @retval -EAGAIN      Thread creation failed.
  */
 int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
   
   /* Allocate and initialize runner context */
   runner_context_t *ctx = IOHDLC_MALLOC(sizeof *ctx);
-  if (!ctx) {
-    iohdlc_errno = ENOMEM;
-    return -1;  /* Out of memory - abort runner start */
-  }
+  if (!ctx)
+    return -ENOMEM;  /* Out of memory - abort runner start */
   memset(ctx, 0, sizeof *ctx);
   station->runner_context = ctx;
   station->stop_requested = false;
@@ -88,8 +87,7 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
     IOHDLC_FREE(ctx);
     station->runner_context = NULL;
     station->runner_started = false;
-    iohdlc_errno = EAGAIN;  /* Resource temporarily unavailable */
-    return -1;
+    return -EAGAIN;
   }
   ctx->tx_started = true;
   
@@ -104,14 +102,12 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
     IOHDLC_FREE(ctx);
     station->runner_context = NULL;
     station->runner_started = false;
-    iohdlc_errno = EAGAIN;  /* Resource temporarily unavailable */
-    return -1;
+    return -EAGAIN;
   }
   ctx->rx_started = true;
   
   /* Success */
   station->runner_started = true;
-  iohdlc_errno = 0;
   return 0;
 }
 
@@ -127,7 +123,6 @@ int32_t ioHdlcRunnerStop(iohdlc_station_t *station) {
   
   if (!ctx) {
     station->runner_started = false;
-    iohdlc_errno = 0;
     return 0;  /* Runner not started or already stopped - not an error */
   }
   
@@ -152,8 +147,7 @@ int32_t ioHdlcRunnerStop(iohdlc_station_t *station) {
   IOHDLC_FREE(ctx);
   station->runner_context = NULL;
   station->runner_started = false;
-  
-  iohdlc_errno = 0;
+
   return 0;
 }
 

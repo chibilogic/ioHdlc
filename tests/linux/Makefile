@@ -107,6 +107,7 @@ TEST_MOD128_ABM = test_mod128_abm
 TEST_OSAL_BSEM = test_osal_bsem
 TEST_OSAL_EVENTS = test_osal_events
 TEST_LINK_MANAGER = test_link_manager
+TEST_API_CONTROL = test_api_control
 
 # Object files
 CORE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
@@ -139,6 +140,7 @@ AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_OSAL_EVENTS)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION_ABM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_MOD128_ABM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_LINK_MANAGER)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_API_CONTROL)
 
 # Manual test tools (require command-line parameters)
 MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_EXCHANGE)
@@ -266,6 +268,10 @@ $(BIN_DIR)/$(TEST_OSAL_EVENTS): $(OBJ_DIR)/test_osal_events.o $(OSAL_MINIMAL) $(
 	@$(CC) $^ -o $@ $(LDFLAGS)
 
 $(BIN_DIR)/$(TEST_LINK_MANAGER): $(OBJ_DIR)/test_link_manager.o $(LINK_MANAGER_OBJS) $(ALL_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/$(TEST_API_CONTROL): $(OBJ_DIR)/test_api_control.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
 

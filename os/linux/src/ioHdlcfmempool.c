@@ -112,14 +112,16 @@ static void release(void *ip, iohdlc_frame_t *fp) {
 
 /**
  * @brief   Add reference to frame (with locking).
- * @note    This path uses an atomic increment; the backend still expects the
- *          wider ownership model to prevent invalid lifetime races.
+ * @note    The caller must hold a live reference to the frame.
  */
-static void addref(iohdlc_frame_t *fp) {
-  /* Note: In real implementation should have per-frame lock or atomic ops.
-   * For simplicity using assert - caller must ensure no concurrent addref/release */
-  assert(fp->refs > 0 && "adding ref to freed frame");
-  __sync_fetch_and_add(&fp->refs, 1);  /* Atomic increment */
+static void addref(void *ip, iohdlc_frame_t *fp) {
+  ioHdlcFrameMemPool *fmpp = (ioHdlcFrameMemPool *)ip;
+
+  pthread_mutex_lock(&fmpp->mp.lock);
+  IOHDLC_ASSERT(fp->refs > 0 && fp->refs < UINT8_MAX,
+                "invalid frame ref count");
+  ++fp->refs;
+  pthread_mutex_unlock(&fmpp->mp.lock);
 }
 
 static const struct _iohdlc_fmempool_vmt vmt = {

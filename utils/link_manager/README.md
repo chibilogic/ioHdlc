@@ -10,6 +10,11 @@ The application owns the manager object and the thread that calls
 `ioHdlcStationLinkUp()` by default; readiness and connection hooks keep
 platform-specific policy outside the utility.
 
+`ioHdlcLinkManagerRun()` returns zero after stopping, `-EBUSY` if already
+running, or a negative error from listener registration. Connection hooks
+follow the application API convention: zero on success, negative errno-style
+error on failure. No `iohdlc_errno` side channel is used.
+
 The configured event mask must be a dedicated bit other than
 `IOHDLC_APP_EVT_MASK_DEFAULT`, which remains reserved for synchronous ioHdlc
 operations. `ioHdlcLinkManagerStop()` wakes event and retry waits; a stopped

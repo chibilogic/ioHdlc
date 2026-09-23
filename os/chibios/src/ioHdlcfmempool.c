@@ -99,8 +99,10 @@ static void release(void *ip, iohdlc_frame_t *fp) {
   chSysRestoreStatusX(sts);
 }
 
-static void addref(iohdlc_frame_t *fp) {
+static void addref(void *ip, iohdlc_frame_t *fp) {
   syssts_t sts = chSysGetStatusAndLockX();
+
+  (void)ip;
   ++fp->refs;
   chSysRestoreStatusX(sts);
 }

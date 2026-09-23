@@ -394,9 +394,9 @@ int test_multipoint_address_isolation(void) {
   TEST_ASSERT_EQ_GOTO(11, (int)received, "A should receive data");
   TEST_ASSERT_GOTO(memcmp(tx_buf, rx_buf, 11) == 0, "Data mismatch at A");
 
-  /* B should NOT receive (timeout → returns -1 with ETIMEDOUT). */
+  /* B should NOT receive (timeout returns -ETIMEDOUT). */
   received = ioHdlcReadTmo(&ctx.peer_sec_b, rx_buf, 11, 500);
-  TEST_ASSERT_EQ_GOTO(-1, (int)received, "B should NOT receive data addressed to A");
+  TEST_ASSERT_EQ_GOTO(-ETIMEDOUT, (int)received, "B should NOT receive data addressed to A");
   test_printf("  OK: B got nothing\r\n");
 
   /* Send data to peer B only. */
@@ -411,9 +411,9 @@ int test_multipoint_address_isolation(void) {
   TEST_ASSERT_EQ_GOTO(11, (int)received, "B should receive data");
   TEST_ASSERT_GOTO(memcmp(tx_buf, rx_buf, 11) == 0, "Data mismatch at B");
 
-  /* A should NOT receive (timeout → returns -1 with ETIMEDOUT). */
+  /* A should NOT receive (timeout returns -ETIMEDOUT). */
   received = ioHdlcReadTmo(&ctx.peer_sec_a, rx_buf, 11, 500);
-  TEST_ASSERT_EQ_GOTO(-1, (int)received, "A should NOT receive data addressed to B");
+  TEST_ASSERT_EQ_GOTO(-ETIMEDOUT, (int)received, "A should NOT receive data addressed to B");
   test_printf("  OK: A got nothing\r\n");
 
 test_cleanup:

@@ -67,6 +67,8 @@ extern "C" {
 
 extern const iohdlc_peer_rx_ops_t ioHdlcPeerRawRxOps;
 
+void ioHdlcFinishLinkUp(iohdlc_station_peer_t *p);
+
 /* Internal frame builders shared by the public API layer and protocol core. */
 /** @ingroup ioHdlc_core */
 void ioHdlcBuildUFrame(iohdlc_station_t *s, iohdlc_station_peer_t *p,

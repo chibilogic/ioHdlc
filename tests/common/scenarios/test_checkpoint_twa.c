@@ -322,8 +322,8 @@ bool test_A1_1_frame_loss_window_full_twa(const test_adapter_t *adapter) {
     iohdlc_snprintf(test_data, sizeof test_data, "Frame %d data", i);
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
-      test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
-                  i, (int32_t)sent, iohdlc_errno);
+      test_printf("❌ Write frame %d failed: sent=%d\r\n",
+                  i, (int32_t)sent);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
     test_printf("  Sent frame N(S)=%d (%d bytes)\r\n", i, (int32_t)sent);
@@ -353,15 +353,15 @@ bool test_A1_1_frame_loss_window_full_twa(const test_adapter_t *adapter) {
                                      t_sent - total_received, 1000);
     
     if (received > 0) {
-      test_printf("  Read attempt %d: +%d bytes (total now: %d)\r\n", 
+      test_printf("  Read attempt %d: +%d bytes (total now: %d)\r\n",
                   read_attempts + 1, (int32_t)received, (int32_t)(total_received + received));
       total_received += (size_t)received;
     } else if (received == 0) {
       test_printf("  Read attempt %d: no data (timeout), total: %d bytes\r\n",
                   read_attempts + 1, (int32_t)total_received);
     } else {
-      test_printf("  Read attempt %d: error %d, errno=%d\r\n", 
-                  read_attempts + 1, (int32_t)received, iohdlc_errno);
+      test_printf("  Read attempt %d: error %d\r\n",
+                  read_attempts + 1, (int32_t)received);
     }
     
     read_attempts++;
@@ -548,8 +548,8 @@ bool test_A2_1_multiple_frame_loss_twa(const test_adapter_t *adapter) {
     iohdlc_snprintf(test_data, sizeof test_data, "Frame %d data", i);
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
-      test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
-                  i, (int32_t)sent, iohdlc_errno);
+      test_printf("❌ Write frame %d failed: sent=%d\r\n",
+                  i, (int32_t)sent);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
     test_printf("  Sent frame N(S)=%d (%d bytes)\r\n", i, (int32_t)sent);
@@ -579,15 +579,15 @@ bool test_A2_1_multiple_frame_loss_twa(const test_adapter_t *adapter) {
                                      t_sent - total_received, 1000);
     
     if (received > 0) {
-      test_printf("  Read attempt %d: +%d bytes (total now: %u)\r\n", 
+      test_printf("  Read attempt %d: +%d bytes (total now: %u)\r\n",
                   read_attempts + 1, (int32_t)received, (uint32_t)(total_received + received));
       total_received += (size_t)received;
     } else if (received == 0) {
       test_printf("  Read attempt %d: no data (timeout), total: %u bytes\r\n",
                   read_attempts + 1, (uint32_t)total_received);
     } else {
-      test_printf("  Read attempt %d: error %d, errno=%d\r\n", 
-                  read_attempts + 1, (int32_t)received, iohdlc_errno);
+      test_printf("  Read attempt %d: error %d\r\n",
+                  read_attempts + 1, (int32_t)received);
     }
     
     read_attempts++;
@@ -774,8 +774,8 @@ bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter) {
     iohdlc_snprintf(test_data, sizeof test_data, "Frame %d data", i);
     sent = ioHdlcWriteTmo(&peer_at_primary, test_data, strlen(test_data), 2000);
     if (sent != (ssize_t)strlen(test_data)) {
-      test_printf("❌ Write frame %d failed: sent=%d, errno=%d\r\n", 
-                  i, (int32_t)sent, iohdlc_errno);
+      test_printf("❌ Write frame %d failed: sent=%d\r\n",
+                  i, (int32_t)sent);
     }
     TEST_ASSERT(sent == (ssize_t)strlen(test_data), "Frame send failed");
     test_printf("  Sent frame N(S)=%d (%d bytes)\r\n", i, (int32_t)sent);
@@ -805,15 +805,15 @@ bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter) {
                                      t_sent - total_received, 1000);
     
     if (received > 0) {
-      test_printf("  Read attempt %d: +%d bytes (total now: %u)\r\n", 
+      test_printf("  Read attempt %d: +%d bytes (total now: %u)\r\n",
                   read_attempts + 1, (int32_t)received, (uint32_t)(total_received + received));
       total_received += (size_t)received;
     } else if (received == 0) {
       test_printf("  Read attempt %d: no data (timeout), total: %u bytes\r\n",
                   read_attempts + 1, (uint32_t)total_received);
     } else {
-      test_printf("  Read attempt %d: error %d, errno=%d\r\n", 
-                  read_attempts + 1, (int32_t)received, iohdlc_errno);
+      test_printf("  Read attempt %d: error %d\r\n",
+                  read_attempts + 1, (int32_t)received);
     }
     
     read_attempts++;

@@ -68,7 +68,7 @@ typedef enum {
 #define _iohdlc_framepool_methods                   \
   iohdlc_frame_t * (*take)(void *ip);               \
   void (*release)(void *ip, iohdlc_frame_t *fp);    \
-  void (*addref)(iohdlc_frame_t *fp);               \
+  void (*addref)(void *ip, iohdlc_frame_t *fp);     \
 
 /**
  * @brief   Common storage shared by all frame-pool implementations.
@@ -136,13 +136,14 @@ typedef struct {
 /**
  * @brief   Hdlc add a reference to a frame.
  * @details Use this define to share the frame between
- *          different threads.
+ *          different threads. The caller must hold a live reference to @p fp
+ *          and pass the pool that owns the frame.
  *
  * @param[in]   fpp   ioHdlcFramePool instance pointer
  * @param[in]   fp    the pointer to the frame referenced.
  *
  */
-#define hdlcAddRef(fpp, fp)         ((fpp)->vmt->addref(fp))
+#define hdlcAddRef(fpp, fp)         ((fpp)->vmt->addref(fpp, fp))
 
 /**
  * @brief   Get total frame count in pool.

@@ -163,8 +163,8 @@ bool test_data_exchange_twa(const test_adapter_t *adapter) {
   for (i = 0; i < 10; ++i) {
     sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 2000);
     if (sent != (ssize_t)msg_len) {
-      test_printf("❌ Primary write returned %d (expected %u), errno=%d\n", 
-                  (int)sent, (unsigned int)msg_len, iohdlc_errno);
+      test_printf("❌ Primary write returned %d (expected %u)\n",
+                  (int)sent, (unsigned int)msg_len);
     }
     TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
     test_printf("Primary sent %d bytes\n", (int)sent);
@@ -176,8 +176,8 @@ bool test_data_exchange_twa(const test_adapter_t *adapter) {
   ssize_t received;
   for (i = 0; i < 10; ++i) {
     received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, msg_len, 2000);
-    test_printf("Secondary read returned %d bytes (expected %u), errno=%d\n",
-                (int)received, (unsigned int)msg_len, iohdlc_errno);
+    test_printf("Secondary read returned %d bytes (expected %u)\n",
+                (int)received, (unsigned int)msg_len);
     if (received > 0 && received <= (ssize_t)sizeof recv_buf) {
       /* Null-terminate for printing */
       recv_buf[received < (ssize_t)sizeof recv_buf ? (size_t)received : sizeof recv_buf-1] = '\0';

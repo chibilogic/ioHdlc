@@ -403,11 +403,11 @@ static void *writer_thread(void *arg) {
           }
         }
 
-        if (iohdlc_errno == ETIMEDOUT)
+        if (sent == -ETIMEDOUT)
           test_printf("Writer %u Timeout!\r\n", ctx->station->addr);
         else
-          test_printf("Writer %u Error %d!\r\n", ctx->station->addr,
-            iohdlc_errno);
+          test_printf("Writer %u short write or error: %d!\r\n",
+                      ctx->station->addr, (int32_t)sent);
         test_running = false;
         break;
       }
@@ -516,7 +516,8 @@ static void *reader_thread(void *arg) {
         }
       }
 
-      test_printf("Reader %u Error %d!\r\n", ctx->station->addr, iohdlc_errno);
+      test_printf("Reader %u Error %d!\r\n", ctx->station->addr,
+                  (int32_t)received);
       test_running = false;
     }
     if (ctx->stats->packets_received >=
@@ -888,8 +889,8 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
       result = ioHdlcPeerTest(&peer_at_primary, config.bytes_per_exchange,
                               TEST_COMMAND_TIMEOUT_MS);
       if (result != 0) {
-        test_printf("TEST cycle %u/%u failed: iohdlc_errno=%d\r\n",
-                    cycle + 1U, config.test_command_count, iohdlc_errno);
+        test_printf("TEST cycle %u/%u failed: error=%d\r\n",
+                    cycle + 1U, config.test_command_count, result);
         return_code = 1;
         break;
       }
@@ -1206,8 +1207,7 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     result = ioHdlcStationLinkDown(&station_primary,
                                    station_primary.c_peer->addr);
     if (result != 0) {
-      test_printf("Link disconnect failed: iohdlc_errno=%d\r\n",
-                  iohdlc_errno);
+      test_printf("Link disconnect failed: error=%d\r\n", result);
       test_failed_global = true;
       return_code = 1;
     } else {

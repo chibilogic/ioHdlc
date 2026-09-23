@@ -49,13 +49,6 @@
 
 
 /**
- * @brief   Thread-local errno access.
- * @details On POSIX systems, errno is already thread-local (TLS).
- *          This macro provides consistent interface across platforms.
- */
-#define iohdlc_errno errno
-
-/**
  * @brief   Platform-independent snprintf.
  * @details Maps to standard snprintf on POSIX systems.
  */

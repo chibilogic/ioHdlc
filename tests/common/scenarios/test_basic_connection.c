@@ -63,7 +63,6 @@ typedef struct {
   const uint8_t *datap;
   size_t size;
   ssize_t result;
-  int error;
 } reset_write_context_t;
 
 static uint8_t reset_write_payload[2U * FRAME_SIZE];
@@ -77,7 +76,6 @@ static void *reset_write_thread(void *arg) {
   iohdlc_bsem_signal(&contextp->started);
   contextp->result = ioHdlcWriteTmo(contextp->peerp, contextp->datap,
                                     contextp->size, 1000U);
-  contextp->error = iohdlc_errno;
   return NULL;
 }
 
@@ -374,17 +372,13 @@ bool test_idle_poll_timeout_config(void) {
   config.idle_poll_timeout_ms = 9U;
   memset(&station, 0, sizeof station);
   result = ioHdlcStationInit(&station, &config);
-  TEST_ASSERT(result == -1, "Idle-poll timeout below T1 should be rejected");
-  TEST_ASSERT(iohdlc_errno == EINVAL,
-              "Idle-poll timeout below T1 should report EINVAL");
+  TEST_ASSERT(result == -EINVAL, "Idle-poll timeout below T1 should be rejected");
 
   config.idle_poll_timeout_ms = (uint32_t)UINT16_MAX + 1U;
   memset(&station, 0, sizeof station);
   result = ioHdlcStationInit(&station, &config);
-  TEST_ASSERT(result == -1,
+  TEST_ASSERT(result == -EINVAL,
               "Explicit idle-poll timeout above UINT16_MAX should be rejected");
-  TEST_ASSERT(iohdlc_errno == EINVAL,
-              "Oversized idle-poll timeout should report EINVAL");
 
   config.reply_timeout_ms = UINT16_MAX;
   config.idle_poll_timeout_ms = 0U;
@@ -455,8 +449,7 @@ bool test_peer_creation(void) {
   /* Test duplicate address rejection */
   iohdlc_station_peer_t duplicate_peer;
   result = ioHdlcAddPeer(&station, &duplicate_peer, SECONDARY_ADDR);
-  TEST_ASSERT(result == -1, "Adding duplicate peer should fail");
-  TEST_ASSERT(iohdlc_errno == EEXIST, "Error should be EEXIST");
+  TEST_ASSERT(result == -EEXIST, "Adding duplicate peer should fail");
 
   test_printf("✅ Peer creation and initialization successful\n");
   return 0;
@@ -507,8 +500,8 @@ bool test_application_event_listener(void) {
 
   TEST_ASSERT(ioHdlcPeerGetState(NULL) == IOHDLC_PEER_STATE_INVALID,
               "Null peer should report invalid state");
-  TEST_ASSERT(iohdlc_errno == EINVAL,
-              "Null peer state query should report EINVAL");
+  TEST_ASSERT(IOHDLC_PEER_STATE_INVALID == -EINVAL,
+              "Invalid peer state should encode EINVAL");
   return 0;
 }
 
@@ -576,8 +569,7 @@ bool test_swdriver_rejects_unsupported_modulo(void) {
   memset(&station, 0, sizeof station);
   result = ioHdlcStationInit(&station, &config);
 
-  TEST_ASSERT(result == -1, "Station init should reject unsupported modulo");
-  TEST_ASSERT(iohdlc_errno == ENOTSUP, "Unsupported modulo should report ENOTSUP");
+  TEST_ASSERT(result == -ENOTSUP, "Station init should reject unsupported modulo");
   return 0;
 }
 
@@ -618,8 +610,7 @@ bool test_read_never_connected_returns_enotconn(void) {
   TEST_ASSERT(result == 0, "Peer add should succeed");
 
   received = ioHdlcReadTmo(&peer, &dummy, 1U, 0U);
-  TEST_ASSERT(received == -1, "Read on never-connected peer should fail");
-  TEST_ASSERT(iohdlc_errno == ENOTCONN, "Never-connected read should report ENOTCONN");
+  TEST_ASSERT(received == -ENOTCONN, "Read on never-connected peer should fail");
 
   return 0;
 }
@@ -643,10 +634,8 @@ bool test_read_reports_pending_terminal(void) {
   peer.stream_terminal_pending = IOHDLC_SS_TERM_ABORTED |
                                  IOHDLC_STREAM_TX_RESET_PENDING;
   received = ioHdlcReadTmo(&peer, &dummy, 1U, 0U);
-  TEST_ASSERT(received == -1,
+  TEST_ASSERT(received == -ECONNRESET,
               "Reconnected read should report the pending abort");
-  TEST_ASSERT(iohdlc_errno == ECONNRESET,
-              "Pending abort should report ECONNRESET");
   TEST_ASSERT(peer.stream_terminal_pending ==
               IOHDLC_STREAM_TX_RESET_PENDING,
               "Reader should only consume the pending RX abort");
@@ -678,10 +667,8 @@ bool test_immediate_stream_io(void) {
   result = ioHdlcAddPeer(&station, &peer, SECONDARY_ADDR);
   TEST_ASSERT(result == 0, "Peer add should succeed");
   peer.ss_state = IOHDLC_SS_ST_CONN;
-
-  iohdlc_errno = 0;
   transferred = ioHdlcReadTmo(&peer, output, sizeof output, 0U);
-  TEST_ASSERT(transferred == -1 && iohdlc_errno == ETIMEDOUT,
+  TEST_ASSERT(transferred == -ETIMEDOUT,
               "Immediate read without data should time out");
   TEST_ASSERT((peer.ss_state & IOHDLC_SS_RECVING) == 0U,
               "Immediate read timeout should clear receive state");
@@ -690,9 +677,8 @@ bool test_immediate_stream_io(void) {
   if (writer_margin < IOHDLC_WRITER_PENDING_MARGIN_MIN)
     writer_margin = IOHDLC_WRITER_PENDING_MARGIN_MIN;
   peer.i_pending_count = peer.ks + writer_margin;
-  iohdlc_errno = 0;
   transferred = ioHdlcWriteTmo(&peer, &input, sizeof input, 0U);
-  TEST_ASSERT(transferred == -1 && iohdlc_errno == ETIMEDOUT,
+  TEST_ASSERT(transferred == -ETIMEDOUT,
               "Immediate flow-controlled write should time out");
   TEST_ASSERT(ioHdlc_frameq_isempty(&peer.i_trans_q),
               "Timed-out immediate write should not queue a frame");
@@ -710,12 +696,9 @@ bool test_immediate_stream_io(void) {
   fqp = ioHdlc_frameq_remove(&peer.i_trans_q);
   peer.i_pending_count--;
   ioHdlc_frameq_insert(&peer.i_recept_q, fqp);
-  iohdlc_errno = EAGAIN;
   transferred = ioHdlcReadTmo(&peer, output, sizeof output, 0U);
   TEST_ASSERT(transferred == (ssize_t)sizeof input && output[0] == input,
               "Immediate read should return all available data");
-  TEST_ASSERT(iohdlc_errno == EAGAIN,
-              "Partial immediate read should preserve iohdlc_errno");
   TEST_ASSERT(ioHdlc_frameq_isempty(&peer.i_recept_q),
               "Immediate read should release a consumed frame");
 
@@ -822,14 +805,14 @@ bool test_connected_snrm_resets_stream_io(const test_adapter_t *adapter) {
   result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
                                IOHDLC_OM_NRM);
   TEST_ASSERT_GOTO(result == 0, "Recovery LinkUp failed");
+  TEST_ASSERT_GOTO(pair.station_secondary.connected_count == 1U,
+                   "Connected SNRM must not count the same peer twice");
   iohdlc_thread_join(write_thread);
   write_thread = NULL;
   iohdlc_thread_join(queued_write_thread);
   queued_write_thread = NULL;
-  TEST_ASSERT_GOTO(write_context.result == -1,
+  TEST_ASSERT_GOTO(write_context.result == -ECONNRESET,
                    "Old-stream write should fail across connected SNRM");
-  TEST_ASSERT_GOTO(write_context.error == ECONNRESET,
-                   "Old-stream write should report ECONNRESET");
   TEST_ASSERT_GOTO(queued_write_context.result ==
                    (ssize_t)sizeof queued_message,
                    "Writer waiting at the gate should enter the new stream");
@@ -846,10 +829,8 @@ bool test_connected_snrm_resets_stream_io(const test_adapter_t *adapter) {
                    "Queued new-stream data mismatch");
 
   transferred = ioHdlcReadTmo(&pair.peer_at_secondary, &dummy, 1U, 0U);
-  TEST_ASSERT_GOTO(transferred == -1,
+  TEST_ASSERT_GOTO(transferred == -ECONNRESET,
                    "First read after connected SNRM should fail");
-  TEST_ASSERT_GOTO(iohdlc_errno == ECONNRESET,
-                   "Connected SNRM should report ECONNRESET");
 
   transferred = ioHdlcWriteTmo(&pair.peer_at_primary, message,
                                 sizeof message, 500U);
@@ -898,14 +879,11 @@ bool test_vectored_io_validation(void) {
               "Empty vectored write should return zero");
   TEST_ASSERT(ioHdlcReadVTmo(&peer, NULL, 0U, 0U) == 0,
               "Empty vectored read should return zero");
-
-  iohdlc_errno = 0;
   transferred = ioHdlcWriteVTmo(&peer, NULL, 1U, 0U);
-  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+  TEST_ASSERT(transferred == -EINVAL,
               "Non-empty vectored write should require an iovec array");
-  iohdlc_errno = 0;
   transferred = ioHdlcReadVTmo(&peer, NULL, 1U, 0U);
-  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+  TEST_ASSERT(transferred == -EINVAL,
               "Non-empty vectored read should require an iovec array");
 
   write_iov[0].iov_base = NULL;
@@ -918,38 +896,31 @@ bool test_vectored_io_validation(void) {
               "Zero-length read vector should accept a null base");
 
   write_iov[0].iov_len = 1U;
-  iohdlc_errno = 0;
   transferred = ioHdlcWriteVTmo(&peer, write_iov, 1U, 0U);
-  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+  TEST_ASSERT(transferred == -EINVAL,
               "Non-empty write vector should reject a null base");
 
   read_iov[0].iov_len = 1U;
-  iohdlc_errno = 0;
   transferred = ioHdlcReadVTmo(&peer, read_iov, 1U, 0U);
-  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+  TEST_ASSERT(transferred == -EINVAL,
               "Non-empty read vector should reject a null base");
 
   write_iov[0].iov_base = &byte;
   write_iov[0].iov_len = (size_t)-1 >> 1;
   write_iov[1].iov_base = &byte;
   write_iov[1].iov_len = 1U;
-  iohdlc_errno = 0;
   transferred = ioHdlcWriteVTmo(&peer, write_iov, 2U, 0U);
-  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+  TEST_ASSERT(transferred == -EINVAL,
               "Vectored write should reject totals above SSIZE_MAX");
 
   read_iov[0].iov_base = &byte;
   read_iov[0].iov_len = (size_t)-1 >> 1;
   read_iov[1].iov_base = &byte;
   read_iov[1].iov_len = 1U;
-  iohdlc_errno = 0;
   transferred = ioHdlcReadVTmo(&peer, read_iov, 2U, 0U);
-  TEST_ASSERT(transferred == -1 && iohdlc_errno == EINVAL,
+  TEST_ASSERT(transferred == -EINVAL,
               "Vectored read should reject totals above SSIZE_MAX");
-
-  iohdlc_errno = 0;
-  TEST_ASSERT(ioHdlcWriteTmo(&peer, &byte, 0U, 0U) == -1 &&
-              iohdlc_errno == EINVAL,
+  TEST_ASSERT(ioHdlcWriteTmo(&peer, &byte, 0U, 0U) == -EINVAL,
               "Scalar zero-length write should retain EINVAL semantics");
   return 0;
 }
@@ -1041,7 +1012,7 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   test_printf("Calling ioHdlcStationLinkUp...\n");
   int ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM); // DEBUG: Set breakpoint here
   if (ret != 0) {
-    test_printf("❌ ioHdlcStationLinkUp returned %d, errno=%d\n", ret, iohdlc_errno);
+    test_printf("❌ ioHdlcStationLinkUp returned %d\n", ret);
   }
   TEST_ASSERT(ret == 0, "ioHdlcStationLinkUp should succeed");
   
@@ -1051,8 +1022,6 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   /* Verify connection established at both ends */
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
   TEST_ASSERT(!IOHDLC_PEER_DISC(&peer_at_secondary), "Secondary peer should be connected");
-  TEST_ASSERT(iohdlc_errno == 0, "Primary station should have no errors");
-  TEST_ASSERT(iohdlc_errno == 0, "Secondary station should have no errors");
   
   test_printf("✅ SNRM handshake completed successfully\n");
   
@@ -1100,15 +1069,11 @@ bool test_test_command_disconnected(const test_adapter_t *adapter) {
                    "Secondary peer should remain disconnected after TEST");
 
   result = ioHdlcPeerTest(&pair.peer_at_secondary, 4U, 50U);
-  TEST_ASSERT_GOTO(result == -1, "Secondary NDM TEST initiation should fail");
-  TEST_ASSERT_GOTO(iohdlc_errno == ENOTSUP,
-                   "Secondary NDM TEST initiation should report ENOTSUP");
+  TEST_ASSERT_GOTO(result == -ENOTSUP, "Secondary NDM TEST initiation should fail");
 
   result = ioHdlcPeerTest(&pair.peer_at_primary,
                           pair.peer_at_primary.mifls + 1U, 50U);
-  TEST_ASSERT_GOTO(result == -1, "Oversized TEST should fail");
-  TEST_ASSERT_GOTO(iohdlc_errno == EMSGSIZE,
-                   "Oversized TEST should report EMSGSIZE");
+  TEST_ASSERT_GOTO(result == -EMSGSIZE, "Oversized TEST should fail");
 
 test_cleanup:
   TEST_ASSERT(ioHdlcStationDeinit(&pair.station_primary) == 0,
@@ -1170,9 +1135,7 @@ bool test_test_command_timeout_preserves_link_state(const test_adapter_t *adapte
   ioHdlc_sleep_ms(50);
 
   result = ioHdlcPeerTest(&pair.peer_at_primary, 8U, 30U);
-  TEST_ASSERT_GOTO(result == -1, "TEST without receiver should timeout");
-  TEST_ASSERT_GOTO(iohdlc_errno == ETIMEDOUT,
-                   "TEST timeout should report ETIMEDOUT");
+  TEST_ASSERT_GOTO(result == -ETIMEDOUT, "TEST without receiver should timeout");
   TEST_ASSERT_GOTO(IOHDLC_PEER_DISC(&pair.peer_at_primary),
                    "TEST timeout should not connect the peer");
   TEST_ASSERT_GOTO(!IOHDLC_PEER_ABORTED(&pair.peer_at_primary),
@@ -1303,8 +1266,8 @@ bool test_data_exchange(const test_adapter_t *adapter) {
   for (i = 0; i < 10; ++i) {
     sent = ioHdlcWriteTmo(&peer_at_primary, test_msg, msg_len, 500);
     if (sent != (ssize_t)msg_len) {
-      test_printf("❌ Primary write returned %d (expected %u), errno=%d\n", 
-                  (int)sent, (unsigned int)msg_len, iohdlc_errno);
+      test_printf("❌ Primary write returned %d (expected %u)\n",
+                  (int)sent, (unsigned int)msg_len);
     }
     TEST_ASSERT_GOTO(sent == (ssize_t)msg_len, "Primary write failed");
     test_printf("Primary sent %d bytes\n", (int)sent);
@@ -1316,8 +1279,8 @@ bool test_data_exchange(const test_adapter_t *adapter) {
   ssize_t received;
   for (i = 0; i < 10; ++i) {
     received = ioHdlcReadTmo(&peer_at_secondary, recv_buf, msg_len, 500);
-    test_printf("Secondary read returned %d bytes (expected %u), errno=%d\n",
-                (int32_t)received, (uint32_t)msg_len, iohdlc_errno);
+    test_printf("Secondary read returned %d bytes (expected %u)\n",
+                (int32_t)received, (uint32_t)msg_len);
     if (received > 0 && received <= (ssize_t)sizeof recv_buf) {
       /* Null-terminate for printing */
       recv_buf[received < (ssize_t)sizeof recv_buf ? (size_t)received : sizeof recv_buf-1] = '\0';
@@ -1436,18 +1399,16 @@ bool test_vectored_io_exchange(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(
       iohdlc_bsem_wait_timeout(&pair.peer_at_primary.write_gate, 0U) == MSG_OK,
       "Write gate should initially be available");
-  iohdlc_errno = 0;
   transferred = ioHdlcWriteVTmo(&pair.peer_at_primary, write_iov, 1U, 0U);
-  TEST_ASSERT_GOTO(transferred == -1 && iohdlc_errno == ETIMEDOUT,
+  TEST_ASSERT_GOTO(transferred == -ETIMEDOUT,
                    "Competing write should time out at the write gate");
   iohdlc_bsem_signal(&pair.peer_at_primary.write_gate);
 
   TEST_ASSERT_GOTO(
       iohdlc_bsem_wait_timeout(&pair.peer_at_secondary.read_gate, 0U) == MSG_OK,
       "Read gate should initially be available");
-  iohdlc_errno = 0;
   transferred = ioHdlcReadVTmo(&pair.peer_at_secondary, read_iov, 1U, 0U);
-  TEST_ASSERT_GOTO(transferred == -1 && iohdlc_errno == ETIMEDOUT,
+  TEST_ASSERT_GOTO(transferred == -ETIMEDOUT,
                    "Competing read should time out at the read gate");
   iohdlc_bsem_signal(&pair.peer_at_secondary.read_gate);
 
@@ -1460,12 +1421,9 @@ bool test_vectored_io_exchange(const test_adapter_t *adapter) {
   partial_iov[0].iov_len = sizeof partial_head;
   partial_iov[1].iov_base = partial_tail;
   partial_iov[1].iov_len = sizeof partial_tail;
-  iohdlc_errno = EAGAIN;
   transferred = ioHdlcReadVTmo(&pair.peer_at_secondary, partial_iov, 2U, 100U);
   TEST_ASSERT_GOTO(transferred == 7,
                    "Vectored read timeout should return transferred bytes");
-  TEST_ASSERT_GOTO(iohdlc_errno == EAGAIN,
-                   "Partial vectored read should preserve iohdlc_errno");
   TEST_ASSERT_GOTO(memcmp(partial_head, expected, sizeof partial_head) == 0,
                    "Partial vectored read head should match");
   TEST_ASSERT_GOTO(memcmp(partial_tail, expected + sizeof partial_head, 5U) == 0,
@@ -1553,8 +1511,7 @@ bool test_ui_exchange(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(result == 0, "Add peer to secondary failed");
 
   ret = ioHdlcPeerUiSend(&peer_at_primary, 0x11223344U);
-  TEST_ASSERT_GOTO(ret == -1, "UI send should fail while disconnected");
-  TEST_ASSERT_GOTO(iohdlc_errno == ENOTCONN, "Disconnected UI send should report ENOTCONN");
+  TEST_ASSERT_GOTO(ret == -ENOTCONN, "UI send should fail while disconnected");
 
   result = ioHdlcRunnerStart(&station_primary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
@@ -1570,7 +1527,7 @@ bool test_ui_exchange(const test_adapter_t *adapter) {
 
   TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_primary), "Primary peer should be connected");
   TEST_ASSERT_GOTO(!IOHDLC_PEER_DISC(&peer_at_secondary), "Secondary peer should be connected");
-  TEST_ASSERT_GOTO(!ioHdlcPeerUiGet(&peer_at_secondary, &rx_value),
+  TEST_ASSERT_GOTO(ioHdlcPeerUiGet(&peer_at_secondary, &rx_value) == 0,
                    "UI cache should be empty before transmission");
 
   pri_vs = peer_at_primary.vs;
@@ -1593,10 +1550,10 @@ bool test_ui_exchange(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO((flags & IOHDLC_APP_UI_RECEIVED) != 0U,
                    "Timed out waiting for UI event");
 
-  TEST_ASSERT_GOTO(ioHdlcPeerUiGet(&peer_at_secondary, &rx_value),
+  TEST_ASSERT_GOTO(ioHdlcPeerUiGet(&peer_at_secondary, &rx_value) == 1,
                    "UI payload should be available");
   TEST_ASSERT_GOTO(rx_value == ui_value, "UI payload mismatch");
-  TEST_ASSERT_GOTO(!ioHdlcPeerUiGet(&peer_at_secondary, &rx_value),
+  TEST_ASSERT_GOTO(ioHdlcPeerUiGet(&peer_at_secondary, &rx_value) == 0,
                    "UI payload should be consumed after first read");
 
   TEST_ASSERT_GOTO(peer_at_primary.vs == pri_vs, "UI must not alter primary V(S)");
@@ -2052,8 +2009,7 @@ bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
   ioHdlc_sleep_ms(20);
 
   ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
-  TEST_ASSERT(ret == -1, "LinkUp without responder should fail");
-  TEST_ASSERT(iohdlc_errno == ETIMEDOUT, "LinkUp failure should surface as timeout");
+  TEST_ASSERT(ret == -ETIMEDOUT, "LinkUp without responder should fail");
   TEST_ASSERT(IOHDLC_PEER_DISC(&peer_at_primary),
               "Peer should be disconnected after failed LinkUp");
   TEST_ASSERT(IOHDLC_PEER_ABORTED(&peer_at_primary),
@@ -2073,9 +2029,7 @@ bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
   {
     char dummy = 0;
     ssize_t received = ioHdlcReadTmo(&peer_at_primary, &dummy, 1U, 0U);
-    TEST_ASSERT(received == -1, "Read on aborted peer should fail");
-    TEST_ASSERT(iohdlc_errno == ECONNRESET,
-                "Read on aborted peer should report ECONNRESET");
+    TEST_ASSERT(received == -ECONNRESET, "Read on aborted peer should fail");
   }
 
   ioHdlc_sleep_ms(50);
@@ -2141,10 +2095,8 @@ bool test_connected_link_timeout_emits_lost(const test_adapter_t *adapter) {
     char dummy = 0;
     ssize_t received = ioHdlcReadTmo(&pair.peer_at_primary, &dummy, 1U, 0U);
 
-    TEST_ASSERT_GOTO(received == -1,
+    TEST_ASSERT_GOTO(received == -ECONNRESET,
                      "Read should report the pending link loss");
-    TEST_ASSERT_GOTO(iohdlc_errno == ECONNRESET,
-                     "Pending link loss should report ECONNRESET");
     TEST_ASSERT_GOTO(pair.peer_at_primary.stream_terminal_pending == 0U,
                      "Read should consume the pending link loss");
   }

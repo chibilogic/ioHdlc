@@ -54,6 +54,72 @@ A **station** represents one end of the HDLC link. It can be:
 - Application event source (`app_es`) for station-wide, coalesced upper-layer
   notifications
 
+### Application API Contract
+
+The application API provides POSIX-inspired stream I/O, with explicit timeouts
+and negative errno-style error returns. It is not POSIX `read()`/`write()` error
+handling: inspect the return value, not `errno`. The `iohdlc_errno` alias has
+been removed. This is a breaking API change; rebuild applications and replace
+checks for `-1` plus `iohdlc_errno` with checks for a negative result or a
+specific value such as `-ETIMEDOUT`. Use the target's `<errno.h>` symbols, not
+hard-coded numeric values.
+
+- Status-returning application functions, including the runner and optional
+  link manager, return zero on success and a negative error on failure.
+- Scalar and vectored reads/writes return the byte count. A timeout after
+  progress returns a positive partial count; without progress it returns
+  `-ETIMEDOUT`. No separate error accompanies a positive result.
+- An admitted logical write interrupted by a connection reset returns
+  `-ECONNRESET`, even after partial progress. This does not retract bytes
+  already sent. Writers still waiting for admission can enter the new stream.
+- Reads drain buffered data before reporting orderly EOF (`0`) or link abort
+  (`-ECONNRESET`). A pending terminal result survives reconnection so that a
+  read cannot silently combine streams. A never-connected peer returns
+  `-ENOTCONN`.
+- `ioHdlcPeerUiGet()` returns `1` when it consumes a value, `0` when none is
+  pending, and `-EINVAL` for invalid arguments. Boolean truth tests must be
+  replaced with an explicit `== 1` check.
+- `ioHdlcPeerGetState()` retains its enum result. `IOHDLC_PEER_STATE_INVALID`
+  equals `-EINVAL`; valid state values remain unchanged.
+- Pointer, void and event-mask APIs retain their existing contracts. Driver,
+  adapter and OSAL status conventions are internal contracts and are unchanged;
+  conversion to a negative error happens at the application API boundary.
+
+Thread-safety applies to runtime API operations on initialized, live objects:
+
+- A complete scalar or vectored write is serialized against other writers on
+  its peer; reads are similarly serialized against other readers. The read
+  and write directions remain independent. No fairness guarantee is made.
+- LinkUp, LinkDown and TEST are mutually exclusive on the same peer, including
+  TEST response validation. Conflicting calls return `-EBUSY`, without waiting
+  for the active control transaction to finish.
+- Only one LinkUp may be active per station, including across different peers.
+  Mode validation, selection and rollback are synchronized with core mode
+  transitions. An incompatible operational mode is rejected with `-EINVAL`.
+- A LinkUp safety timeout does not cancel the protocol command. Station-wide
+  admission remains reserved until the core finishes it. Pending control
+  commands/responses also prevent replacement by another API on that peer.
+- Peer-state and UI access use the peer mutex. Returned state is a snapshot,
+  not a guarantee that the link will remain unchanged after the call.
+- Application listeners are caller-owned and thread-affine: register, wait
+  and unregister from the same thread, using distinct event bits. Synchronous
+  control calls reserve `IOHDLC_APP_EVT_MASK_DEFAULT` unless an Ex variant is
+  given another dedicated bit. Flags are coalesced notifications, not results
+  carrying a peer identity or an event history.
+- Initialization, peer registration/window configuration, runner lifecycle
+  and station teardown require application-level exclusion. Stop application
+  users and unregister listeners before destroying or reinitializing objects.
+  Configuration, vector arrays and buffers must remain valid and must not be
+  concurrently modified for the duration of the operation using them.
+- Do not infer safety for direct access to exposed station/peer fields or for
+  calls from ISR context. Runtime application APIs are thread-context APIs.
+
+I/O timeouts bound admission and flow/data waits using one budget. Zero means
+no waiting for admission, capacity or data; it does not make the API lock-free
+or provide a hard execution-time bound on internal mutex acquisition, copying
+or scheduling. Link control waits likewise use a single budget, including
+wakeups caused by other peers.
+
 ### 3. Peer Management
 
 **Concept:**
@@ -82,7 +148,7 @@ Pre-allocated frame buffers to avoid dynamic memory allocation in real-time path
 **Features:**
 - **Reference counting**: frames can be shared
 - **Watermark monitoring**: LOW/NORMAL thresholds
-- **Thread-safe**: lock-free or mutex-protected operations
+- **Thread-safe**: pool-mutex-protected operations on Linux, system-lock-protected operations on ChibiOS
 - **Platform-specific**: implemented in `os/<platform>/src/ioHdlcfmempool.c`
 
 **Operations:**
@@ -91,6 +157,11 @@ iohdlc_frame_t *frame = hdlcTakeFrame(pool);  // Allocate
 hdlcAddRef(pool, frame);                       // Increment refcount
 hdlcReleaseFrame(pool, frame);                 // Decrement, free if 0
 ```
+
+All three VMT methods receive the owning pool as their first argument, including
+`addref(void *ip, iohdlc_frame_t *fp)`. Custom pool implementations must use this
+signature. `hdlcAddRef` requires an existing live reference; it cannot revive a
+released frame.
 
 ### 5. Stream Driver and Stream Port Boundary
 
@@ -191,7 +262,7 @@ containing hard transport constraints and execution assists:
 | Flag | Value | Meaning |
 |---|---|---|
 | `IOHDLC_PORT_CONSTR_TWA_ONLY` | `1 << 0` | Link is half-duplex; `IOHDLC_FLG_TWA` must be set in the station config |
-| `IOHDLC_PORT_CONSTR_NRM_ONLY` | `1 << 1` | Transport does not support ABM; `ioHdlcStationLinkUp` returns `ENOTSUP` if ABM is requested |
+| `IOHDLC_PORT_CONSTR_NRM_ONLY` | `1 << 1` | Transport does not support ABM; `ioHdlcStationLinkUp` returns `-ENOTSUP` if ABM is requested |
 
 `ioHdlcStationInit()` reads the constraints from `config->phydriver` and
 validates them against the supplied station configuration. The value is stored

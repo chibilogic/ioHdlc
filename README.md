@@ -34,14 +34,19 @@ communication, ISO 13239 compliant data link layer.
 ### Application Interface
 - **Byte-stream scalar and vectored I/O** (`ioHdlcReadTmo`,
   `ioHdlcWriteTmo`, `ioHdlcReadVTmo`, and `ioHdlcWriteVTmo`): applications
-  exchange raw bytes with POSIX-style blocking, partial-result, and timeout
-  semantics. I-frame fragmentation and reassembly are transparent.
+  exchange raw bytes through POSIX-inspired stream I/O, with explicit timeouts
+  and negative errno-style error returns. I-frame fragmentation and reassembly
+  are transparent.
 - **Logical operation serialization**: a vectored write cannot interleave with
   another write on the same peer, and a vectored read prevents another reader
   from consuming bytes until the call completes. Read and write remain
   independent. A connection reset aborts the write currently admitted to the
   stream; writers still waiting for admission can proceed on the new
   connection.
+- **Exclusive control transactions**: LinkUp, LinkDown and TEST reject
+  overlapping calls on the same peer with `-EBUSY`. LinkUp is also exclusive
+  across the station. See the [API contract](doc/ARCHITECTURE.md#application-api-contract)
+  for concurrency, lifecycle and error-handling requirements.
 - **Integrated backpressure**: writes block not only on a full sliding window
   but also when the frame pool reaches its low watermark, propagating memory
   pressure to the application automatically.

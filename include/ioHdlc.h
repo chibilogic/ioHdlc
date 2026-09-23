@@ -44,6 +44,7 @@
 #ifndef IOHDLC_H_
 #define IOHDLC_H_
 
+#include <errno.h>
 #include "ioHdlc_conf.h"
 #include "ioHdlc_version.h"
 #include "ioHdlc_app_events.h"
@@ -312,8 +313,8 @@
  * @brief   Application-visible state of a station peer.
  */
 typedef enum {
-  IOHDLC_PEER_STATE_INVALID = -1,
-  IOHDLC_PEER_STATE_DISCONNECTED,
+  IOHDLC_PEER_STATE_INVALID = -EINVAL,
+  IOHDLC_PEER_STATE_DISCONNECTED = 0,
   IOHDLC_PEER_STATE_CONNECTED,
   IOHDLC_PEER_STATE_ORDERLY_CLOSED,
   IOHDLC_PEER_STATE_ABORTED
@@ -426,6 +427,7 @@ struct iohdlc_station_peer {
   uint8_t  um_rsp;              /* Unnumbered response event payload. */
   iohdlc_frame_t *um_api_frame; /* Frame exchanged between synchronous U APIs and the core. */
   iohdlc_frame_t *um_rsp_frame; /* Prebuilt/retained frame for an unnumbered response. */
+  bool um_api_busy;             /* A control API still owns the transaction/result. */
   bool ui_tx_pending;           /* A UI value is pending for transmission. */
   bool ui_rx_pending;           /* A new UI value has been received. */
   uint8_t stream_terminal_pending; /* Independent RX/TX terminal notifications. */
@@ -512,6 +514,10 @@ struct iohdlc_station {
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
   volatile uint8_t connected_count; /* Number of currently connected peers. */
+  iohdlc_mutex_t mode_mutex;    /* Lock after peer state_mutex; never across waits. */
+  iohdlc_station_peer_t *linkup_peer; /* Owner until both API and command finish. */
+  uint8_t linkup_previous_mode;
+  uint8_t linkup_requested_mode;
 
   /* state, peers, pool and queues. */
   iohdlc_peer_list_t  peers;    /* The header of the list of the peers of this station. Stations
@@ -645,7 +651,7 @@ extern "C" {
   int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
                          uint32_t timeout_ms);
   int32_t ioHdlcPeerUiSend(iohdlc_station_peer_t *peer, uint32_t value);
-  bool ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value);
+  int32_t ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value);
   iohdlc_peer_state_t ioHdlcPeerGetState(iohdlc_station_peer_t *peer);
 
   int32_t ioHdlcAppListenerRegister(iohdlc_station_t *station,
@@ -664,7 +670,7 @@ extern "C" {
    *          This function is idempotent and is safe to call even after a
    *          partial teardown sequence.
    * @param[in] ioHdlcsp    station descriptor
-   * @return                0 on success, -1 on invalid argument
+   * @return                0 on success, -EINVAL on invalid arguments
    */
   int32_t ioHdlcStationDeinit(iohdlc_station_t *ioHdlcsp);
 

@@ -200,6 +200,8 @@ Rules:
   the response can be built
 - TEST completion is private to the synchronous `ioHdlcPeerTest()` call; no
   asynchronous application event is exposed
+- the API returns zero for a valid echo, `-ETIMEDOUT` on timeout, `-EIO` for
+  an invalid response, and `-EBUSY` for a conflicting control transaction
 
 #### UI support in ioHdlc
 
@@ -215,7 +217,8 @@ channel with these rules:
 - a received `P/F` bit on a UI frame is ignored by the core
 - each peer exposes a single TX slot, so pending values are last-value-wins
 - each peer caches the last received value, which can be consumed through
-  `ioHdlcPeerUiGet()`
+  `ioHdlcPeerUiGet()` (`1` for a value, `0` for no pending value, negative
+  error for invalid arguments)
 - arrival is reported through the `IOHDLC_APP_UI_RECEIVED` application event,
   consumed through an application listener registered on the station
 

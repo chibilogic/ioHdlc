@@ -109,8 +109,8 @@ void ioHdlcLinkManagerObjectInit(
  *          and unregisters all listeners in that same context. Application
  *          events are treated as prompts to read the synchronized peer state,
  *          so coalescing and events emitted for other peers are harmless.
- * @return  Zero after a stop request, or -1 if the manager is already running
- *          or listener registration fails.
+ * @return  Zero after a stop request, -EBUSY if already running, or the
+ *          negative error returned by listener registration.
  */
 int32_t ioHdlcLinkManagerRun(iohdlc_link_manager_t *managerp) {
   iohdlc_app_listener_t listener;
@@ -125,8 +125,7 @@ int32_t ioHdlcLinkManagerRun(iohdlc_link_manager_t *managerp) {
   iohdlc_mutex_lock(&managerp->lock);
   if (managerp->running) {
     iohdlc_mutex_unlock(&managerp->lock);
-    iohdlc_errno = EBUSY;
-    return -1;
+    return -EBUSY;
   }
   if (managerp->stop_requested) {
     iohdlc_mutex_unlock(&managerp->lock);

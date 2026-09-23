@@ -281,7 +281,7 @@ static bool s_log2mod_supported(const uint8_t *supported_log2mods, uint8_t log2m
  *
  * @param[in] ioHdlcsp      Station descriptor to initialize
  * @param[in] ioHdlcsconfp  Configuration parameters
- * @return                  0 on success, -1 on error (check iohdlc_errno)
+ * @return                  0 on success, a negative errno-style error on failure
  * 
  * @note The caller must provide:
  *       - Frame arena memory (frame_arena, frame_arena_size)
@@ -291,19 +291,18 @@ static bool s_log2mod_supported(const uint8_t *supported_log2mods, uint8_t log2m
 int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
                           const iohdlc_station_config_t *ioHdlcsconfp) {
   uint32_t mod2 = 0;
-  uint8_t mode = ioHdlcsconfp->mode;
+  uint8_t mode;
   const ioHdlcDriverCapabilities *caps = NULL;
 
-  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM)) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (ioHdlcsp == NULL || ioHdlcsconfp == NULL)
+    return -EINVAL;
+  mode = ioHdlcsconfp->mode;
+  if ((mode != IOHDLC_OM_NDM) && (mode != IOHDLC_OM_ADM))
+    return -EINVAL;
 
   /* Validate arena parameters */
-  if (ioHdlcsconfp->frame_arena == NULL || ioHdlcsconfp->frame_arena_size == 0) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (ioHdlcsconfp->frame_arena == NULL || ioHdlcsconfp->frame_arena_size == 0)
+    return -EINVAL;
 
   /* Read port constraints from physical driver and validate against config.
      phydriver points to ioHdlcStreamPort when the sw driver is used. */
@@ -314,10 +313,8 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
       (portp->ops && portp->ops->get_caps) ? portp->ops->get_caps(portp->ctx) : NULL;
     port_constr = caps ? caps->constraints : 0;
     if ((port_constr & IOHDLC_PORT_CONSTR_TWA_ONLY) &&
-        !(ioHdlcsconfp->flags & IOHDLC_FLG_TWA)) {
-      iohdlc_errno = EINVAL;   /* Port requires TWA but config does not set FLG_TWA. */
-      return -1;
-    }
+        !(ioHdlcsconfp->flags & IOHDLC_FLG_TWA))
+      return -EINVAL;
   }
 
   /* Basic station parameters */
@@ -332,21 +329,15 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlcsp->driver = ioHdlcsconfp->driver;
 
   /* Validate driver is present - station cannot operate without driver */
-  if (ioHdlcsp->driver == NULL || ioHdlcsp->driver->vmt == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (ioHdlcsp->driver == NULL || ioHdlcsp->driver->vmt == NULL)
+    return -EINVAL;
 
   caps = hdlcGetCapabilities(ioHdlcsp->driver);
-  if (caps == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (caps == NULL)
+    return -EINVAL;
 
-  if (!s_log2mod_supported(caps->modulo.supported_log2mods, ioHdlcsconfp->log2mod)) {
-    iohdlc_errno = ENOTSUP;
-    return -1;
-  }
+  if (!s_log2mod_supported(caps->modulo.supported_log2mods, ioHdlcsconfp->log2mod))
+    return -ENOTSUP;
 
   /* Calculate modulus parameters */
   mod2 = ioHdlcsconfp->log2mod;
@@ -374,10 +365,8 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
       (uint32_t)ioHdlcsp->reply_timeout_ms * IOHDLC_DFL_T3_IDLE_T1_RATIO;
   if (mode == IOHDLC_OM_NDM && ioHdlcsconfp->idle_poll_timeout_ms != 0U) {
     if (ioHdlcsconfp->idle_poll_timeout_ms < ioHdlcsp->reply_timeout_ms ||
-        ioHdlcsconfp->idle_poll_timeout_ms > UINT16_MAX) {
-      iohdlc_errno = EINVAL;
-      return -1;
-    }
+        ioHdlcsconfp->idle_poll_timeout_ms > UINT16_MAX)
+      return -EINVAL;
     ioHdlcsp->idle_poll_timeout_ms = ioHdlcsconfp->idle_poll_timeout_ms;
   }
 
@@ -393,6 +382,10 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   ioHdlc_peerl_init(&ioHdlcsp->peers);
   ioHdlcsp->c_peer = NULL;
   ioHdlcsp->connected_count = 0;
+  iohdlc_mutex_init(&ioHdlcsp->mode_mutex);
+  ioHdlcsp->linkup_peer = NULL;
+  ioHdlcsp->linkup_previous_mode = mode;
+  ioHdlcsp->linkup_requested_mode = mode;
 
   /* Initialize event sources (OS-agnostic via osal) */
   iohdlc_evt_init(&ioHdlcsp->cm_es);
@@ -449,16 +442,14 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     if (inh_precedence) {
       want_transparency = false;  /* FFF takes precedence (INH option) */
     } else {
-      iohdlc_errno = EINVAL; 
-      return -1;  /* Conflicting options */
+      return -EINVAL;  /* Conflicting options */
     }
   }
   
   /* Validate transparency against driver capabilities */
   if (want_transparency && !caps->transparency.hw_support && 
       !caps->transparency.sw_available) {
-    iohdlc_errno = ENOTSUP;
-    return -1;  /* Driver doesn't support transparency */
+    return -ENOTSUP;  /* Driver doesn't support transparency */
   }
     
   /* Determine FFF type for driver and frame size calculation */
@@ -481,8 +472,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   int32_t config_result = hdlcConfigure(ioHdlcsp->driver, caps->fcs.default_size, 
                                         want_transparency, fff_type);
   if (config_result != 0) {
-    iohdlc_errno = config_result;
-    return -1;  /* errno-compatible error */
+    return -config_result;  /* errno-compatible error */
   }
   
   /* Store FCS size for overhead calculation */
@@ -524,8 +514,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
   
   /* Validate arena has reasonable size */
   if (num_frames < IOHDLC_MIN_FRAME_POOL_FRAMES) {
-    iohdlc_errno = ENOMEM;
-    return -1;  /* Arena too small */
+    return -ENOMEM;  /* Arena too small */
   }
   
   /* Initialize frame pool directly in station storage */
@@ -551,7 +540,6 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     ioHdlcsp->driver_started = true;
   }
 
-  iohdlc_errno = 0;
   return 0;
 }
 
@@ -560,15 +548,13 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
  * @details Force-stops the runner if active and stops the associated driver.
  *          Safe to call multiple times and after partial cleanup paths.
  * @param[in] ioHdlcsp    station descriptor
- * @return                0 on success, -1 on invalid argument
+ * @return                0 on success, -EINVAL on invalid arguments
  */
 int32_t ioHdlcStationDeinit(iohdlc_station_t *ioHdlcsp) {
   iohdlc_station_peer_t *p;
 
-  if (ioHdlcsp == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (ioHdlcsp == NULL)
+    return -EINVAL;
 
   if (ioHdlcsp->runner_started || ioHdlcsp->runner_context != NULL) {
     (void)ioHdlcRunnerStop(ioHdlcsp);
@@ -591,7 +577,7 @@ int32_t ioHdlcStationDeinit(iohdlc_station_t *ioHdlcsp) {
   ioHdlcsp->driver_started = false;
   ioHdlcsp->runner_started = false;
   ioHdlcsp->runner_context = NULL;
-  iohdlc_errno = 0;
+
   return 0;
 }
 
@@ -623,13 +609,11 @@ iohdlc_station_peer_t *ioHdlcAddr2peer(iohdlc_station_t *s, uint32_t peer_addr) 
  * @param[in] peer  Peer structure to initialize (allocated by caller)
  * @param[in] addr  Peer address on the data link
  * 
- * @return          0 on success, -1 on error
+ * @return          0 on success, a negative errno-style error on failure
  * @retval 0        Peer successfully added to station
- * @retval -1       Error occurred:
- *                  - EINVAL: Secondary station not in NDM/ADM mode
- *                  - EEXIST: Peer with same address already exists
+ * @retval -EINVAL  Secondary station not in NDM/ADM mode.
+ * @retval -EEXIST  Peer with the same address already exists.
  * 
- * @note iohdlc_errno field contains detailed error code on failure.
  * @note mifl is calculated as: framesize - (FFF + ADDR + CTRL + FCS)
  *       For modulo 8: framesize - (1 + 1 + 1 + 2) = framesize - 5 (if FFF enabled)
  * 
@@ -639,16 +623,12 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   /* Secondary stations can only add peer when in disconnected mode.
      ABM combined stations are not subject to this restriction. */
   if (IOHDLC_IS_SEC(s) &&
-      (s->mode != IOHDLC_OM_NDM) && (s->mode != IOHDLC_OM_ADM)) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+      (s->mode != IOHDLC_OM_NDM) && (s->mode != IOHDLC_OM_ADM))
+    return -EINVAL;
 
   /* Check that addr does not already exist */
-  if (ioHdlcAddr2peer(s, addr) != NULL) {
-    iohdlc_errno = EEXIST;
-    return -1;
-  }
+  if (ioHdlcAddr2peer(s, addr) != NULL)
+    return -EEXIST;
 
   /* Calculate mifl from frame pool size minus overhead.
      Overhead = FFF (frame_offset) + ADDR (1) + CTRL (ctrl_size) + FCS (fcs_size) + FLAG (1) */
@@ -709,24 +689,18 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
  * @param[in] ks    Transmit window size (1..modmask)
  * @param[in] kr    Receive window size (1..modmask)
  *
- * @return              0 on success, -1 on error
+ * @return              0 on success, a negative errno-style error on failure
  * @retval 0            Window size successfully applied
- * @retval -1           Error occurred:
- *                      - EINVAL: ks or kr is 0 or exceeds the station's modmask
+ * @retval -EINVAL      Null peer, or ks/kr outside 1..modmask.
  *
- * @note iohdlc_errno field contains detailed error code on failure.
  */
 int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t kr) {
-  if (peer == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (peer == NULL)
+    return -EINVAL;
 
   if (ks == 0 || ks > peer->stationp->framing.modmask ||
-      kr == 0 || kr > peer->stationp->framing.modmask) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+      kr == 0 || kr > peer->stationp->framing.modmask)
+    return -EINVAL;
   peer->ks = ks;
   peer->kr = kr;
   return 0;
@@ -741,13 +715,12 @@ int32_t ioHdlcPeerSetWindow(iohdlc_station_peer_t *peer, uint32_t ks, uint32_t k
  * @param[in] peer        Peer descriptor.
  * @param[in] len         TEST information field length.
  * @param[in] timeout_ms  Maximum time to wait for completion.
- * @return  0 on echo success, -1 on error with @p iohdlc_errno set.
- * @par Errors
- * @p iohdlc_errno is set to @c EINVAL, @c ENOTSUP, @c EMSGSIZE, @c ENOMEM,
- * @c EBUSY, @c ETIMEDOUT, or @c EIO according to the rejected argument,
- * station role, resource state, timeout, or response validation failure.
+ * @return  Zero on echo success, or -EINVAL, -ENOTSUP, -EMSGSIZE, -ENOMEM,
+ *          -EBUSY, -ETIMEDOUT or -EIO according to the rejected argument,
+ *          station role, resource state, timeout or response validation.
  * @note    Completion signaling is private to this synchronous API; callers
- *          observe the result through the return value and @p iohdlc_errno.
+ *          observe the result through the return value. Ownership is retained
+ *          until response validation is complete.
  */
 int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
                        uint32_t timeout_ms) {
@@ -755,67 +728,64 @@ int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
   iohdlc_event_listener_t listener;
   iohdlc_frame_t *cmd_fp = NULL;
   iohdlc_frame_t *rsp_fp = NULL;
-  uint32_t deadline_ms;
+  iohdlc_api_timeout_t timeout;
   int32_t error = 0;
   bool signal_tx = false;
   const size_t hdr_len = 2U;
 
-  if (peer == NULL || timeout_ms == 0U) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (peer == NULL || timeout_ms == 0U)
+    return -EINVAL;
 
   s = peer->stationp;
-  if (s == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (s == NULL)
+    return -EINVAL;
 
+  iohdlc_mutex_lock(&s->mode_mutex);
   if (!s_test_initiator_allowed(s)) {
-    iohdlc_errno = ENOTSUP;
-    return -1;
+    iohdlc_mutex_unlock(&s->mode_mutex);
+    return -ENOTSUP;
   }
+  iohdlc_mutex_unlock(&s->mode_mutex);
 
   if (len > peer->mifls ||
-      len > ((size_t)UINT16_MAX - (s->framing.frame_offset + hdr_len))) {
-    iohdlc_errno = EMSGSIZE;
-    return -1;
-  }
+      len > ((size_t)UINT16_MAX - (s->framing.frame_offset + hdr_len)))
+    return -EMSGSIZE;
 
   cmd_fp = hdlcTakeFrame(&s->frame_pool);
-  if (cmd_fp == NULL) {
-    iohdlc_errno = ENOMEM;
-    return -1;
-  }
+  if (cmd_fp == NULL)
+    return -ENOMEM;
 
   ioHdlcBuildUFrame(s, peer, cmd_fp, IOHDLC_U_TEST, true, true);
   s_fill_test_pattern(&cmd_fp->frame[s->framing.frame_offset + hdr_len], len);
   cmd_fp->elen = (uint16_t)(cmd_fp->elen + len);
 
-  deadline_ms = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
-                IOHDLC_WAIT_FOREVER : (iohdlc_time_now_ms() + timeout_ms);
+  timeout.timeout_ms = timeout_ms;
+  timeout.start_ms = iohdlc_time_now_ms();
 
   iohdlc_evt_register(&s->app_es, &listener, IOHDLC_APP_EVT_MASK_DEFAULT,
                       IOHDLC_APP_INTERNAL_TEST_DONE);
 
   iohdlc_mutex_lock(&peer->state_mutex);
+  iohdlc_mutex_lock(&s->mode_mutex);
 
-  if (peer->um_cmd != 0 || peer->um_state != 0 ||
+  if (peer->um_api_busy || peer->um_cmd != 0 || peer->um_state != 0 ||
       peer->um_api_frame != NULL || peer->um_rsp_frame != NULL ||
       peer->frmr_condition ||
       ((IOHDLC_IS_NRM(s) || IOHDLC_IS_ABM(s)) && IOHDLC_P_SENT(s)) ||
       (IOHDLC_IS_ABM(s) && IOHDLC_P_ISRCVED(s))) {
+    iohdlc_mutex_unlock(&s->mode_mutex);
     iohdlc_mutex_unlock(&peer->state_mutex);
     iohdlc_evt_unregister(&s->app_es, &listener);
     hdlcReleaseFrame(&s->frame_pool, cmd_fp);
-    iohdlc_errno = EBUSY;
-    return -1;
+    return -EBUSY;
   }
 
+  peer->um_api_busy = true;
   peer->um_cmd = IOHDLC_U_TEST;
   peer->um_api_frame = cmd_fp;
   cmd_fp = NULL;
 
+  iohdlc_mutex_unlock(&s->mode_mutex);
   iohdlc_mutex_unlock(&peer->state_mutex);
   ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
 
@@ -824,12 +794,7 @@ int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
     eventmask_t evt;
     eventflags_t flags;
 
-    if (deadline_ms == IOHDLC_WAIT_FOREVER) {
-      remaining_ms = IOHDLC_WAIT_FOREVER;
-    } else {
-      uint32_t now_ms = iohdlc_time_now_ms();
-      remaining_ms = (now_ms < deadline_ms) ? (deadline_ms - now_ms) : 0U;
-    }
+    remaining_ms = s_api_timeout_remaining(&timeout);
 
     if (remaining_ms == 0U)
       break;
@@ -894,12 +859,10 @@ int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
     hdlcReleaseFrame(&s->frame_pool, rsp_fp);
   }
 
-  if (error != 0) {
-    iohdlc_errno = error;
-    return -1;
-  }
-
-  return 0;
+  iohdlc_mutex_lock(&peer->state_mutex);
+  peer->um_api_busy = false;
+  iohdlc_mutex_unlock(&peer->state_mutex);
+  return -error;
 }
 
 /**
@@ -908,25 +871,20 @@ int32_t ioHdlcPeerTest(iohdlc_station_peer_t *peer, size_t len,
  *          TX runner. The slot is single-entry and last-value-wins.
  * @param[in] peer   Connected peer descriptor.
  * @param[in] value  UI payload to transmit.
- * @return  0 on success, -1 if the peer is invalid or disconnected.
- * @par Errors
- * @p iohdlc_errno is set to @c EINVAL for a null peer or @c ENOTCONN when
- * the peer is disconnected.
+ * @return  Zero on success, -EINVAL for a null peer, or -ENOTCONN when
+ *          the peer is disconnected.
  */
 int32_t ioHdlcPeerUiSend(iohdlc_station_peer_t *peer, uint32_t value) {
   iohdlc_station_t *s;
 
-  if (peer == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (peer == NULL)
+    return -EINVAL;
 
   s = peer->stationp;
   iohdlc_mutex_lock(&peer->state_mutex);
   if (IOHDLC_PEER_DISC(peer)) {
     iohdlc_mutex_unlock(&peer->state_mutex);
-    iohdlc_errno = ENOTCONN;
-    return -1;
+    return -ENOTCONN;
   }
 
   peer->ui_tx_value = value;
@@ -943,42 +901,37 @@ int32_t ioHdlcPeerUiSend(iohdlc_station_peer_t *peer, uint32_t value) {
  *          The cache retains the value, while the pending state is consumed.
  * @param[in] peer    Peer descriptor.
  * @param[out] value  Storage for the received UI payload.
- * @return  true if a new UI value was available, false otherwise.
- * @note    A false return means either no value was pending, or invalid
- *          arguments when @p iohdlc_errno is set to @c EINVAL.
+ * @return  One if a new UI value was consumed, zero if none was pending,
+ *          or -EINVAL for a null argument. Check explicitly for one.
  */
-bool ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value) {
-  if (peer == NULL || value == NULL) {
-    iohdlc_errno = EINVAL;
-    return false;
-  }
+int32_t ioHdlcPeerUiGet(iohdlc_station_peer_t *peer, uint32_t *value) {
+  if (peer == NULL || value == NULL)
+    return -EINVAL;
 
   iohdlc_mutex_lock(&peer->state_mutex);
   if (!peer->ui_rx_pending) {
     iohdlc_mutex_unlock(&peer->state_mutex);
-    return false;
+    return 0;
   }
 
   *value = peer->ui_rx_value;
   peer->ui_rx_pending = false;
   iohdlc_mutex_unlock(&peer->state_mutex);
-  return true;
+  return 1;
 }
 
 /**
  * @brief   Return an application-visible snapshot of a peer's link state.
  * @param[in] peer  Peer descriptor.
  * @return  Current peer state, or @ref IOHDLC_PEER_STATE_INVALID if @p peer
- *          is null.
+ *          is null. The invalid state equals -EINVAL.
  * @note    The returned state is captured under the peer state mutex.
  */
 iohdlc_peer_state_t ioHdlcPeerGetState(iohdlc_station_peer_t *peer) {
   iohdlc_peer_state_t state;
 
-  if (peer == NULL) {
-    iohdlc_errno = EINVAL;
+  if (peer == NULL)
     return IOHDLC_PEER_STATE_INVALID;
-  }
 
   iohdlc_mutex_lock(&peer->state_mutex);
   if (peer->ss_state & IOHDLC_SS_ST_CONN)
@@ -1009,20 +962,18 @@ iohdlc_peer_state_t ioHdlcPeerGetState(iohdlc_station_peer_t *peer) {
  * @param[out] listener     Caller-owned listener object.
  * @param[in] event_mask    Single thread event bit used for notification.
  * @param[in] wanted_flags  Application event flags to receive.
- * @return  0 on success, -1 on invalid arguments.
+ * @return  0 on success, -EINVAL on invalid arguments.
  * @par Errors
- * @p iohdlc_errno is set to @c EINVAL when a pointer is null, the mask is not
- * a single bit, or no application flags were requested.
+ * Returns -EINVAL when a pointer is null, the mask is not a single bit,
+ * or no application flags were requested.
  */
 int32_t ioHdlcAppListenerRegister(iohdlc_station_t *station,
                                   iohdlc_app_listener_t *listener,
                                   eventmask_t event_mask,
                                   eventflags_t wanted_flags) {
   if (station == NULL || listener == NULL || event_mask == 0U ||
-      (event_mask & (event_mask - 1U)) != 0U || wanted_flags == 0U) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+      (event_mask & (event_mask - 1U)) != 0U || wanted_flags == 0U)
+    return -EINVAL;
 
   memset(listener, 0, sizeof *listener);
   listener->stationp = station;
@@ -1087,237 +1038,180 @@ void ioHdlcAppListenerUnregister(iohdlc_app_listener_t *listener) {
 }
 
 /**
- * @brief   Establish data link connection with a peer (extended version).
- * @details Initiates connection by sending the appropriate U-frame command
- *          (SNRM/SARM/SABM) once, then waits for the protocol core to conclude
- *          the transaction or for the API safety timeout.
- *          
- *          Primary station behavior:
- *          - Sends set-mode command with P=1
- *          - Waits for UA response with F=1
- *          - Waits once for completion with a safety timeout
- *          - Returns error on DM (connection refused)
- *          
- *          Secondary station behavior:
- *          - Returns immediately (waits for primary to initiate)
- *          
- * @param[in] s         Station descriptor
- * @param[in] peer_addr Peer address to connect to
- * @param[in] mode      Desired operational mode (IOHDLC_OM_NRM/ARM/ABM)
- * @param[in] evt_mask  Event mask for listener registration (e.g., EVENT_MASK(31))
- * 
- * @return              0 on success, -1 on error
- * @retval 0            Link established successfully
- * @retval -1           Error occurred:
- *                      - EISCONN: Already connected
- *                      - EINVAL: Invalid mode or peer not found
- *                      - ETIMEDOUT: No terminal link event before timeout
- *                      - ECONNREFUSED: Peer sent DM (refused connection)
- * 
- * @note iohdlc_errno field contains detailed error code on failure.
- * @note This function blocks until connection completes or fails.
- * @note Uses protocol-level retry (no application timeout parameter).
- * @note Uses app_es event source to avoid conflicts with core events.
- * 
+ * @brief   Establish a data link with a peer using protocol-level retries.
+ * @details LinkUp is exclusive across the station. Control APIs on the same
+ *          peer are also exclusive and return -EBUSY rather than queueing.
+ *          A secondary in NRM returns immediately and waits for its primary.
+ *          The operational mode is selected before submitting the U command.
+ * @param[in] s          Station descriptor.
+ * @param[in] peer_addr  Peer address.
+ * @param[in] mode       Requested operational mode.
+ * @param[in] evt_mask   Single thread event bit reserved for this call.
+ * @return  Zero on success, or a negative errno-style error: -EINVAL,
+ *          -ENOTSUP, -EISCONN, -EBUSY, -ECONNREFUSED or -ETIMEDOUT.
+ * @note    The safety timeout does not cancel a pending protocol command.
+ *          Another LinkUp remains excluded until that command finishes.
  */
-int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr, 
+int32_t ioHdlcStationLinkUpEx(iohdlc_station_t *s, uint32_t peer_addr,
                               uint8_t mode, eventmask_t evt_mask) {
   iohdlc_station_peer_t *p;
   iohdlc_event_listener_t listener;
-  uint8_t u_cmd, s_mode = 0;
+  iohdlc_api_timeout_t timeout;
+  uint8_t u_cmd = IOHDLC_MODE_TO_UCMD(mode);
+  int32_t result = -ETIMEDOUT;
 
-  /* Find peer by address */
+  if (s == NULL || u_cmd == 0 || evt_mask == 0U ||
+      (evt_mask & (evt_mask - 1U)) != 0U)
+    return -EINVAL;
   p = ioHdlcAddr2peer(s, peer_addr);
-  if (p == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
-
-  /* Check if already connected */
-  if (p->ss_state & IOHDLC_SS_ST_CONN) {
-    iohdlc_errno = EISCONN;
-    return -1;
-  }
-
-  /* Secondary stations wait for primary to initiate connection.
-     ABM combined stations can initiate from either side. */
-  if (IOHDLC_IS_SEC(s) && (mode != IOHDLC_OM_ABM))
-    return 0;
-
-  /* In ABM mode, there are no primary or secondary stations.
-     Both the stations are equal. Set it as primary.*/
-  if (mode == IOHDLC_OM_ABM) {
-    s->flags |= IOHDLC_FLG_PRI;
-  }
-
-  /* Check port constraints against requested mode. */
+  if (p == NULL)
+    return -EINVAL;
   if ((s->port_constraints & IOHDLC_PORT_CONSTR_NRM_ONLY) &&
-      (mode == IOHDLC_OM_ABM)) {
-    iohdlc_errno = ENOTSUP;  /* Port does not support ABM. */
-    return -1;
+      mode == IOHDLC_OM_ABM)
+    return -ENOTSUP;
+
+  iohdlc_mutex_lock(&p->state_mutex);
+  iohdlc_mutex_lock(&s->mode_mutex);
+  if (s->linkup_peer != NULL || p->um_api_busy || p->um_cmd != 0 ||
+      p->um_state != 0 || p->um_api_frame != NULL ||
+      p->um_rsp_frame != NULL) {
+    result = -EBUSY;
+    goto linkup_not_admitted;
+  }
+  if (!IOHDLC_PEER_DISC(p)) {
+    result = -EISCONN;
+    goto linkup_not_admitted;
+  }
+  if (!IOHDLC_IS_DISC(s) && s->mode != mode) {
+    result = -EINVAL;
+    goto linkup_not_admitted;
+  }
+  if (IOHDLC_IS_SEC(s) && mode != IOHDLC_OM_ABM) {
+    result = 0;
+    goto linkup_not_admitted;
   }
 
-  /* Validate mode and get corresponding U-frame command */
-  u_cmd = IOHDLC_MODE_TO_UCMD(mode);
-  if (u_cmd == 0) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  s->linkup_peer = p;
+  s->linkup_previous_mode = s->mode;
+  s->linkup_requested_mode = mode;
+  if (IOHDLC_IS_DISC(s))
+    s->mode = mode;
+  if (mode == IOHDLC_OM_ABM)
+    s->flags |= IOHDLC_FLG_PRI;
+  p->um_api_busy = true;
+  iohdlc_mutex_unlock(&s->mode_mutex);
 
-  /* Register listener on app_es for link events */
   iohdlc_evt_register(&s->app_es, &listener, evt_mask,
                       IOHDLC_APP_LINK_UP | IOHDLC_APP_LINK_REFUSED);
-
-  /* Set mode for this connection attempt. In multipoint, all peers use
-     the same mode. Write only when transitioning from disconnected state
-     to avoid a data race with concurrent LinkUpEx calls. */
-  if (IOHDLC_IS_DISC(s)) {
-    s_mode = s->mode;
-    s->mode = mode;
-  }
-  
-  iohdlc_mutex_lock(&p->state_mutex);
-
-  /* Set unnumbered command in peer descriptor */
+  timeout.timeout_ms = s_link_api_timeout_ms(s, p);
+  timeout.start_ms = iohdlc_time_now_ms();
   p->um_cmd = u_cmd;
-
-  /* Clear any terminal state while a new connection attempt is in flight. */
   p->ss_state &= (uint8_t)~(IOHDLC_SS_TERM_ORDERLY | IOHDLC_SS_TERM_ABORTED);
-
   iohdlc_mutex_unlock(&p->state_mutex);
-
-  /* Signal TX task to send the command */
   ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
 
-  /* Wait for app event with timeout.
-     Multiple threads may call LinkUp on different peers concurrently.
-     Verify that the event is for our peer before accepting it;
-     if not, re-wait with the same timeout. */
-  uint32_t timeout_ms = s_link_api_timeout_ms(s, p);
   for (;;) {
-    eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
-    if (evt == 0)
-      break;
-
+    eventmask_t evt = iohdlc_evt_wait_any_timeout(
+        evt_mask, s_api_timeout_remaining(&timeout));
     eventflags_t flags = iohdlc_evt_get_and_clear_flags(&listener);
 
-    if ((flags & IOHDLC_APP_LINK_UP) &&
-        (p->ss_state & IOHDLC_SS_ST_CONN)) {
-      /* Our peer is connected. */
-      iohdlc_evt_unregister(&s->app_es, &listener);
-      return 0;
-    }
-    if ((flags & IOHDLC_APP_LINK_REFUSED) && IOHDLC_PEER_DISC(p)) {
-      /* Our peer was refused. */
-      iohdlc_evt_unregister(&s->app_es, &listener);
-      s->mode = s_mode;
-      iohdlc_errno = ECONNREFUSED;
-      return -1;
-    }
-    /* Event was for another peer: re-wait. */
+    iohdlc_mutex_lock(&p->state_mutex);
+    if (!IOHDLC_PEER_DISC(p))
+      result = 0;
+    else if ((flags & IOHDLC_APP_LINK_REFUSED) && p->um_cmd == 0 &&
+             !(p->um_state & IOHDLC_UM_SENT))
+      result = -ECONNREFUSED;
+    iohdlc_mutex_unlock(&p->state_mutex);
+    if (result != -ETIMEDOUT || evt == 0 ||
+        s_api_timeout_remaining(&timeout) == 0U)
+      break;
   }
 
-  /* Safety timeout expired before the protocol concluded the transaction. */
   iohdlc_evt_unregister(&s->app_es, &listener);
-  s->mode = s_mode;
-  iohdlc_errno = ETIMEDOUT;
-  return -1;
+  iohdlc_mutex_lock(&p->state_mutex);
+  p->um_api_busy = false;
+  ioHdlcFinishLinkUp(p);
+  iohdlc_mutex_unlock(&p->state_mutex);
+  return result;
+
+linkup_not_admitted:
+  iohdlc_mutex_unlock(&s->mode_mutex);
+  iohdlc_mutex_unlock(&p->state_mutex);
+  return result;
 }
 
 /**
- * @brief   Terminate data link connection with a peer (extended version).
- * @details Sends DISC once and waits for the protocol core to conclude the
- *          disconnect transaction or for the API safety timeout.
- *          
- *          Primary station behavior:
- *          - Sends DISC with P=1
- *          - Waits for UA or DM response with F=1
- *          - Waits once for completion with a safety timeout
- *          - Closes the peer orderly on success, preserving buffered RX data
- *          
- *          Secondary station behavior:
- *          - Returns immediately (waits for primary to disconnect)
- *          
- * @param[in] s         Station descriptor
- * @param[in] peer_addr Peer address to disconnect from
- * @param[in] evt_mask  Event mask for listener registration (e.g., EVENT_MASK(31))
- * 
- * @return              0 on success, -1 on error
- * @retval 0            Link terminated successfully
- * @retval -1           Error occurred:
- *                      - ENOTCONN: Not connected or peer not found
- *                      - ETIMEDOUT: No terminal link event before timeout
- * 
- * @note iohdlc_errno field contains detailed error code on failure.
- * @note This function blocks until disconnection completes or fails.
- * @note On successful DISC/UA or DISC/DM, TX-side state is cleared while
- *       buffered RX data remains readable.
- * @note Uses app_es event source to avoid conflicts with core events.
- * 
+ * @brief   Terminate a data link using protocol-level retries.
+ * @details Sends DISC and waits for orderly closure. Buffered RX data remains
+ *          readable. A secondary in NRM waits for its primary and returns
+ *          immediately. Another control API on this peer returns -EBUSY.
+ * @param[in] s          Station descriptor.
+ * @param[in] peer_addr  Peer address.
+ * @param[in] evt_mask   Single thread event bit reserved for this call.
+ * @return  Zero on orderly closure, or -EINVAL, -ENOTCONN, -EBUSY
+ *          or -ETIMEDOUT.
+ * @note    The safety timeout does not cancel a pending DISC command.
  */
 int32_t ioHdlcStationLinkDownEx(iohdlc_station_t *s, uint32_t peer_addr,
                                 eventmask_t evt_mask) {
   iohdlc_station_peer_t *p;
   iohdlc_event_listener_t listener;
+  iohdlc_api_timeout_t timeout;
+  int32_t result = -ETIMEDOUT;
 
-  /* Find peer by address */
+  if (s == NULL || evt_mask == 0U || (evt_mask & (evt_mask - 1U)) != 0U)
+    return -EINVAL;
   p = ioHdlcAddr2peer(s, peer_addr);
-  if (p == NULL) {
-    iohdlc_errno = ENOTCONN;
-    return -1;
-  }
-
-  /* Check if already disconnected */
-  if (!(p->ss_state & IOHDLC_SS_ST_CONN)) {
-    iohdlc_errno = ENOTCONN;
-    return -1;
-  }
-
-  /* Secondary stations wait for primary to disconnect.
-     ABM combined stations can disconnect from either side. */
-  if (IOHDLC_IS_SEC(s) && !IOHDLC_IS_ABM(s))
-    return 0;
-
-  /* Register listener on app_es for link events */
-  iohdlc_evt_register(&s->app_es, &listener, evt_mask,
-                      IOHDLC_APP_LINK_DOWN);
+  if (p == NULL)
+    return -ENOTCONN;
 
   iohdlc_mutex_lock(&p->state_mutex);
+  if (p->um_api_busy || p->um_cmd != 0 || p->um_state != 0 ||
+      p->um_api_frame != NULL || p->um_rsp_frame != NULL) {
+    iohdlc_mutex_unlock(&p->state_mutex);
+    return -EBUSY;
+  }
+  if (IOHDLC_PEER_DISC(p)) {
+    iohdlc_mutex_unlock(&p->state_mutex);
+    return -ENOTCONN;
+  }
+  iohdlc_mutex_lock(&s->mode_mutex);
+  if (IOHDLC_IS_SEC(s) && !IOHDLC_IS_ABM(s)) {
+    iohdlc_mutex_unlock(&s->mode_mutex);
+    iohdlc_mutex_unlock(&p->state_mutex);
+    return 0;
+  }
+  iohdlc_mutex_unlock(&s->mode_mutex);
 
-  /* Set DISC command in peer descriptor */
+  p->um_api_busy = true;
+  iohdlc_evt_register(&s->app_es, &listener, evt_mask,
+                      IOHDLC_APP_LINK_DOWN);
+  timeout.timeout_ms = s_link_api_timeout_ms(s, p);
+  timeout.start_ms = iohdlc_time_now_ms();
   p->um_cmd = IOHDLC_U_DISC;
-
-  /* Clear stale terminal state before starting the close transaction. */
   p->ss_state &= (uint8_t)~(IOHDLC_SS_TERM_ORDERLY | IOHDLC_SS_TERM_ABORTED);
-
   iohdlc_mutex_unlock(&p->state_mutex);
-
-  /* Signal TX task to send DISC */
   ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_REQ);
 
-  /* Wait for app event with timeout.
-     Verify that the event is for our peer before accepting it. */
-  uint32_t timeout_ms = s_link_api_timeout_ms(s, p);
   for (;;) {
-    eventmask_t evt = iohdlc_evt_wait_any_timeout(evt_mask, timeout_ms);
-    if (evt == 0)
+    eventmask_t evt = iohdlc_evt_wait_any_timeout(
+        evt_mask, s_api_timeout_remaining(&timeout));
+    (void)iohdlc_evt_get_and_clear_flags(&listener);
+
+    iohdlc_mutex_lock(&p->state_mutex);
+    if (IOHDLC_PEER_ORDERLY_CLOSED(p))
+      result = 0;
+    iohdlc_mutex_unlock(&p->state_mutex);
+    if (result != -ETIMEDOUT || evt == 0 ||
+        s_api_timeout_remaining(&timeout) == 0U)
       break;
-
-    eventflags_t flags = iohdlc_evt_get_and_clear_flags(&listener);
-
-    if ((flags & IOHDLC_APP_LINK_DOWN) &&
-        !(p->ss_state & IOHDLC_SS_ST_CONN)) {
-      /* Our peer is disconnected. */
-      iohdlc_evt_unregister(&s->app_es, &listener);
-      return 0;
-    }
-    /* Event was for another peer: re-wait. */
   }
 
-  /* Safety timeout expired before the protocol concluded the transaction. */
   iohdlc_evt_unregister(&s->app_es, &listener);
-  iohdlc_errno = ETIMEDOUT;
-  return -1;
+  iohdlc_mutex_lock(&p->state_mutex);
+  p->um_api_busy = false;
+  iohdlc_mutex_unlock(&p->state_mutex);
+  return result;
 }
 
 /**
@@ -1348,7 +1242,9 @@ static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
  * @param[in] timeout_ms  Total timeout in milliseconds, zero for a
  *                        non-blocking operation.
  *
- * @return                Bytes queued, or -1 on error.
+ * @return  Bytes queued, or a negative errno-style error on failure.
+ * @note    A timeout returns the positive partial count after progress,
+ *          otherwise -ETIMEDOUT. A reset returns -ECONNRESET even after progress.
  *
  * @note Zero-length entries are ignored and may have a null base. The
  *       aggregate length must fit in ssize_t.
@@ -1371,20 +1267,14 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
   ssize_t result;
   bool signal_tx = false;
 
-  if (peer == NULL || (iov == NULL && iovcnt != 0U)) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (peer == NULL || (iov == NULL && iovcnt != 0U))
+    return -EINVAL;
 
   for (i = 0U; i < iovcnt; ++i) {
-    if (iov[i].iov_base == NULL && iov[i].iov_len != 0U) {
-      iohdlc_errno = EINVAL;
-      return -1;
-    }
-    if (iov[i].iov_len > IOHDLC_SSIZE_MAX - total) {
-      iohdlc_errno = EINVAL;
-      return -1;
-    }
+    if (iov[i].iov_base == NULL && iov[i].iov_len != 0U)
+      return -EINVAL;
+    if (iov[i].iov_len > IOHDLC_SSIZE_MAX - total)
+      return -EINVAL;
     total += iov[i].iov_len;
   }
 
@@ -1395,18 +1285,15 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
   timeout.start_ms = timeout_ms == IOHDLC_WAIT_FOREVER ?
                      0U : iohdlc_time_now_ms();
   if (iohdlc_bsem_wait_timeout(&peer->write_gate,
-                               s_api_timeout_remaining(&timeout)) != MSG_OK) {
-    iohdlc_errno = ETIMEDOUT;
-    return -1;
-  }
+                               s_api_timeout_remaining(&timeout)) != MSG_OK)
+    return -ETIMEDOUT;
 
   s = peer->stationp;
   remaining = total;
   result = 0;
   iohdlc_mutex_lock(&peer->state_mutex);
   if (IOHDLC_PEER_DISC(peer)) {
-    iohdlc_errno = ENOTCONN;
-    result = -1;
+    result = -ENOTCONN;
     iohdlc_mutex_unlock(&peer->state_mutex);
     goto write_gate_done;
   }
@@ -1431,8 +1318,7 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
       }
       remaining_ms = s_api_timeout_remaining(&timeout);
       if (remaining_ms == 0U) {
-        iohdlc_errno = ETIMEDOUT;
-        result = total != remaining ? (ssize_t)(total - remaining) : -1;
+        result = total != remaining ? (ssize_t)(total - remaining) : -ETIMEDOUT;
         iohdlc_mutex_unlock(&peer->state_mutex);
         goto write_done;
       }
@@ -1444,8 +1330,7 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
           (peer->stream_terminal_pending &
            IOHDLC_STREAM_TX_RESET_PENDING) == 0U &&
           !IOHDLC_PEER_DISC(peer) && W_WAIT_COND(s, peer)) {
-        iohdlc_errno = ETIMEDOUT;
-        result = total != remaining ? (ssize_t)(total - remaining) : -1;
+        result = total != remaining ? (ssize_t)(total - remaining) : -ETIMEDOUT;
         iohdlc_mutex_unlock(&peer->state_mutex);
         goto write_done;
       }
@@ -1453,8 +1338,7 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
 
     if (peer->stream_terminal_pending &
         IOHDLC_STREAM_TX_RESET_PENDING) {
-      iohdlc_errno = ECONNRESET;
-      result = -1;
+      result = -ECONNRESET;
       signal_tx = false;
       iohdlc_mutex_unlock(&peer->state_mutex);
       goto write_done;
@@ -1515,8 +1399,7 @@ ssize_t ioHdlcWriteVTmo(iohdlc_station_peer_t *peer,
 
       iohdlc_mutex_unlock(&peer->state_mutex);
       hdlcReleaseFrame(&s->frame_pool, fp);
-      iohdlc_errno = stream_reset ? ECONNRESET : ENOTCONN;
-      result = -1;
+      result = stream_reset ? -ECONNRESET : -ENOTCONN;
       if (stream_reset)
         signal_tx = false;
       goto write_done;
@@ -1536,8 +1419,7 @@ write_done:
   if (peer->stream_terminal_pending & IOHDLC_STREAM_TX_RESET_PENDING) {
     peer->stream_terminal_pending &=
         (uint8_t)~IOHDLC_STREAM_TX_RESET_PENDING;
-    iohdlc_errno = ECONNRESET;
-    result = -1;
+    result = -ECONNRESET;
     signal_tx = false;
   }
   peer->ss_state &= (uint8_t)~IOHDLC_SS_SENDING;
@@ -1562,9 +1444,9 @@ write_gate_done:
  * @param[in] timeout_ms Timeout in milliseconds, zero for non-blocking, or
  *                       IOHDLC_WAIT_FOREVER for blocking.
  * 
- * @return               Bytes written on success, -1 on error
+ * @return               Bytes written on success, a negative errno-style error on failure
  * @retval count         All data successfully queued
- * @retval -1            Error occurred (check iohdlc_errno)
+ * @retval <0            Negative errno-style error.
  * 
  * @note Blocks when the writer pending limit is reached or the pool is not in
  *       its normal state.
@@ -1573,7 +1455,7 @@ write_gate_done:
  * @note Automatically fragments data if count > mifls.
  * @note Concurrent writes on the same peer are serialized as complete logical
  *       operations.
- * @note A connection reset during the operation returns -1 with ECONNRESET,
+ * @note A connection reset during the operation returns -ECONNRESET,
  *       even when part of the logical write had already entered the old stream.
  * 
  */
@@ -1581,10 +1463,8 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
                        size_t count, uint32_t timeout_ms) {
   iohdlc_const_iovec_t iov;
 
-  if (peer == NULL || buf == NULL || count == 0U) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (peer == NULL || buf == NULL || count == 0U)
+    return -EINVAL;
 
   iov.iov_base = buf;
   iov.iov_len = count;
@@ -1604,7 +1484,9 @@ ssize_t ioHdlcWriteTmo(iohdlc_station_peer_t *peer, const void *buf,
  * @param[in] timeout_ms  Total timeout in milliseconds, zero for a
  *                        non-blocking operation.
  *
- * @return                Bytes read, 0 on orderly EOF, or -1 on error.
+ * @return  Bytes read, zero on orderly EOF, or a negative errno-style error.
+ * @note    A timeout returns the positive partial count after progress,
+ *          otherwise -ETIMEDOUT.
  *
  * @note Zero-length entries are ignored and may have a null base. The
  *       aggregate length must fit in ssize_t.
@@ -1626,20 +1508,14 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
   size_t i;
   ssize_t result;
 
-  if (peer == NULL || (iov == NULL && iovcnt != 0U)) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (peer == NULL || (iov == NULL && iovcnt != 0U))
+    return -EINVAL;
 
   for (i = 0U; i < iovcnt; ++i) {
-    if (iov[i].iov_base == NULL && iov[i].iov_len != 0U) {
-      iohdlc_errno = EINVAL;
-      return -1;
-    }
-    if (iov[i].iov_len > IOHDLC_SSIZE_MAX - total) {
-      iohdlc_errno = EINVAL;
-      return -1;
-    }
+    if (iov[i].iov_base == NULL && iov[i].iov_len != 0U)
+      return -EINVAL;
+    if (iov[i].iov_len > IOHDLC_SSIZE_MAX - total)
+      return -EINVAL;
     total += iov[i].iov_len;
   }
 
@@ -1650,10 +1526,8 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
   timeout.start_ms = timeout_ms == IOHDLC_WAIT_FOREVER ?
                      0U : iohdlc_time_now_ms();
   if (iohdlc_bsem_wait_timeout(&peer->read_gate,
-                               s_api_timeout_remaining(&timeout)) != MSG_OK) {
-    iohdlc_errno = ETIMEDOUT;
-    return -1;
-  }
+                               s_api_timeout_remaining(&timeout)) != MSG_OK)
+    return -ETIMEDOUT;
 
   s = peer->stationp;
   result = 0;
@@ -1670,8 +1544,7 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
       if (remaining_ms == 0U) {
         if (total_read != 0U)
           goto read_done;
-        iohdlc_errno = ETIMEDOUT;
-        result = -1;
+        result = -ETIMEDOUT;
         goto read_done;
       }
       wait_result = iohdlc_condvar_wait_timeout(
@@ -1685,8 +1558,7 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
            IOHDLC_STREAM_RX_TERMINAL_MASK) == 0U) {
         if (total_read != 0U)
           goto read_done;
-        iohdlc_errno = ETIMEDOUT;
-        result = -1;
+        result = -ETIMEDOUT;
         goto read_done;
       }
     }
@@ -1704,8 +1576,7 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
       peer->stream_terminal_pending &=
           (uint8_t)~IOHDLC_STREAM_RX_TERMINAL_MASK;
       if (terminal & IOHDLC_SS_TERM_ABORTED) {
-        iohdlc_errno = ECONNRESET;
-        result = -1;
+        result = -ECONNRESET;
       }
       goto read_done;
     }
@@ -1721,12 +1592,10 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
       if (IOHDLC_PEER_ABORTED(peer)) {
         peer->stream_terminal_pending &=
             (uint8_t)~IOHDLC_STREAM_RX_TERMINAL_MASK;
-        iohdlc_errno = ECONNRESET;
-        result = -1;
+        result = -ECONNRESET;
         goto read_done;
       }
-      iohdlc_errno = ENOTCONN;
-      result = -1;
+      result = -ENOTCONN;
       goto read_done;
     }
 
@@ -1802,10 +1671,10 @@ read_done:
  * @param[in] timeout_ms Timeout in milliseconds, zero for non-blocking, or
  *                       IOHDLC_WAIT_FOREVER for blocking.
  *
- * @return               Bytes read on success, 0 on orderly EOF, -1 on error
+ * @return               Bytes read on success, 0 on orderly EOF, a negative errno-style error on failure
  * @retval >0            Number of bytes read
  * @retval 0             No more data: peer closed orderly and RX drained
- * @retval -1            Error occurred (check iohdlc_errno)
+ * @retval <0            Negative errno-style error.
  *
  * @note Blocks until the stream predicate changes or timeout expires.
  * @note A terminal result remains pending across reconnection until a reader
@@ -1821,16 +1690,12 @@ ssize_t ioHdlcReadTmo(iohdlc_station_peer_t *peer, void *buf,
                       size_t count, uint32_t timeout_ms) {
   iohdlc_iovec_t iov;
 
-  if (peer == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (peer == NULL)
+    return -EINVAL;
   if (count == 0U)
     return 0;
-  if (buf == NULL) {
-    iohdlc_errno = EINVAL;
-    return -1;
-  }
+  if (buf == NULL)
+    return -EINVAL;
 
   iov.iov_base = buf;
   iov.iov_len = count;

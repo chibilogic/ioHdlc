@@ -170,7 +170,7 @@ static int32_t connectCallback(iohdlc_station_t *stationp,
   (void)pthread_mutex_unlock(&ctxp->lock);
 
   if (attempt == 1U)
-    return -1;
+    return -ETIMEDOUT;
 
   setPeerState(ctxp, IOHDLC_PEER_STATE_CONNECTED);
   return 0;
@@ -334,8 +334,7 @@ static int testPassiveManager(void) {
                           TEST_WAIT_TIMEOUT_MS),
              "orderly close transition not reported");
 
-  errno = 0;
-  TEST_CHECK(ioHdlcLinkManagerRun(&ctx.manager) == -1 && errno == EBUSY,
+  TEST_CHECK(ioHdlcLinkManagerRun(&ctx.manager) == -EBUSY,
              "concurrent run was not rejected");
 
 cleanup:

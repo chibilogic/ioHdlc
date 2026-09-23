@@ -67,14 +67,16 @@ static int send_and_check(iohdlc_station_peer_t *tx_peer,
 
   transferred = ioHdlcWriteTmo(tx_peer, tx_buf, packet_size, 500);
   if (transferred != (ssize_t)packet_size) {
-    test_printf("Write failed at seq=%u (err=%d)\r\n", seq, iohdlc_errno);
+    test_printf("Write failed at seq=%u (result=%d)\r\n", seq,
+                (int32_t)transferred);
     return 1;
   }
 
   memset(rx_buf, 0, sizeof rx_buf);
   transferred = ioHdlcReadTmo(rx_peer, rx_buf, packet_size, 500);
   if (transferred != (ssize_t)packet_size) {
-    test_printf("Read failed at seq=%u (err=%d)\r\n", seq, iohdlc_errno);
+    test_printf("Read failed at seq=%u (result=%d)\r\n", seq,
+                (int32_t)transferred);
     return 1;
   }
 
