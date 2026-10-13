@@ -29,6 +29,38 @@
 #define IOHDLC_CONF_H_
 
 /**
+ * @brief   TX runner priority offset from the OS normal priority.
+ * @details Applied relative to NORMALPRIO on ChibiOS; ignored on Linux.
+ */
+#ifndef IOHDLC_RUNNER_TX_PRIORITY_OFFSET
+#define IOHDLC_RUNNER_TX_PRIORITY_OFFSET 1
+#endif
+
+/**
+ * @brief   RX runner priority offset from the OS normal priority.
+ * @details Applied relative to NORMALPRIO on ChibiOS; ignored on Linux.
+ */
+#ifndef IOHDLC_RUNNER_RX_PRIORITY_OFFSET
+#define IOHDLC_RUNNER_RX_PRIORITY_OFFSET 1
+#endif
+
+/**
+ * @brief   Requested TX runner stack size in bytes.
+ * @details ChibiOS adds its thread working-area overhead; Linux uses its default stack.
+ */
+#ifndef IOHDLC_RUNNER_TX_STACK_SIZE
+#define IOHDLC_RUNNER_TX_STACK_SIZE 2048U
+#endif
+
+/**
+ * @brief   Requested RX runner stack size in bytes.
+ * @details ChibiOS adds its thread working-area overhead; Linux uses its default stack.
+ */
+#ifndef IOHDLC_RUNNER_RX_STACK_SIZE
+#define IOHDLC_RUNNER_RX_STACK_SIZE 2048U
+#endif
+
+/**
  * @brief   Default base reply timeout in milliseconds.
  * @details This is the base T1 value before the per-peer retry backoff is
  *          applied. Reply-timeout recovery does not use linear waits.

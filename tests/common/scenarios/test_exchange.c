@@ -850,7 +850,6 @@ int test_exchange_main(const test_adapter_t *adapter, int argc, char **argv) {
     result = ioHdlcRunnerStart(&station_secondary);
     TEST_ASSERT(result == 0, "Failed to start endpoint B runner");
   }
-  ioHdlc_sleep_ms(50);
 
   if (config.test_command) {
     uint32_t elapsed_ms;

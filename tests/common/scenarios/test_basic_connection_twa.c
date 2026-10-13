@@ -135,8 +135,6 @@ bool test_data_exchange_twa(const test_adapter_t *adapter) {
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
-  ioHdlc_sleep_ms(50);
-  
   /* Establish connection (SNRM handshake) */
   int ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
   if (ret != 0) {

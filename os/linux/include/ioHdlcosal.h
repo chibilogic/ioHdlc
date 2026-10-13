@@ -204,6 +204,8 @@ typedef struct iohdlc_mutex iohdlc_mutex_t;
  */
 void iohdlc_bsem_init(iohdlc_bsem_t *bsem, bool taken);
 
+void iohdlc_bsem_destroy(iohdlc_bsem_t *bsem);
+
 /**
  * @brief   Wait on binary semaphore with timeout.
  * @return  0 on success, -ETIMEDOUT on timeout.

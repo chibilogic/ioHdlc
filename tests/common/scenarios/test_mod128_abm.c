@@ -170,8 +170,6 @@ bool test_abm_mod128_wraparound(const test_adapter_t *adapter) {
   result = ioHdlcRunnerStart(&station_b);
   TEST_ASSERT_GOTO(result == 0, "Failed to start station B runner");
 
-  ioHdlc_sleep_ms(50);
-
   test_printf("Establishing ABM modulo-128 connection...\r\n");
   result = ioHdlcStationLinkUp(&station_a, STATION_B_ADDR, IOHDLC_OM_ABM);
   TEST_ASSERT_GOTO(result == 0, "LinkUp (SABM) failed");

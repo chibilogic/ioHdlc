@@ -114,8 +114,6 @@ bool test_abm_data_exchange(const test_adapter_t *adapter) {
   result = ioHdlcRunnerStart(&station_b);
   TEST_ASSERT(result == 0, "Failed to start station B runner");
 
-  ioHdlc_sleep_ms(50);
-
   /* Establish ABM connection: Station A sends SABM */
   test_printf("Establishing ABM connection (SABM/UA)...\n");
   int ret = ioHdlcStationLinkUp(&station_a, STATION_B_ADDR, IOHDLC_OM_ABM);

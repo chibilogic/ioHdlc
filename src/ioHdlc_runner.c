@@ -44,7 +44,19 @@
  * @brief   Runner TX thread trampoline.
  */
 static void *HdlcTxThread(void *arg) {
+  iohdlc_station_t *station = arg;
+  const eventflags_t flags_mask = IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_T3_TMO|
+               IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RR_RECVD|IOHDLC_EVT_RNR_RECVD|
+               IOHDLC_EVT_POOL_ST_CHG|IOHDLC_EVT_LINK_ST_CHG|IOHDLC_EVT_UM_RECVD|
+               IOHDLC_EVT_LINK_REQ|IOHDLC_EVT_LINE_IDLE|IOHDLC_EVT_xREJ_RECVD|
+               IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_REJ_ACTED|IOHDLC_EVT_PF_RECVD|
+               IOHDLC_EVT_UI_ENQ;
+
+  iohdlc_evt_register(&station->cm_es, &station->cm_listener,
+                      EVENT_MASK(0), flags_mask);
+  iohdlc_bsem_signal(&station->runner_context->tx_ready);
   ioHdlcTxEntry(arg);
+  iohdlc_evt_unregister(&station->cm_es, &station->cm_listener);
   return 0;
 }
 
@@ -61,6 +73,10 @@ static void *HdlcRxThread(void *arg) {
  * @details Creates the execution contexts required by the configured station.
  *          The station remains owned by the caller; the runner only owns the
  *          runtime contexts it creates around it.
+ *          Waits for TX event registration before creating RX and returning,
+ *          so LinkUp or Stop may follow immediately without a startup delay.
+ * @note    Lifecycle calls require application-level exclusion. The readiness
+ *          wait has no timeout and requires the TX thread to be schedulable.
  * @param[in] station   Station to start runner for.
  * @return              0 on success, a negative errno-style error on failure
  * @retval 0            Success
@@ -74,31 +90,38 @@ int32_t ioHdlcRunnerStart(iohdlc_station_t *station) {
   if (!ctx)
     return -ENOMEM;  /* Out of memory - abort runner start */
   memset(ctx, 0, sizeof *ctx);
+  iohdlc_bsem_init(&ctx->tx_ready, true);
   station->runner_context = ctx;
   station->stop_requested = false;
   station->runner_started = false;
   station->flags |= IOHDLC_FLG_IDL;  /* Line is idle at startup by definition. */
 
   /* Create TX thread and save reference (joinable) */
-  ctx->tx_thread = iohdlc_thread_create("HDLC-TX", 2048, 1,
+  ctx->tx_thread = iohdlc_thread_create("HDLC-TX", IOHDLC_RUNNER_TX_STACK_SIZE,
+                                         IOHDLC_RUNNER_TX_PRIORITY_OFFSET,
                                          HdlcTxThread, station);
   if (ctx->tx_thread == NULL) {
     /* TX thread creation failed - cleanup and abort */
+    iohdlc_bsem_destroy(&ctx->tx_ready);
     IOHDLC_FREE(ctx);
     station->runner_context = NULL;
     station->runner_started = false;
     return -EAGAIN;
   }
   ctx->tx_started = true;
+
+  (void)iohdlc_bsem_wait_timeout(&ctx->tx_ready, IOHDLC_WAIT_FOREVER);
   
   /* Create RX thread and save reference (joinable) */
-  ctx->rx_thread = iohdlc_thread_create("HDLC-RX", 2048, 1,
+  ctx->rx_thread = iohdlc_thread_create("HDLC-RX", IOHDLC_RUNNER_RX_STACK_SIZE,
+                                         IOHDLC_RUNNER_RX_PRIORITY_OFFSET,
                                          HdlcRxThread, station);
   if (ctx->rx_thread == NULL) {
     /* RX thread creation failed - stop TX thread and cleanup */
     station->stop_requested = true;
     iohdlc_evt_broadcast_flags(&station->cm_es, 0xFFFFFFFF);  /* Wake TX */
     iohdlc_thread_join((iohdlc_thread_t *)ctx->tx_thread);  /* Wait for TX termination */
+    iohdlc_bsem_destroy(&ctx->tx_ready);
     IOHDLC_FREE(ctx);
     station->runner_context = NULL;
     station->runner_started = false;
@@ -144,6 +167,7 @@ int32_t ioHdlcRunnerStop(iohdlc_station_t *station) {
   }
   
   /* Free context */
+  iohdlc_bsem_destroy(&ctx->tx_ready);
   IOHDLC_FREE(ctx);
   station->runner_context = NULL;
   station->runner_started = false;

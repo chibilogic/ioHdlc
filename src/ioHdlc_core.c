@@ -2038,25 +2038,16 @@ skip_i_frames:
  * @details Waits for core events, serves connection-management requests, and
  *          dispatches connected-mode transmit work to the common scheduler for
  *          the current peer.
+ * @pre     The runner has registered the station's core-event listener on this
+ *          thread and will unregister it after this function returns.
  * @param[in] stationp   Opaque pointer to the station instance.
  */
 void ioHdlcTxEntry(void *stationp) {
   iohdlc_station_t *s = (iohdlc_station_t *)stationp;
   iohdlc_station_peer_t *p;
-  uint32_t flags_mask = 0;
   uint32_t cm_flags = 0;
 
   if (!s) return;
-
-  flags_mask = IOHDLC_EVT_C_RPLYTMO|IOHDLC_EVT_T3_TMO|
-               IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RR_RECVD|IOHDLC_EVT_RNR_RECVD|
-               IOHDLC_EVT_POOL_ST_CHG|IOHDLC_EVT_LINK_ST_CHG|IOHDLC_EVT_UM_RECVD|
-               IOHDLC_EVT_LINK_REQ|IOHDLC_EVT_LINE_IDLE|IOHDLC_EVT_xREJ_RECVD|
-               IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_REJ_ACTED|IOHDLC_EVT_PF_RECVD|
-               IOHDLC_EVT_UI_ENQ;
-
-  /* Register event listener */
-  iohdlc_evt_register(&s->cm_es, &s->cm_listener, EVENT_MASK(0), flags_mask);
 
   for (;;) {
     p = s->c_peer;
@@ -2249,7 +2240,6 @@ void ioHdlcTxEntry(void *stationp) {
       iohdlc_mutex_unlock(&p->state_mutex);
   }
 
-  iohdlc_evt_unregister(&s->cm_es, &s->cm_listener);
   ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_REPLY);
   ioHdlcStopReplyTimer(s->c_peer, IOHDLC_TIMER_T3);
 }

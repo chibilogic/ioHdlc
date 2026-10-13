@@ -145,7 +145,6 @@ static int mp_setup(mp_ctx_t *ctx) {
   result = ioHdlcRunnerStart(&ctx->st_sec_b);
   if (result != 0) return 1;
 
-  ioHdlc_sleep_ms(100);
   return 0;
 }
 

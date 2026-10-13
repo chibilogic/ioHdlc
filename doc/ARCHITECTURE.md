@@ -347,6 +347,30 @@ Provide the common execution shell around the station core.
 - Thread creation, timers, events, and synchronization are delegated to OSAL.
 - Platform-specific behaviour lives below the runner, in OSAL and backend implementations.
 
+`ioHdlcRunnerStart()` waits for the TX thread to register its core-event listener
+before creating RX and returning success. LinkUp, TEST or Stop may follow
+immediately; no startup sleep or priority ordering is required. Registration
+and deregistration belong to the runner's TX wrapper and execute on the TX
+thread. RX consumes the driver's existing receive queue and requires no
+separate readiness handshake. The internal startup wait has no timeout: callers
+must allow TX to run and must serialize runner lifecycle operations.
+
+Runner settings are build-time overrides in `include/ioHdlc_conf.h`, shared by
+all stations in the build:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `IOHDLC_RUNNER_TX_PRIORITY_OFFSET` | `1` | TX priority offset from OS normal priority |
+| `IOHDLC_RUNNER_RX_PRIORITY_OFFSET` | `1` | RX priority offset from OS normal priority |
+| `IOHDLC_RUNNER_TX_STACK_SIZE` | `2048U` | Requested TX stack size in bytes |
+| `IOHDLC_RUNNER_RX_STACK_SIZE` | `2048U` | Requested RX stack size in bytes |
+
+ChibiOS applies offsets relative to `NORMALPRIO` and adds working-area overhead
+to the requested stacks. Offsets must yield priorities valid for the target.
+The current Linux OSAL ignores both requested priority and stack size, retaining
+the POSIX defaults. Configuration overrides must apply when compiling the
+library, not only its application callers.
+
 #### 7.1 Runner → Core: execution entry points
 
 The current shared runner enters the core through the worker entry points declared in `include/ioHdlc_core.h`:
@@ -355,6 +379,9 @@ The current shared runner enters the core through the worker entry points declar
 |---|---|
 | `ioHdlcTxEntry(station)` | TX worker loop: waits for core events and drives connection-management/data transmission |
 | `ioHdlcRxEntry(station)` | RX worker loop: pulls frames from the driver, detects idle conditions, and dispatches received frames |
+
+The TX entry requires its caller to register `station->cm_listener` on the
+executing thread before entry and unregister it after return.
 
 `ioHdlcOnRxFrame()` and `ioHdlcOnLineIdle()` are still declared in the boundary header, but the current runner implementation handles receive dispatch and line-idle detection directly inside `ioHdlcRxEntry()`.
 

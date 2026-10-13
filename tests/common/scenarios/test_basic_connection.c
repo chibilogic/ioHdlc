@@ -740,7 +740,6 @@ bool test_connected_snrm_resets_stream_io(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(result == 0, "Primary runner start failed");
   result = ioHdlcRunnerStart(&pair.station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Secondary runner start failed");
-  ioHdlc_sleep_ms(50U);
 
   result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
                                IOHDLC_OM_NRM);
@@ -1005,9 +1004,6 @@ bool test_snrm_handshake(const test_adapter_t *adapter) {
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT(result == 0, "Failed to start secondary runner");
   
-  /* Allow time for threads to initialize and register listeners */
-  ioHdlc_sleep_ms(50);  /* 50 ms */
-  
   /* Initiate connection from primary to secondary */
   test_printf("Calling ioHdlcStationLinkUp...\n");
   int ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM); // DEBUG: Set breakpoint here
@@ -1051,7 +1047,6 @@ bool test_test_command_disconnected(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&pair.station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
-  ioHdlc_sleep_ms(50);
 
   result = ioHdlcPeerTest(&pair.peer_at_primary, 0U, 200U);
   TEST_ASSERT_GOTO(result == 0, "Zero-length TEST should succeed in NDM");
@@ -1097,7 +1092,6 @@ bool test_test_command_connected(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&pair.station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
-  ioHdlc_sleep_ms(50);
 
   result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
                                IOHDLC_OM_NRM);
@@ -1132,7 +1126,6 @@ bool test_test_command_timeout_preserves_link_state(const test_adapter_t *adapte
 
   result = ioHdlcRunnerStart(&pair.station_primary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
-  ioHdlc_sleep_ms(50);
 
   result = ioHdlcPeerTest(&pair.peer_at_primary, 8U, 30U);
   TEST_ASSERT_GOTO(result == -ETIMEDOUT, "TEST without receiver should timeout");
@@ -1237,8 +1230,6 @@ bool test_data_exchange(const test_adapter_t *adapter) {
   TEST_ASSERT(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT(result == 0, "Failed to start secondary runner");
-  
-  ioHdlc_sleep_ms(50);
   
   /* Establish connection (SNRM handshake) */
   int ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
@@ -1349,7 +1340,6 @@ bool test_vectored_io_exchange(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&pair.station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
-  ioHdlc_sleep_ms(50);
 
   result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
                                IOHDLC_OM_NRM);
@@ -1518,8 +1508,6 @@ bool test_ui_exchange(const test_adapter_t *adapter) {
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
 
-  ioHdlc_sleep_ms(50);
-
   ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
   TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
 
@@ -1659,8 +1647,6 @@ bool test_data_exchange_with_fcs_backend(const test_adapter_t *adapter) {
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
 
-  ioHdlc_sleep_ms(50);
-
   ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_ABM);
   TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
 
@@ -1755,8 +1741,6 @@ bool test_orderly_close_preserves_buffered_rx(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
-
-  ioHdlc_sleep_ms(50);
 
   ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_ABM);
   TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
@@ -1894,8 +1878,6 @@ bool test_remote_disc_preserves_buffered_rx(const test_adapter_t *adapter) {
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
 
-  ioHdlc_sleep_ms(50);
-
   ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_ABM);
   TEST_ASSERT_GOTO(ret == 0, "LinkUp failed");
 
@@ -2006,8 +1988,6 @@ bool test_link_timeout_marks_peer_aborted(const test_adapter_t *adapter) {
   TEST_ASSERT(result == 0, "Link event listener registration failed");
   listener_registered = true;
 
-  ioHdlc_sleep_ms(20);
-
   ret = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
   TEST_ASSERT(ret == -ETIMEDOUT, "LinkUp without responder should fail");
   TEST_ASSERT(IOHDLC_PEER_DISC(&peer_at_primary),
@@ -2058,7 +2038,6 @@ bool test_connected_link_timeout_emits_lost(const test_adapter_t *adapter) {
   TEST_ASSERT_GOTO(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&pair.station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
-  ioHdlc_sleep_ms(50);
 
   result = ioHdlcStationLinkUp(&pair.station_primary, SECONDARY_ADDR,
                                IOHDLC_OM_NRM);
