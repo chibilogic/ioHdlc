@@ -99,6 +99,14 @@ void iohdlc_bsem_init(iohdlc_bsem_t *bsem, bool taken) {
 }
 
 /**
+ * @brief   Destroy a binary semaphore after all users have finished.
+ */
+void iohdlc_bsem_destroy(iohdlc_bsem_t *bsem) {
+  pthread_cond_destroy(&bsem->cond);
+  pthread_mutex_destroy(&bsem->mutex);
+}
+
+/**
  * @brief   Signal binary semaphore.
  * @details Sets signaled flag to true. Multiple signals do NOT accumulate.
  *

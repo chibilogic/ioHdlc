@@ -294,9 +294,6 @@ bool test_A1_1_frame_loss_window_full_twa(const test_adapter_t *adapter) {
   TEST_ASSERT(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT(result == 0, "Failed to start secondary runner");
-  
-  /* Wait for threads to be ready */
-  ioHdlc_sleep_ms(100);
 
   /* Establish connection (SNRM handshake) */
   test_printf("Establishing connection (SNRM/UA)...\r\n");
@@ -520,9 +517,6 @@ bool test_A2_1_multiple_frame_loss_twa(const test_adapter_t *adapter) {
   TEST_ASSERT(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT(result == 0, "Failed to start secondary runner");
-  
-  /* Wait for threads to be ready */
-  ioHdlc_sleep_ms(100);
 
   /* Establish connection (SNRM handshake) */
   test_printf("Establishing connection (SNRM/UA)...\r\n");
@@ -746,9 +740,6 @@ bool test_A2_2_first_and_last_frame_loss_twa(const test_adapter_t *adapter) {
   TEST_ASSERT(result == 0, "Failed to start primary runner");
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT(result == 0, "Failed to start secondary runner");
-  
-  /* Wait for threads to be ready */
-  ioHdlc_sleep_ms(100);
 
   /* Establish connection (SNRM handshake) */
   test_printf("Establishing connection (SNRM/UA)...\r\n");

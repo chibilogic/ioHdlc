@@ -115,6 +115,13 @@ static inline void iohdlc_bsem_init(iohdlc_binary_semaphore_t *bsp, bool taken) 
   chBSemObjectInit(bsp, taken);
 }
 
+/**
+ * @brief   Destroy an unused binary semaphore (no-op on ChibiOS).
+ */
+static inline void iohdlc_bsem_destroy(iohdlc_binary_semaphore_t *bsp) {
+  (void)bsp;
+}
+
 static inline msg_t iohdlc_bsem_wait_timeout(iohdlc_binary_semaphore_t *bsp, uint32_t timeout_ms) {
   sysinterval_t timeout = (timeout_ms == IOHDLC_WAIT_FOREVER) ?
                           TIME_INFINITE : TIME_MS2I(timeout_ms);

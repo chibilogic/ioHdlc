@@ -53,6 +53,7 @@
 typedef struct {
   iohdlc_thread_t *tx_thread;   /* TX thread reference */
   iohdlc_thread_t *rx_thread;   /* RX thread reference */
+  iohdlc_binary_semaphore_t tx_ready; /* TX event listener is registered. */
   bool tx_started;       /* TRUE if TX thread created successfully */
   bool rx_started;       /* TRUE if RX thread created successfully */
 } runner_context_t;

@@ -108,6 +108,7 @@ TEST_OSAL_BSEM = test_osal_bsem
 TEST_OSAL_EVENTS = test_osal_events
 TEST_LINK_MANAGER = test_link_manager
 TEST_API_CONTROL = test_api_control
+TEST_RUNNER_START = test_runner_start
 
 # Object files
 CORE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
@@ -141,6 +142,7 @@ AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_BASIC_CONNECTION_ABM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_MOD128_ABM)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_LINK_MANAGER)
 AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_API_CONTROL)
+AUTO_TEST_BINS += $(BIN_DIR)/$(TEST_RUNNER_START)
 
 # Manual test tools (require command-line parameters)
 MANUAL_TEST_BINS = $(BIN_DIR)/$(TEST_EXCHANGE)
@@ -274,6 +276,12 @@ $(BIN_DIR)/$(TEST_LINK_MANAGER): $(OBJ_DIR)/test_link_manager.o $(LINK_MANAGER_O
 $(BIN_DIR)/$(TEST_API_CONTROL): $(OBJ_DIR)/test_api_control.o $(ALL_OBJS)
 	@echo "LD $@"
 	@$(CC) $^ -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/$(TEST_RUNNER_START): $(OBJ_DIR)/test_runner_start.o $(ALL_OBJS)
+	@echo "LD $@"
+	@$(CC) $^ -o $@ $(LDFLAGS) -Wl,--wrap=pthread_create \
+		-Wl,--wrap=iohdlc_evt_register -Wl,--wrap=iohdlc_bsem_wait_timeout \
+		-Wl,--wrap=iohdlc_bsem_signal
 
 # Run tests
 test: all

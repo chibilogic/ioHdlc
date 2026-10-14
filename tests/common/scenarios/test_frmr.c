@@ -210,8 +210,6 @@ bool test_frmr_invalid_nr(const test_adapter_t *adapter) {
   result = ioHdlcRunnerStart(&station_secondary);
   TEST_ASSERT_GOTO(result == 0, "Failed to start secondary runner");
 
-  ioHdlc_sleep_ms(100);
-
   /* Step 1: Establish connection. */
   test_printf("Step 1: Establishing connection (SNRM/UA)...\r\n");
   result = ioHdlcStationLinkUp(&station_primary, SECONDARY_ADDR, IOHDLC_OM_NRM);
