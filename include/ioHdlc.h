@@ -213,7 +213,7 @@
 #define IOHDLC_SS_NEED_P       0x08  /**< Hint that the next suitable command frame should carry P. */
 #define IOHDLC_SS_TERM_ORDERLY 0x10  /**< Peer has been closed orderly; buffered RX data remains readable. */
 #define IOHDLC_SS_TERM_ABORTED 0x20  /**< Peer has terminated abnormally; buffered RX data is stale. */
-#define IOHDLC_SS_SENDING      0x40  /**< A logical stream write is currently admitted. */
+#define IOHDLC_SS_SENDING      0x40  /**< A stream write or TX readiness wait is admitted. */
 #define IOHDLC_SS_ST_CONN      0x80  /**< Peer is currently connected. */
 
 /* stream_terminal_pending definitions. */
@@ -456,8 +456,8 @@ struct iohdlc_station_peer {
                                    Read waits on the stream predicate:
                                    partial frame available, queued RX data,
                                    or terminal peer state. */
-  iohdlc_binary_semaphore_t write_gate; /* Serializes complete logical writes. */
-  iohdlc_binary_semaphore_t read_gate;  /* Serializes complete logical reads. */
+  iohdlc_binary_semaphore_t write_gate; /* Serializes logical writes and TX readiness waits. */
+  iohdlc_binary_semaphore_t read_gate;  /* Serializes logical reads and RX readiness waits. */
   iohdlc_mutex_t state_mutex;   /* Mutex protecting protocol state variables:
                                    nr, vr, vs, i_pending_count, queues (i_retrans_q, i_trans_q),
                                    chkpt_actioned, rej_actioned, ss_state,
@@ -633,6 +633,9 @@ extern "C" {
 
   ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *ioHdlcpeerp,
       const iohdlc_iovec_t *iov, size_t iovcnt, uint32_t timeout_ms);
+
+  int32_t ioHdlcPollReadTmo(iohdlc_station_peer_t *peer, uint32_t timeout_ms);
+  int32_t ioHdlcPollWriteTmo(iohdlc_station_peer_t *peer, uint32_t timeout_ms);
 
   /* Convenience macros for blocking operations (infinite timeout). */
   /** @brief Convenience wrapper for blocking write with infinite timeout. */
