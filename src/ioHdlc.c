@@ -17,7 +17,7 @@
  * @file    src/ioHdlc.c
  * @brief   HDLC Application Interface Implementation.
  * @details Implements public API functions for station link management
- *          and data transfer (LinkUp, LinkDown, Write, Read).
+ *          and stream I/O (LinkUp, LinkDown, Write, Read, Poll).
  *          OS-agnostic implementation using OSAL wrappers.
  *
  *          This module is the integration-facing construction layer. It
@@ -1227,6 +1227,177 @@ static inline uint32_t writer_pending_limit(const iohdlc_station_peer_t *p) {
 #define W_WAIT_COND(s, p) \
 	          (p->i_pending_count >= writer_pending_limit(p) || \
 	          hdlcPoolGetState(&s->frame_pool) != IOHDLC_POOL_NORMAL)
+
+/**
+ * @brief   Query or wait for stream TX capacity without queuing data.
+ * @details A zero timeout takes a state snapshot without acquiring the write
+ *          gate, even when another writer owns it. A nonzero timeout acquires
+ *          that gate and waits on the existing TX condition variable, using
+ *          one budget for admission and flow control. Once admitted, the wait
+ *          cannot continue across a connection boundary into a new stream.
+ *
+ *          Readiness uses the same pending-frame limit and pool-state predicate
+ *          as writes. It does not reserve frames or guarantee capacity for a
+ *          whole subsequent write. The gate is released before returning;
+ *          callers must still handle partial I/O and changes in availability.
+ *
+ * @param[in] peer        Initialized, live peer descriptor.
+ * @param[in] timeout_ms  Total timeout in milliseconds, zero for a snapshot,
+ *                        or @ref IOHDLC_WAIT_FOREVER.
+ * @retval 1             TX capacity is available. Check explicitly for one.
+ * @retval 0             The peer is orderly closed.
+ * @retval -ETIMEDOUT    No capacity or gate admission within the budget,
+ *                        including an immediately unavailable snapshot.
+ * @retval -ECONNRESET   The link aborted or an admitted wait crossed a reset
+ *                        or reconnection boundary.
+ * @retval -ENOTCONN     The peer is disconnected without a terminal result.
+ * @retval -EINVAL       The peer pointer is null.
+ * @note    Thread context only. Does not connect, reconnect, or consume RX
+ *          terminal notifications. A zero-timeout snapshot does not alter the
+ *          state or terminal notification of a concurrent writer.
+ */
+int32_t ioHdlcPollWriteTmo(iohdlc_station_peer_t *peer, uint32_t timeout_ms) {
+  iohdlc_api_timeout_t timeout;
+  int32_t result;
+
+  if (peer == NULL)
+    return -EINVAL;
+
+  timeout.timeout_ms = timeout_ms;
+  timeout.start_ms = timeout_ms == 0U || timeout_ms == IOHDLC_WAIT_FOREVER ?
+                     0U : iohdlc_time_now_ms();
+  if (timeout_ms != 0U &&
+      iohdlc_bsem_wait_timeout(&peer->write_gate,
+                               s_api_timeout_remaining(&timeout)) != MSG_OK)
+    return -ETIMEDOUT;
+
+  iohdlc_mutex_lock(&peer->state_mutex);
+  if (timeout_ms != 0U) {
+    IOHDLC_ASSERT((peer->stream_terminal_pending &
+                   IOHDLC_STREAM_TX_RESET_PENDING) == 0U,
+                  "stale TX stream terminal");
+    /* The write gate gives this wait ownership of the TX terminal latch. */
+    peer->ss_state |= IOHDLC_SS_SENDING;
+  }
+
+  while (true) {
+    uint32_t remaining_ms;
+    msg_t wait_result;
+
+    if (timeout_ms != 0U &&
+        (peer->stream_terminal_pending & IOHDLC_STREAM_TX_RESET_PENDING)) {
+      result = IOHDLC_PEER_ORDERLY_CLOSED(peer) ? 0 : -ECONNRESET;
+      break;
+    }
+    if (IOHDLC_PEER_DISC(peer)) {
+      result = IOHDLC_PEER_ORDERLY_CLOSED(peer) ? 0 :
+               IOHDLC_PEER_ABORTED(peer) ? -ECONNRESET : -ENOTCONN;
+      break;
+    }
+    if (!W_WAIT_COND(peer->stationp, peer)) {
+      result = 1;
+      break;
+    }
+    remaining_ms = timeout_ms == 0U ? 0U : s_api_timeout_remaining(&timeout);
+    if (remaining_ms == 0U) {
+      result = -ETIMEDOUT;
+      break;
+    }
+    wait_result = iohdlc_condvar_wait_timeout(
+        &peer->tx_cv, &peer->state_mutex, remaining_ms);
+    if (wait_result == MSG_TIMEOUT)
+      iohdlc_mutex_lock(&peer->state_mutex);
+  }
+
+  if (timeout_ms != 0U) {
+    peer->ss_state &= (uint8_t)~IOHDLC_SS_SENDING;
+    peer->stream_terminal_pending &= (uint8_t)~IOHDLC_STREAM_TX_RESET_PENDING;
+  }
+  iohdlc_mutex_unlock(&peer->state_mutex);
+  if (timeout_ms != 0U)
+    iohdlc_bsem_signal(&peer->write_gate);
+  return result;
+}
+
+/**
+ * @brief   Query or wait for stream RX data without consuming it.
+ * @details A zero timeout takes a state snapshot without acquiring the read
+ *          gate, even when another reader owns it. A nonzero timeout acquires
+ *          that gate and waits on the existing RX condition variable, using
+ *          one budget for admission and data availability.
+ *
+ *          Queued and partially read frames remain untouched. Buffered data
+ *          is reported before a disconnected peer's terminal result, as in
+ *          read. After reconnection, a pending result from the previous stream
+ *          takes precedence over new data. Poll never consumes that result;
+ *          a read must observe it before the new stream becomes readable.
+ *
+ * @param[in] peer        Initialized, live peer descriptor.
+ * @param[in] timeout_ms  Total timeout in milliseconds, zero for a snapshot,
+ *                        or @ref IOHDLC_WAIT_FOREVER.
+ * @retval 1             RX data is available. Check explicitly for one.
+ * @retval 0             Orderly EOF is pending before the next data.
+ * @retval -ETIMEDOUT    No data or gate admission within the budget,
+ *                        including an immediately unavailable snapshot.
+ * @retval -ECONNRESET   An aborted-stream result is pending before the next data.
+ * @retval -ENOTCONN     The peer is disconnected without data or a terminal result.
+ * @retval -EINVAL       The peer pointer is null.
+ * @note    Thread context only. Readiness is not a reservation or a byte count.
+ *          The gate is released before returning; a subsequent read can still
+ *          encounter gate contention or changed availability. No connection,
+ *          reconnection, or application event registration is performed.
+ */
+int32_t ioHdlcPollReadTmo(iohdlc_station_peer_t *peer, uint32_t timeout_ms) {
+  iohdlc_api_timeout_t timeout;
+  int32_t result;
+
+  if (peer == NULL)
+    return -EINVAL;
+
+  timeout.timeout_ms = timeout_ms;
+  timeout.start_ms = timeout_ms == 0U || timeout_ms == IOHDLC_WAIT_FOREVER ?
+                     0U : iohdlc_time_now_ms();
+  if (timeout_ms != 0U &&
+      iohdlc_bsem_wait_timeout(&peer->read_gate,
+                               s_api_timeout_remaining(&timeout)) != MSG_OK)
+    return -ETIMEDOUT;
+
+  iohdlc_mutex_lock(&peer->state_mutex);
+  while (true) {
+    uint32_t remaining_ms;
+    msg_t wait_result;
+    uint8_t terminal = peer->stream_terminal_pending &
+                       IOHDLC_STREAM_RX_TERMINAL_MASK;
+
+    if (!IOHDLC_PEER_DISC(peer) && terminal != 0U) {
+      result = (terminal & IOHDLC_SS_TERM_ABORTED) ? -ECONNRESET : 0;
+      break;
+    }
+    if (s_peer_rx_has_data(peer)) {
+      result = 1;
+      break;
+    }
+    if (IOHDLC_PEER_DISC(peer)) {
+      result = IOHDLC_PEER_ORDERLY_CLOSED(peer) ? 0 :
+               IOHDLC_PEER_ABORTED(peer) ? -ECONNRESET : -ENOTCONN;
+      break;
+    }
+    remaining_ms = timeout_ms == 0U ? 0U : s_api_timeout_remaining(&timeout);
+    if (remaining_ms == 0U) {
+      result = -ETIMEDOUT;
+      break;
+    }
+    wait_result = iohdlc_condvar_wait_timeout(
+        &peer->rx_cv, &peer->state_mutex, remaining_ms);
+    if (wait_result == MSG_TIMEOUT)
+      iohdlc_mutex_lock(&peer->state_mutex);
+  }
+
+  iohdlc_mutex_unlock(&peer->state_mutex);
+  if (timeout_ms != 0U)
+    iohdlc_bsem_signal(&peer->read_gate);
+  return result;
+}
 
 /**
  * @brief   Write a logical byte sequence described by multiple vectors.

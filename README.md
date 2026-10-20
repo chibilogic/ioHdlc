@@ -37,6 +37,11 @@ communication, ISO 13239 compliant data link layer.
   exchange raw bytes through POSIX-inspired stream I/O, with explicit timeouts
   and negative errno-style error returns. I-frame fragmentation and reassembly
   are transparent.
+- **Non-consuming readiness queries and waits** (`ioHdlcPollReadTmo` and
+  `ioHdlcPollWriteTmo`): timeout zero checks immediately whether RX data or
+  TX capacity is available. A nonzero timeout allows waiting for availability,
+  while closure or reset ends the wait. These APIs neither transfer nor
+  reserve data, and require no application event listener.
 - **Logical operation serialization**: a vectored write cannot interleave with
   another write on the same peer, and a vectored read prevents another reader
   from consuming bytes until the call completes. Read and write remain
@@ -198,6 +203,17 @@ entries are ignored and may have a null base; non-empty entries require a
 non-null base. The aggregate length must fit in `ssize_t`. A single timeout
 budget covers serialization and stream/flow-control waits. Iovec boundaries do
 not define or constrain I-frame boundaries.
+
+The readiness APIs return `1` for available RX data or TX capacity, `0` for
+orderly closure (after buffered RX data), and a negative error otherwise:
+`-ETIMEDOUT` when readiness is not reported within the requested timeout,
+`-ECONNRESET` for an aborted stream, and `-ENOTCONN` for a disconnected peer
+without a terminal result. Use an explicit `== 1` check, not a Boolean truth
+test. A zero-timeout query does not consume data or pending closure/error
+indications.
+Readiness is a snapshot, not a guarantee that a later read/write will complete.
+See the [API contract](doc/ARCHITECTURE.md#application-api-contract) for stream
+boundaries and concurrent waits.
 
 ---
 

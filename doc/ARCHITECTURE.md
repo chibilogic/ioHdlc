@@ -81,6 +81,16 @@ hard-coded numeric values.
   replaced with an explicit `== 1` check.
 - `ioHdlcPeerGetState()` retains its enum result. `IOHDLC_PEER_STATE_INVALID`
   equals `-EINVAL`; valid state values remain unchanged.
+- `ioHdlcPollReadTmo()` and `ioHdlcPollWriteTmo()` return `1` for RX data or
+  TX capacity, `0` for orderly closure, and negative errors otherwise.
+  `-ETIMEDOUT` means availability or gate admission was not obtained within
+  the budget, including a zero-timeout query. `-ECONNRESET` reports an aborted
+  stream, `-ENOTCONN` a disconnected peer without a terminal result, and
+  `-EINVAL` a null peer. Check explicitly for `1`, not Boolean truth.
+  Read polling follows the read-side ordering of buffered data and terminal
+  results without consuming either. A pending RX terminal survives polling
+  across reconnection; an actual read must consume it before new data is
+  reported as readable.
 - Pointer, void and event-mask APIs retain their existing contracts. Driver,
   adapter and OSAL status conventions are internal contracts and are unchanged;
   conversion to a negative error happens at the application API boundary.
@@ -90,6 +100,19 @@ Thread-safety applies to runtime API operations on initialized, live objects:
 - A complete scalar or vectored write is serialized against other writers on
   its peer; reads are similarly serialized against other readers. The read
   and write directions remain independent. No fairness guarantee is made.
+- Readiness calls with timeout zero inspect state under the peer mutex and
+  bypass the direction gate entirely. They can report availability while
+  another caller owns that gate. Nonzero-timeout readiness calls acquire the
+  same gate as the corresponding I/O operation and use the existing RX/TX
+  condition variable; the gate is released before returning. Neither mode
+  reserves data or capacity, allocates frames, or transfers bytes. TX capacity
+  uses the same pending-frame limit and pool-state predicate as write.
+  An admitted TX readiness wait participates in the existing write-terminal
+  latch: close wakes it, and a reset or rapid close/reopen cannot make it
+  succeed against a different stream. It releases its own TX latch on return,
+  without consuming RX terminal notifications. A zero-timeout query does not
+  touch a concurrent writer's latch. Calls still waiting for gate admission
+  can enter the new stream, as with ordinary writes.
 - LinkUp, LinkDown and TEST are mutually exclusive on the same peer, including
   TEST response validation. Conflicting calls return `-EBUSY`, without waiting
   for the active control transaction to finish.
@@ -495,6 +518,13 @@ Same-direction calls are serialized for their complete logical operation,
 while read and write can proceed concurrently. Gate admission and subsequent
 condition-variable waits consume one timeout budget; the OS scheduler does not
 provide an API-level fairness guarantee.
+
+Readiness waits reuse these same gates and condition variables without
+transferring data. In particular, the read gate prevents a non-consuming waiter
+from competing with an active reader for the single RX condition signal.
+Zero-timeout readiness queries bypass the gates and never wait on a condition
+variable. No RX/TX readiness flags or additional application event sources are
+required.
 
 ```c
 // Application writes data
