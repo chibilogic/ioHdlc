@@ -61,6 +61,10 @@ communication, ISO 13239 compliant data link layer.
   register an `iohdlc_app_listener_t` through
   `ioHdlcAppListenerRegister()` and consume coalesced flags with
   `ioHdlcAppListenerWait()`.
+- **Passive NRM secondary supervision**: an optional application-configured
+  `inactivity_timeout_ms` detects a silent primary and reports `LINK_LOST`
+  without transmitting recovery frames. Zero disables it. See
+  [timer configuration](doc/ARCHITECTURE.md#nrm-secondary-inactivity).
 - **Peer state snapshots**: `ioHdlcPeerGetState()` reports connected,
   disconnected, orderly-closed, or aborted state without requiring direct
   access to peer internals. Application events are station-wide state-change

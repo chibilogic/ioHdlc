@@ -99,6 +99,15 @@ static bool iFrameReplyTimerUsed(const iohdlc_station_t *s) {
   return IOHDLC_IS_ARM(s) || IOHDLC_IS_ABM(s);
 }
 
+/* Caller holds state_mutex; no activity timer runs in disconnected mode. */
+static void startInactivityTimer(iohdlc_station_peer_t *p) {
+  iohdlc_station_t *s = p->stationp;
+
+  if (s->inactivity_timeout_ms != 0U && IOHDLC_IS_NRM(s) &&
+      !IOHDLC_IS_PRI(s) && !IOHDLC_PEER_DISC(p))
+    ioHdlcStartReplyTimer(p, IOHDLC_TIMER_T3, s->inactivity_timeout_ms);
+}
+
 static uint32_t idlePollTimeoutMs(const iohdlc_station_t *s) {
   return s->idle_poll_timeout_ms;
 }
@@ -173,6 +182,7 @@ static void ioHdlcSetConnected(iohdlc_station_peer_t *p) {
   }
   p->ss_state &= (uint8_t)~(IOHDLC_SS_TERM_ORDERLY | IOHDLC_SS_TERM_ABORTED);
   p->ss_state |= IOHDLC_SS_ST_CONN;
+  startInactivityTimer(p);
   iohdlc_condvar_broadcast(&p->tx_cv);
 }
 
@@ -615,17 +625,21 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     return;
   }
 
+  iohdlc_mutex_lock(&p->state_mutex);
+  if (is_command && u_frame_long_enough)
+    startInactivityTimer(p);
+
   if (u_cmd == IOHDLC_U_UI) {
     bool accepted = false;
 
     if (!u_frame_long_enough || u_info_len != sizeof p->ui_rx_value) {
       IOHDLC_LOG_WARN(IOHDLC_LOG_RX, s->addr, "discard UI len=%u",
                       (unsigned)u_info_len);
+      iohdlc_mutex_unlock(&p->state_mutex);
       hdlcReleaseFrame(&s->frame_pool, fp);
       return;
     }
 
-    iohdlc_mutex_lock(&p->state_mutex);
     if (!IOHDLC_PEER_DISC(p)) {
       memcpy(&p->ui_rx_value, &fp->frame[s->framing.frame_offset + 2U],
              sizeof p->ui_rx_value);
@@ -643,7 +657,6 @@ static void handleUFrame(iohdlc_station_t *s, iohdlc_frame_t *fp) {
     return;
   }
   
-  iohdlc_mutex_lock(&p->state_mutex);
   if (is_command) {
     /* U-frame command received (we are Secondary or Combined in ABM).
        Per 5.5.3.3: if already UM_RCVED in progress, ignore additional
@@ -1299,6 +1312,7 @@ static void commonRx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
      This prevents TX from observing intermediate state where checkpoint/ACK
      is complete but I-frame validation/state update is not yet done. */
   iohdlc_mutex_lock(&p->state_mutex);
+  startInactivityTimer(p);
 
   /* FRMR exception active: per ISO 13239 5.5.3, do not accept I/S frames
      except for examining P bit and N(R). Re-trigger FRMR on each poll. */
@@ -1749,8 +1763,9 @@ uint32_t ioHdlcConnectedTx(iohdlc_station_t *s, iohdlc_station_peer_t *p,
       ioHdlcStopReplyTimer(p, IOHDLC_TIMER_T3);
 
       if (IOHDLC_IS_NRM(s)) {
-        /* NRM keeps the legacy idle-poll use of T3. */
-        IOHDLC_SET_NEED_P(s, p);
+        /* Secondary inactivity expiry is handled before TX scheduling. */
+        if (IOHDLC_IS_PRI(s))
+          IOHDLC_SET_NEED_P(s, p);
       } else if (!ioHdlc_frameq_isempty(&p->i_retrans_q)) {
         if (!handleTimeoutRetry(s, p)) {
           iohdlc_mutex_unlock(&p->state_mutex);
@@ -2061,6 +2076,23 @@ void ioHdlcTxEntry(void *stationp) {
     if (NULL == p) { cm_flags = 0; continue; }
 
     iohdlc_mutex_lock(&p->state_mutex);
+
+    if ((cm_flags & IOHDLC_EVT_T3_TMO) && IOHDLC_IS_NRM(s) &&
+        !IOHDLC_IS_PRI(s)) {
+      cm_flags &= ~IOHDLC_EVT_T3_TMO;
+      if (s->inactivity_timeout_ms != 0U && !IOHDLC_PEER_DISC(p) &&
+          ioHdlcIsReplyTimerExpired(p, IOHDLC_TIMER_T3)) {
+#if defined(IOHDLC_ENABLE_STATISTICS)
+        p->stats.timeouts++;
+#endif
+        abortPeerLink(s, p);
+        ioHdlcBroadcastFlags(s, IOHDLC_EVT_LINK_DOWN);
+        ioHdlcBroadcastFlagsApp(s, IOHDLC_APP_LINK_LOST);
+        cm_flags = 0;
+        iohdlc_mutex_unlock(&p->state_mutex);
+        continue;
+      }
+    }
 
     /* U command */
     if ((cm_flags  & IOHDLC_EVT_LINK_REQ) || ((p->um_state & IOHDLC_UM_SENT) &&

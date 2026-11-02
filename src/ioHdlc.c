@@ -370,6 +370,14 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
     ioHdlcsp->idle_poll_timeout_ms = ioHdlcsconfp->idle_poll_timeout_ms;
   }
 
+  ioHdlcsp->inactivity_timeout_ms = 0U;
+  if (mode == IOHDLC_OM_NDM && !(ioHdlcsp->flags & IOHDLC_FLG_PRI)) {
+    if (ioHdlcsconfp->inactivity_timeout_ms != 0U &&
+        !iohdlc_vt_timeout_valid(ioHdlcsconfp->inactivity_timeout_ms))
+      return -EINVAL;
+    ioHdlcsp->inactivity_timeout_ms = ioHdlcsconfp->inactivity_timeout_ms;
+  }
+
   /* Poll retry max: store config value for later use when adding peers */
   ioHdlcsp->poll_retry_max_cfg = (ioHdlcsconfp->poll_retry_max != 0) ?
                                   ioHdlcsconfp->poll_retry_max :
@@ -658,7 +666,7 @@ int32_t ioHdlcAddPeer(iohdlc_station_t *s, iohdlc_station_peer_t *peer,
   iohdlc_bsem_init(&peer->read_gate, false);    /* Available. */
   iohdlc_mutex_init(&peer->state_mutex);        /* Mutex for state */
   
-  /* Initialize virtual timers (reply and I-frame reply) */
+  /* Initialize virtual timers (command reply and mode-specific T3). */
   iohdlc_vt_init(&peer->reply_tmr, &s->cm_es, IOHDLC_EVT_C_RPLYTMO);
   iohdlc_vt_init(&peer->t3_tmr, &s->cm_es, IOHDLC_EVT_T3_TMO);
   

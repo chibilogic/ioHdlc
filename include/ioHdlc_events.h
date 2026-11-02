@@ -47,7 +47,7 @@
 #define IOHDLC_EVT_LINK_REQ     0x0200  /* Link change requested. u_cmd
                                            indicates the requested change. */
 #define IOHDLC_EVT_LINE_IDLE    0x0400  /* Line idle detected. */
-#define IOHDLC_EVT_LINK_DOWN    0x0800  /* Link down (retry count exhausted). */
+#define IOHDLC_EVT_LINK_DOWN    0x0800  /* Link down (retry exhaustion or inactivity). */
 #define IOHDLC_EVT_TX_IFRM_ENQ  0x1000  /* I-frame enqueued for transmission. */
 #define IOHDLC_EVT_REJ_ACTED    0x2000  /* REJ exception has been actioned. */
 #define IOHDLC_EVT_PF_RECVD     0x4000  /* P/F bit received. */

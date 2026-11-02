@@ -182,6 +182,15 @@ static inline uint32_t iohdlc_time_now_ms(void) {
 /* Virtual Timer                                                             */
 /*===========================================================================*/
 
+/** @brief Check that a positive finite delay survives conversion to ticks. */
+static inline bool iohdlc_vt_timeout_valid(uint32_t delay_ms) {
+  const uint64_t scaled = (uint64_t)delay_ms * CH_CFG_ST_FREQUENCY + 999U;
+
+  return delay_ms != 0U && delay_ms != IOHDLC_WAIT_FOREVER &&
+         scaled <= (uint64_t)((time_conv_t)-1) &&
+         scaled / 1000U <= (uint64_t)TIME_MAX_INTERVAL;
+}
+
 /**
  * @brief   Initialize virtual timer.
  */

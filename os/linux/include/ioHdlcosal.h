@@ -491,6 +491,11 @@ static inline void iohdlc_thread_yield(void) { sched_yield(); }
 /* Virtual Timer Operations                                                  */
 /*===========================================================================*/
 
+/** @brief Check that a delay is a positive finite timer interval. */
+static inline bool iohdlc_vt_timeout_valid(uint32_t delay_ms) {
+  return delay_ms != 0U && delay_ms != IOHDLC_TIME_INFINITE;
+}
+
 /**
  * @brief   Initialize a virtual timer and bind it to an event source.
  * @param[in] vtp        Timer object to initialize.

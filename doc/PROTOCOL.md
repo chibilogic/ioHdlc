@@ -664,11 +664,11 @@ T1 >= (7 × 1.28) + 0.1 + 2 + 5 = 16.06 ms  →  use T1 = 20 ms
 
 **Note**: This applies to **any** system with non-blocking transmission (DMA, ISR queues, etc.), not just queue-based implementations. The driver returns immediately after DMA start, but T1 must account for the physical transmission time.
 
-### T3 Timer (Idle / I-frame Reply Timeout)
+### T3 Timer (Idle / Inactivity / I-frame Reply Timeout)
 
 **Purpose**: Provide the stack's additional reply-timer role. Depending on
-mode, it is used either to keep the link alive during idle periods or to recover
-unacknowledged I-frames.
+mode and role, it is used for primary idle polling, optional secondary
+inactivity detection, or recovery of unacknowledged I-frames.
 
 **Duration**: In NRM idle-poll mode, `idle_poll_timeout_ms` selects T3
 independently from T1. A value of zero preserves the default
@@ -676,12 +676,27 @@ independently from T1. A value of zero preserves the default
 be between T1 and `UINT16_MAX`, inclusive. For I-frame acknowledgement recovery
 in ARM/ABM, T3 remains `T1 × IOHDLC_DFL_T3_IFRAME_T1_RATIO` (default ratio = 5).
 
-**NRM idle-poll lifecycle:**
+**NRM primary idle-poll lifecycle:**
 
 - **Start**: After receiving F=1 response (link confirmed responsive), T1 stops, T3 starts.
 - **Restart**: On receiving F=0 frames while T3 is running (secondary still active).
 - **Stop**: When primary sends a new poll (P=1) → T1 starts, T3 stops.
 - **Expiry**: Sets the `need_p` flag → next outbound frame (I or S) carries P=1, starting a new T1 cycle.
+
+**NRM secondary inactivity lifecycle (optional):**
+
+- **Duration**: Application-selected `inactivity_timeout_ms`; zero disables
+  monitoring. Independent of the local T1 and primary idle-poll setting.
+- **Start**: On entering connected mode, including a connection reset by SNRM.
+- **Refresh**: On complete, integrity-checked I/S/U commands addressed to the
+  secondary, including duplicates and P=0 frames. Local TX does not refresh it.
+- **Stop**: On disconnect, protocol reset, or runner stop.
+- **Expiry**: Abort locally and publish `IOHDLC_APP_LINK_LOST`, without initiating
+  a poll, DISC, or retry. Count one timeout when statistics are enabled.
+
+The application must allow for primary retries, turn durations, and multipoint
+service time. A frame arriving near expiry is not guaranteed precedence over
+timeout handling. See [configuration and concurrency details](ARCHITECTURE.md#nrm-secondary-inactivity).
 
 **ABM I-frame reply lifecycle:**
 
@@ -693,7 +708,7 @@ in ARM/ABM, T3 remains `T1 × IOHDLC_DFL_T3_IFRAME_T1_RATIO` (default ratio = 5)
   stopped only by the expected acknowledgement.
 - **Expiry**: Initiates timeout recovery by polling for peer status.
 
-![T1/T3 dual-timer cycle](diagrams/svg/t1_t3_timer_cycle.svg)
+![Primary T1/T3 polling cycle](diagrams/svg/t1_t3_timer_cycle.svg)
 
 ## Poll/Final Bit
 
@@ -767,7 +782,7 @@ publish `IOHDLC_APP_LINK_DOWN`. Applications can then use
 `ioHdlcPeerGetState()` to observe `IOHDLC_PEER_STATE_ORDERLY_CLOSED`; buffered
 RX data remains readable until drained. This is distinct from
 `IOHDLC_APP_LINK_LOST`, which reports an abnormal close after retry recovery is
-exhausted.
+exhausted or the optional NRM secondary inactivity timeout expires.
 
 ## Addressing
 

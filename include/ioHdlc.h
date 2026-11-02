@@ -470,7 +470,7 @@ struct iohdlc_station_peer {
   /* virtual timers. */
   iohdlc_virtual_timer_t reply_tmr;   /* Primary/combined station command reply time-out
                                          timer. */
-  iohdlc_virtual_timer_t t3_tmr;/* Primary/secondary/combined station T3/I-frame reply timer. */
+  iohdlc_virtual_timer_t t3_tmr;/* NRM idle/inactivity or ARM/ABM I-frame reply timer. */
 
   /* retry counters. */
   volatile uint8_t poll_retry_count;  /* Number of poll retries scheduled for the
@@ -510,6 +510,7 @@ struct iohdlc_station {
   uint16_t  reply_timeout_ms;   /* Reply timer timeout value in milliseconds. Default: 100ms. */
   uint8_t   poll_retry_max_cfg; /* Configured max poll retries (from station config). Default: 8. */
   uint32_t  idle_poll_timeout_ms; /* Resolved NRM idle-poll T3 timeout in milliseconds. */
+  uint32_t  inactivity_timeout_ms; /* Optional NRM secondary inactivity timeout. */
   uint32_t  port_constraints;  /* Transport constraints copied from phydriver at init. IOHDLC_PORT_CONSTR_* */
   uint32_t  addr;               /* Address of the station. */
   iohdlc_station_peer_t *c_peer;    /* The peer the station is currently talking to. */
@@ -572,6 +573,10 @@ struct iohdlc_station_config {
   uint32_t idle_poll_timeout_ms; /**< @brief NRM idle-poll T3 timeout in ms.
                                       0 selects 2*T1; explicit values must be
                                       between T1 and UINT16_MAX.             */
+  uint32_t inactivity_timeout_ms; /**< @brief NRM secondary receive-inactivity
+                                      timeout in ms; 0 disables it. Ignored
+                                      for primary/ADM configurations. Must
+                                      fit a finite OSAL timer interval.      */
 };
 
 /*===========================================================================*/

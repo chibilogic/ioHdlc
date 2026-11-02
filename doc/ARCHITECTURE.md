@@ -443,7 +443,7 @@ The public application events are:
 | `IOHDLC_APP_LINK_UP` | A mode-setting command completed successfully or was accepted. Inspect managed peers with `ioHdlcPeerGetState()` to identify those now connected. |
 | `IOHDLC_APP_LINK_REFUSED` | A local link-up request was rejected with DM. Inspect disconnected peers to identify the affected request. |
 | `IOHDLC_APP_LINK_DOWN` | A connected peer closed orderly after a locally or remotely initiated DISC. Both endpoints publish the event and report `IOHDLC_PEER_STATE_ORDERLY_CLOSED`. |
-| `IOHDLC_APP_LINK_LOST` | A previously connected peer became aborted after exhausting protocol retries. Inspect peers for `IOHDLC_PEER_STATE_ABORTED`. |
+| `IOHDLC_APP_LINK_LOST` | A previously connected peer became aborted after exhausting protocol retries or exceeding the configured NRM secondary inactivity timeout. Inspect peers for `IOHDLC_PEER_STATE_ABORTED`. |
 | `IOHDLC_APP_FRMR_RECEIVED` | A peer reported an FRMR condition. Higher-layer recovery is required. |
 | `IOHDLC_APP_UI_RECEIVED` | A peer cached a new UI value. Probe managed peers with `ioHdlcPeerUiGet()` to identify and consume it. |
 
@@ -615,7 +615,49 @@ Build-time policy defaults such as reply timeout, poll-retry limit, pool waterma
 
 `ioHdlcStationInit()` currently accepts only disconnected initial modes (`IOHDLC_OM_NDM` for unbalanced setups, `IOHDLC_OM_ADM` for balanced setups). The operational mode used on the link (`IOHDLC_OM_NRM` or `IOHDLC_OM_ABM`) is selected later by `ioHdlcStationLinkUp()`.
 
-**Frame-pool DMA alignment:**
+### NRM Secondary Inactivity
+
+Set `iohdlc_station_config_t.inactivity_timeout_ms` to a positive millisecond
+interval to enable passive receive-inactivity monitoring on an NRM secondary.
+Zero disables it and preserves indefinite waiting for the primary. The setting
+is ignored for primary and ADM configurations. A nonzero secondary setting must
+fit a finite OSAL timer interval; initialization returns `-EINVAL` otherwise.
+`IOHDLC_WAIT_FOREVER` is not a valid enabled setting.
+
+The timeout is independent of the local `reply_timeout_ms` and
+`idle_poll_timeout_ms`. The application must allow for the primary's idle
+polling, retry backoff, frame and turn durations, scheduling delays, and service
+of other secondaries on multipoint links. These parameters are not negotiated
+with the secondary. This is optional application policy, not an NRM requirement.
+
+The peer reuses its existing T3 timer according to its role:
+
+| Role/mode | T3 purpose |
+|---|---|
+| NRM primary | Idle polling, using `idle_poll_timeout_ms` |
+| NRM secondary | Optional passive monitoring, using `inactivity_timeout_ms` |
+| ARM/ABM timer policy | Existing I-frame reply timeout |
+
+Monitoring starts when the secondary accepts link establishment. A complete,
+integrity-checked I/S/U command addressed to that secondary refreshes it,
+regardless of P and independently of payload delivery. Duplicate and
+out-of-sequence I-frames also count as activity. Corrupted or incomplete frames,
+traffic addressed elsewhere, and local transmissions do not refresh it. TEST
+while disconnected does not enable monitoring.
+
+On expiry, the TX runner aborts the peer locally, wakes blocked stream I/O using
+the existing abort semantics, and publishes `IOHDLC_APP_LINK_LOST`. It does not
+initiate a poll, DISC, or retry. The expiry counts once in `stats.timeouts` when
+statistics are enabled. Disconnection, protocol reset, and runner stop disarm
+the timer; a new connection arms a fresh interval.
+
+RX processing and expiry handling are serialized by the peer state mutex. No
+precedence is guaranteed to a frame arriving near the deadline: it may fail to
+prevent disconnection. Pending timer events are checked against the current
+timer and peer state, so an old notification alone cannot abort a reset or
+reconnected peer. The OS timer callback only signals the runner.
+
+### Frame-Pool DMA Alignment
 
 The default fixed-memory frame pool lays out each `iohdlc_frame_t` slot so the
 flexible `frame[]` payload member can satisfy a platform-defined alignment. The
