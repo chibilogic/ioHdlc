@@ -2000,12 +2000,8 @@ skip_i_frames:
 
     sframe_to_send = prepareSFrame(s, p, IOHDLC_S_RR,
                                    default_sframe_is_command);
-    if (sframe_to_send != NULL) {
+    if (sframe_to_send != NULL)
       s->flags &= ~IOHDLC_FLG_BUSY;
-
-      /* Wake up writers blocked on pool availability. */
-      iohdlc_condvar_broadcast(&p->tx_cv);
-    }
   }
   
   /* If no frame was sent, or prepared to, but we have the opportunity/need
@@ -2021,8 +2017,10 @@ skip_i_frames:
       default_sframe_is_command);
   }
   
+  /* Preserve pool events collected during TX for the station-wide wakeup in
+     ioHdlcTxEntry(), independently of local BUSY and transmit permission. */
   cm_flags &= ~(IOHDLC_EVT_I_RECVD|IOHDLC_EVT_RR_RECVD|IOHDLC_EVT_RNR_RECVD|
-                IOHDLC_EVT_POOL_ST_CHG|IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_PF_RECVD|
+                IOHDLC_EVT_TX_IFRM_ENQ|IOHDLC_EVT_PF_RECVD|
                 IOHDLC_EVT_xREJ_RECVD|IOHDLC_EVT_UI_ENQ);
 
   if (sframe_to_send != NULL) {
@@ -2072,7 +2070,23 @@ void ioHdlcTxEntry(void *stationp) {
     /* Check if stop requested */
     if (s->stop_requested)
       break;
-    
+
+    if (cm_flags & IOHDLC_EVT_POOL_ST_CHG) {
+      iohdlc_station_peer_t *peer;
+
+      cm_flags &= ~IOHDLC_EVT_POOL_ST_CHG;
+      /* The pool is shared by all peers. Serialize with each waiter's
+         predicate/wait sequence; never nest peer mutexes. Waiters recheck
+         availability, since a later LOW transition may have intervened. */
+      for (peer = s->peers.next;
+           peer != (iohdlc_station_peer_t *)&s->peers;
+           peer = peer->next) {
+        iohdlc_mutex_lock(&peer->state_mutex);
+        iohdlc_condvar_broadcast(&peer->tx_cv);
+        iohdlc_mutex_unlock(&peer->state_mutex);
+      }
+    }
+
     if (NULL == p) { cm_flags = 0; continue; }
 
     iohdlc_mutex_lock(&p->state_mutex);

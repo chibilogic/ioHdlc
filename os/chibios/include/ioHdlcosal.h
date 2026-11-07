@@ -364,6 +364,20 @@ static inline void iohdlc_evt_broadcast_flags_isr(iohdlc_event_source_t *esp,
   chSysUnlockFromISR();
 }
 
+/**
+ * @brief   Broadcast flags from thread or ISR context, locked or unlocked.
+ * @note    Preserves the caller's system-lock status.
+ * @param[in] esp     Event source broadcasting the flags.
+ * @param[in] flags   Flags to broadcast.
+ */
+static inline void iohdlc_evt_broadcast_flags_x(iohdlc_event_source_t *esp,
+                                                eventflags_t flags) {
+  syssts_t sts = chSysGetStatusAndLockX();
+
+  chEvtBroadcastFlagsI(esp, flags);
+  chSysRestoreStatusX(sts);
+}
+
 static inline void iohdlc_sys_lock_isr(void) { chSysLockFromISR(); }
 static inline void iohdlc_sys_unlock_isr(void) { chSysUnlockFromISR(); }
 static inline void iohdlc_sys_lock(void) { chSysLock(); }

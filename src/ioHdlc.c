@@ -103,6 +103,14 @@ typedef struct {
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
+/* Pool releases may run in an ISR or with a peer mutex already held. Only
+   latch an event here; the TX runner wakes writers under their peer mutex. */
+static void s_framepool_on_normal(void *arg) {
+  iohdlc_station_t *s = arg;
+
+  iohdlc_evt_broadcast_flags_x(&s->cm_es, IOHDLC_EVT_POOL_ST_CHG);
+}
+
 static inline uint32_t s_api_timeout_remaining(const iohdlc_api_timeout_t *timeoutp) {
   uint32_t elapsed_ms;
 
@@ -537,7 +545,7 @@ int32_t ioHdlcStationInit(iohdlc_station_t *ioHdlcsp,
                           watermark_pct,
                           watermark_pct * IOHDLC_POOL_WATERMARK_HIGH_MULTIPLIER,
                           NULL,
-                          NULL, NULL);
+                          s_framepool_on_normal, ioHdlcsp);
 
   /* Start driver if physical device provided */
   if (ioHdlcsconfp->phydriver != NULL && ioHdlcsp->driver != NULL) {
@@ -1820,10 +1828,6 @@ ssize_t ioHdlcReadVTmo(iohdlc_station_peer_t *peer,
     hdlcReleaseFrame(&s->frame_pool, fp);
     peer->partial_read_frame = NULL;
     peer->partial_read_offset = 0U;
-
-    if (IOHDLC_IS_BUSY(s) &&
-        hdlcPoolGetState(&s->frame_pool) == IOHDLC_POOL_NORMAL)
-      ioHdlcBroadcastFlags(s, IOHDLC_EVT_POOL_ST_CHG);
   }
 
 read_done:

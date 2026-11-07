@@ -54,3 +54,43 @@ The part to refine is the mutual inhibition logic:
 Validation should include traces with overlapping checkpoint and REJ recovery,
 checking for each REJ the requested `N(S)`, the first matching retransmission,
 and the frames emitted before that retransmission.
+
+## SPI Slave Watchdog Timing and Timer Cost
+
+The ChibiOS SPI backend uses one periodic virtual timer (VT) per slave and
+separate RX/TX watchdog counters. Starting a TX transaction or submitting an RX
+phase resets counters and updates the monitored state without rearming the VT.
+This keeps watchdog bookkeeping constant-time in the per-transfer ISR paths.
+
+The periodic callback still rearms the VT through the kernel delta list.
+Insertion can scan the list under the system lock, with worst-case cost linear
+in the number of armed timers. The counter-based approach therefore moves this
+cost from every transfer to every watchdog period; it does not eliminate it.
+The periodic timer also continues running while the slave is started but idle.
+
+The trade-off is timing precision:
+
+- The default watchdog period is four times the configured minimum system-timer
+  interval. With a 1 kHz periodic system tick, this gives a 4 ms period.
+- The requested delay is rounded up to a number of watchdog periods, with a
+  minimum count of one. Changing the delay does not change the timer period.
+- The periodic timer is not synchronized with transaction start. Expiry depends
+  on that phase, kernel time quantization, and callback latency; the counter
+  threshold is not an exact deadline measured from the start of a transfer.
+- The exchange adapters request a delay of `T1 / 2`, but coarse watchdog
+  granularity can prevent recovery before a short `T1` expires.
+
+The open objective is to make recovery timing predictable without restoring
+costly per-transfer VT reinsertion. Simply shortening the period increases
+callback and delta-list insertion frequency, including during idle periods.
+Evaluate deadline-based checks with a periodic timer and, if justified by
+measurements, a timer wheel or another shared scheduling mechanism. A timer
+wheel could reduce scheduling costs, but does not improve the underlying clock
+resolution and introduces memory and expiry-processing costs. No replacement
+design is selected yet.
+
+Validation should bound the actual recovery window against both valid transfer
+duration, including master response latency, and the minimum supported `T1`.
+Cover incomplete RX and abandoned TX, starts near a watchdog tick, idle slaves,
+and multiple active SPI channels. Measure ISR time and timer-management cost
+with different numbers of armed kernel timers, not just nominal timeout values.

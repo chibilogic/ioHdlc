@@ -560,6 +560,17 @@ void iohdlc_evt_broadcast_flags(iohdlc_event_source_t *esp, eventflags_t flags);
 void iohdlc_evt_broadcast_flags_isr(iohdlc_event_source_t *esp,
                                     eventflags_t flags);
 
+/**
+ * @brief   Broadcast flags from any supported execution context.
+ * @note    All POSIX backend contexts use the thread-safe event operation.
+ * @param[in] esp     Event source broadcasting the flags.
+ * @param[in] flags   Flags to broadcast.
+ */
+static inline void iohdlc_evt_broadcast_flags_x(iohdlc_event_source_t *esp,
+                                                eventflags_t flags) {
+  iohdlc_evt_broadcast_flags(esp, flags);
+}
+
 /*===========================================================================*/
 /* Event Listener Operations                                                 */
 /*===========================================================================*/

@@ -39,18 +39,26 @@ static bool isStopRequested(iohdlc_link_manager_t *managerp) {
 }
 
 /**
- * @brief   Notify one effective state transition.
+ * @brief   Apply the selected peer-state or point-to-point event contract.
  */
-static void notifyState(iohdlc_link_manager_t *managerp,
-                        iohdlc_peer_state_t *last_statep) {
+static void notifyLink(iohdlc_link_manager_t *managerp) {
   iohdlc_peer_state_t state;
+  eventflags_t events;
+  bool state_changed;
 
+  managerp->pending_events |= ioHdlcAppListenerWait(&managerp->listener, 0U);
+  events = managerp->pending_events;
+  managerp->pending_events = 0U;
   state = ioHdlcPeerGetState(managerp->config.peerp);
-  if (state == *last_statep)
+  state_changed = state != managerp->notified_state;
+  if (events == 0U && !state_changed)
     return;
 
-  *last_statep = state;
-  if (managerp->config.on_state_change != NULL)
+  managerp->notified_state = state;
+  if (managerp->config.on_link_event != NULL)
+    managerp->config.on_link_event(
+        managerp, state, events, managerp->config.callback_arg);
+  else if (state_changed && managerp->config.on_state_change != NULL)
     managerp->config.on_state_change(
         managerp, state, managerp->config.callback_arg);
 }
@@ -58,17 +66,41 @@ static void notifyState(iohdlc_link_manager_t *managerp,
 /**
  * @brief   Wait for a station event, retry deadline, or stop request.
  */
-static void waitEvent(iohdlc_app_listener_t *listenerp,
+static void waitEvent(iohdlc_link_manager_t *managerp,
                       iohdlc_event_listener_t *stop_listenerp,
                       uint32_t timeout_ms) {
-  (void)ioHdlcAppListenerWait(listenerp, timeout_ms);
+  managerp->pending_events |=
+      ioHdlcAppListenerWait(&managerp->listener, timeout_ms);
   (void)iohdlc_evt_get_and_clear_flags(stop_listenerp);
+}
+
+/**
+ * @brief   Check that the current notification has not been superseded.
+ * @details Only the on_link_event callback, on the runner thread, may call
+ *          this function. It is not a per-peer continuity check in multipoint.
+ *          It does not wait for an event or consume payload.
+ *          Events observed here remain pending for the next callback, so a
+ *          false result requires returning without publishing the stream.
+ *          Stop requests also return false. A true result is a checkpoint,
+ *          not a lock against subsequent physical link changes.
+ */
+bool ioHdlcLinkManagerCheck(iohdlc_link_manager_t *managerp) {
+  IOHDLC_ASSERT(managerp != NULL && managerp->running,
+                "ioHdlcLinkManagerCheck: manager not running");
+  IOHDLC_ASSERT(managerp->config.on_link_event != NULL,
+                "ioHdlcLinkManagerCheck: requires event callback");
+
+  managerp->pending_events |= ioHdlcAppListenerWait(&managerp->listener, 0U);
+  return managerp->pending_events == 0U &&
+         ioHdlcPeerGetState(managerp->config.peerp) == managerp->notified_state &&
+         !isStopRequested(managerp);
 }
 
 /**
  * @brief   Initialize a caller-owned link manager object.
  * @details Initialization has no thread or listener side effects. Active mode
  *          requires a non-zero retry interval and a valid HDLC mode.
+ *          The state and event callback contracts are mutually exclusive.
  */
 void ioHdlcLinkManagerObjectInit(
     iohdlc_link_manager_t *managerp,
@@ -82,6 +114,9 @@ void ioHdlcLinkManagerObjectInit(
                 "ioHdlcLinkManagerObjectInit: null station");
   IOHDLC_ASSERT(configp->peerp != NULL,
                 "ioHdlcLinkManagerObjectInit: null peer");
+  IOHDLC_ASSERT(configp->on_state_change == NULL ||
+                configp->on_link_event == NULL,
+                "ioHdlcLinkManagerObjectInit: conflicting callbacks");
   IOHDLC_ASSERT(configp->event_mask != 0U &&
                 (configp->event_mask & (configp->event_mask - 1U)) == 0U,
                 "ioHdlcLinkManagerObjectInit: invalid event mask");
@@ -106,16 +141,17 @@ void ioHdlcLinkManagerObjectInit(
 /**
  * @brief   Run passive monitoring and optional active reconnection.
  * @details The caller supplies the execution thread. The function registers
- *          and unregisters all listeners in that same context. Application
- *          events are treated as prompts to read the synchronized peer state,
- *          so coalescing and events emitted for other peers are harmless.
+ *          and unregisters all listeners in that same context. State callbacks
+ *          report observed changes of the managed peer, filtering events for
+ *          other peers in multipoint. Event callbacks require a single-peer
+ *          station and also receive boundaries at unchanged final state.
+ *          Events arriving during callbacks are processed on the next pass;
+ *          failed setup alone does not cause callback retry.
  * @return  Zero after a stop request, -EBUSY if already running, or the
  *          negative error returned by listener registration.
  */
 int32_t ioHdlcLinkManagerRun(iohdlc_link_manager_t *managerp) {
-  iohdlc_app_listener_t listener;
   iohdlc_event_listener_t stop_listener;
-  iohdlc_peer_state_t last_state = IOHDLC_PEER_STATE_INVALID;
   uint32_t retry_deadline = 0U;
   bool retry_pending = false;
   int32_t result;
@@ -133,9 +169,11 @@ int32_t ioHdlcLinkManagerRun(iohdlc_link_manager_t *managerp) {
   }
   managerp->running = true;
   iohdlc_mutex_unlock(&managerp->lock);
+  managerp->pending_events = 0U;
+  managerp->notified_state = IOHDLC_PEER_STATE_INVALID;
 
   result = ioHdlcAppListenerRegister(
-      managerp->config.stationp, &listener, managerp->config.event_mask,
+      managerp->config.stationp, &managerp->listener, managerp->config.event_mask,
       IOHDLC_APP_LINK_UP | IOHDLC_APP_LINK_DOWN | IOHDLC_APP_LINK_LOST);
   if (result != 0)
     goto done;
@@ -144,15 +182,20 @@ int32_t ioHdlcLinkManagerRun(iohdlc_link_manager_t *managerp) {
                       managerp->config.event_mask,
                       IOHDLC_LINK_MANAGER_STOP_FLAG);
 
-  notifyState(managerp, &last_state);
   while (!isStopRequested(managerp)) {
     iohdlc_peer_state_t state;
 
+    notifyLink(managerp);
+    if (isStopRequested(managerp))
+      break;
+    if (managerp->pending_events != 0U)
+      continue;
     state = ioHdlcPeerGetState(managerp->config.peerp);
+    if (state != managerp->notified_state)
+      continue;
     if (!managerp->config.active || state == IOHDLC_PEER_STATE_CONNECTED) {
       retry_pending = false;
-      waitEvent(&listener, &stop_listener, IOHDLC_WAIT_FOREVER);
-      notifyState(managerp, &last_state);
+      waitEvent(managerp, &stop_listener, IOHDLC_WAIT_FOREVER);
       continue;
     }
 
@@ -160,8 +203,7 @@ int32_t ioHdlcLinkManagerRun(iohdlc_link_manager_t *managerp) {
       uint32_t now = iohdlc_time_now_ms();
 
       if ((int32_t)(now - retry_deadline) < 0) {
-        waitEvent(&listener, &stop_listener, retry_deadline - now);
-        notifyState(managerp, &last_state);
+        waitEvent(managerp, &stop_listener, retry_deadline - now);
         continue;
       }
       retry_pending = false;
@@ -180,11 +222,6 @@ int32_t ioHdlcLinkManagerRun(iohdlc_link_manager_t *managerp) {
         (void)ioHdlcStationLinkUp(managerp->config.stationp,
                                   managerp->config.peerp->addr,
                                   managerp->config.mode);
-
-      notifyState(managerp, &last_state);
-      if (ioHdlcPeerGetState(managerp->config.peerp) ==
-          IOHDLC_PEER_STATE_CONNECTED)
-        continue;
     }
 
     retry_deadline = iohdlc_time_now_ms() +
@@ -193,7 +230,7 @@ int32_t ioHdlcLinkManagerRun(iohdlc_link_manager_t *managerp) {
   }
 
   iohdlc_evt_unregister(&managerp->stop_es, &stop_listener);
-  ioHdlcAppListenerUnregister(&listener);
+  ioHdlcAppListenerUnregister(&managerp->listener);
   result = 0;
 
 done:
@@ -206,8 +243,8 @@ done:
 /**
  * @brief   Request termination of the manager run loop.
  * @details The stop event wakes passive and retry waits without polling. A
- *          synchronous link-up call already in progress completes according
- *          to its normal ioHdlc timeout before the run loop can return.
+ *          synchronous link-up or application callback already in progress
+ *          completes according to its own I/O timeout before the loop exits.
  */
 void ioHdlcLinkManagerStop(iohdlc_link_manager_t *managerp) {
   IOHDLC_ASSERT(managerp != NULL, "ioHdlcLinkManagerStop: null manager");
